@@ -17,7 +17,8 @@ from pathlib import Path
 APP_DIR = Path(__file__).parent
 HISTORY_DIR = APP_DIR / "history"
 UPLOADS_DIR = APP_DIR / "uploads"
-MAX_RECORDS = 300  # 초과 시 오래된 기록부터 삭제
+ARCHIVE_PATH = APP_DIR / "history_archive.csv"  # 300건 초과로 밀려난 이력의 영구 보존(엑셀용)
+MAX_RECORDS = 300  # 초과 시 오래된 기록부터 아카이브 후 삭제
 _LOCK = threading.Lock()
 
 
@@ -118,9 +119,47 @@ def result_view(hid: str) -> dict | None:
     return res
 
 
+def _archive_record_unlocked(rec: dict):
+    """밀려나는 이력을 아카이브 CSV(엑셀용)에 영구 기록 — 메타 + 최종 참고문헌 목록."""
+    import csv
+    refs_lines = []
+    group = None
+    for it in rec.get("items", []):
+        if it.get("group") and it["group"] != group:
+            group = it["group"]
+            refs_lines.append(f"[{group}]")
+        refs_lines.append(it.get("formatted", ""))
+    refs = "\n".join(refs_lines)[:30000]  # 엑셀 셀 한도(32,767자) 보호
+    new = not ARCHIVE_PATH.exists()
+    with ARCHIVE_PATH.open("a", encoding="utf-8-sig" if new else "utf-8", newline="") as f:
+        w = csv.writer(f)
+        if new:
+            w.writerow(["처리일시", "파일명", "이용자", "학회", "적용 기준",
+                        "문헌 수", "최종 참고문헌 목록"])
+        w.writerow([rec.get("time", ""), rec.get("filename", ""), rec.get("user", ""),
+                    rec.get("org", ""), rec.get("style_name", ""), rec.get("total", 0), refs])
+
+
 def _prune_unlocked():
     files = sorted(HISTORY_DIR.glob("h_*.json"), key=lambda p: p.stat().st_mtime)
     for p in files[:-MAX_RECORDS]:
+        try:
+            rec = json.loads(p.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            rec = {}
+        try:
+            if rec:
+                _archive_record_unlocked(rec)
+        except OSError:
+            pass  # 아카이브 실패가 처리 흐름을 막지 않도록
+        # 보관 파일(원본·발행본)도 함께 정리 — 고아 파일로 디스크가 차는 것 방지
+        for key in ("file", "published_file"):
+            rel = rec.get(key, "")
+            if rel and rel.startswith("uploads/") and ".." not in rel:
+                try:
+                    (APP_DIR / rel).unlink(missing_ok=True)
+                except OSError:
+                    pass
         try:
             p.unlink()
         except OSError:

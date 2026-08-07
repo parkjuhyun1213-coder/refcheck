@@ -190,7 +190,7 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
       <div class="drop" id="drop" onclick="document.getElementById('fileInput').click()">
         <div style="font-size:30px">📄</div>
         <b>원고 파일을 끌어다 놓거나 클릭해서 선택하세요</b>
-        <div class="hint">HWPX · DOCX · PDF · TXT — 여러 편 동시 선택 가능 (HWP 구형은 HWPX/PDF로 변환 후 사용)</div>
+        <div class="hint">HWPX · DOCX · PDF · TXT — 여러 편 동시 선택 가능, 논문당 10MB 이하 (HWP 구형은 HWPX/PDF로 변환 후 사용)</div>
       </div>
       <input type="file" id="fileInput" multiple accept=".hwpx,.docx,.pdf,.txt" style="display:none">
       <div class="filelist" id="fileList"></div>
@@ -477,6 +477,7 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
         처리 이력과 함께 관리됩니다. 삭제하면 이력과 보관 파일이 함께 지워집니다.</div>
       <div class="row" style="margin:8px 0">
         <button class="btn ghost small" onclick="location='/api/admin/history_csv'">📥 목록 CSV 내려받기 (엑셀용)</button>
+        <button class="btn ghost small" onclick="downloadArchive()">📦 아카이브 CSV (300건 초과 보존분)</button>
         <span class="hint">논문별 3단 비교 CSV는 발행본 비교를 실행한 뒤 아래 표 또는 비교 화면에서 받을 수 있습니다.</span>
       </div>
       <div id="kbListF" style="overflow-x:auto">불러오는 중…</div>
@@ -727,6 +728,11 @@ function addFiles(list){
     const ext=f.name.split('.').pop().toLowerCase();
     if(ext==='hwp'){ alert(f.name+': HWP 구형 파일은 HWPX 또는 PDF로 변환 후 업로드해 주세요.'); continue; }
     if(!['hwpx','docx','pdf','txt'].includes(ext)){ alert(f.name+': 지원하지 않는 형식입니다.'); continue; }
+    if(f.size>10*1024*1024){
+      alert(f.name+': 파일이 10MB를 넘습니다 ('+(f.size/1024/1024).toFixed(1)+'MB).\n\n'
+        +'참고문헌 추출에는 텍스트만 필요하므로, PDF로 변환하거나 그림 해상도를 낮춰 다시 올려 주세요.');
+      continue;
+    }
     if(!pickedFiles.some(p=>p.name===f.name&&p.size===f.size)) pickedFiles.push(f);
   }
   renderFileList();
@@ -1621,6 +1627,18 @@ function renderFileManage(list){
       <td><span class="fbbtn" title="이력·보관 파일 삭제" onclick="delHistory('${r.id}')">✕</span></td></tr>`;
   }
   $('kbListF').innerHTML=h+'</table>';
+}
+async function downloadArchive(){
+  const r=await fetch('/api/admin/history_archive');
+  if(!r.ok){
+    const d=await r.json().catch(()=>({}));
+    alert(d.detail||'아직 아카이브된 이력이 없습니다.');
+    return;
+  }
+  const blob=await r.blob();
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob); a.download='이력아카이브.csv'; a.click();
+  URL.revokeObjectURL(a.href);
 }
 async function delHistory(hid){
   if(!confirm('이 처리 이력과 보관된 원본·발행본 파일을 삭제할까요?')) return;

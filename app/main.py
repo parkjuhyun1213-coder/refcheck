@@ -780,6 +780,9 @@ def _run_folder_job(job: dict, folder: Path, options: dict):
         out_dir.mkdir(exist_ok=True)
         job["output_dir"] = str(out_dir)
 
+        oversized = [p for p in targets if p.stat().st_size > 10 * 1024 * 1024]
+        targets = [p for p in targets if p not in oversized]
+
         def save_docx(i, name, res):
             if not res.get("error"):
                 (out_dir / f"{Path(name).stem}_참고문헌정리.docx").write_bytes(
@@ -787,6 +790,12 @@ def _run_folder_job(job: dict, folder: Path, options: dict):
 
         _run_parallel(job, [(p.name, p.read_bytes()) for p in targets], options,
                       on_done=save_docx)
+        for p in oversized:  # 10MB 초과 파일은 오류로 안내
+            job["results"].append({"filename": p.name, "warnings": [], "items": [], "summary": {},
+                                   "error": "파일이 10MB를 넘습니다. PDF로 변환하거나 그림 해상도를 낮춰 다시 시도해 주세요."})
+            job["files"].append({"name": p.name, "status": "오류", "stage": ""})
+            job["total_files"] += 1
+            job["done_files"] += 1
         summary = report.build_batch_report_docx([r for r in job["results"] if r], str(folder))
         (out_dir / "종합리포트.docx").write_bytes(summary)
         job["status"] = "done"
@@ -1058,8 +1067,10 @@ async def process_upload(request: Request, files: list[UploadFile] = File(...),
     payload = []
     for f in files:
         data = await f.read()
-        if len(data) > 50 * 1024 * 1024:
-            raise HTTPException(400, f"{f.filename}: 파일이 너무 큽니다(50MB 이하).")
+        if len(data) > 10 * 1024 * 1024:
+            raise HTTPException(
+                400, f"{f.filename}: 파일이 10MB를 넘습니다. 참고문헌 추출에는 텍스트만 필요하므로 "
+                     "PDF로 변환하거나 그림 해상도를 낮춰 다시 올려 주세요.")
         payload.append((f.filename, data))
     if not payload:
         raise HTTPException(400, "업로드된 파일이 없습니다.")
@@ -1479,6 +1490,18 @@ def admin_history_csv(request: Request):
                      "O" if h.get("has_file") else "", "O" if h.get("has_published") else "",
                      h.get("compared", "")])
     return _csv_response(rows, f"원고처리이력_{time.strftime('%Y%m%d')}.csv")
+
+
+@app.get("/api/admin/history_archive")
+def admin_history_archive(request: Request):
+    """300건을 넘어 밀려난 이력의 영구 아카이브 CSV(엑셀용) 다운로드."""
+    require_admin(request)
+    if not history_mod.ARCHIVE_PATH.exists():
+        raise HTTPException(404, "아직 아카이브된 이력이 없습니다. 이력이 300건을 넘으면 자동으로 생성됩니다.")
+    return Response(history_mod.ARCHIVE_PATH.read_bytes(),
+                    media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition":
+                             f"attachment; filename*=UTF-8''{_quote('이력아카이브.csv')}"})
 
 
 @app.get("/api/admin/history/{hid}/compare_csv")
