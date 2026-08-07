@@ -123,6 +123,18 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
       <button class="btn ghost small" id="delStyleBtn" onclick="deleteStyle()" style="display:none">기준 삭제</button>
     </div>
     <div class="hint" id="styleDesc"></div>
+    <div id="extraRules" style="display:none;margin-top:10px;border:1px solid var(--line);border-radius:10px;padding:9px 13px;background:#f8fafc">
+      <div class="row">
+        <label style="display:flex;gap:6px;align-items:center;color:var(--ink);cursor:pointer">
+          <input type="checkbox" id="optExtra" checked>
+          관리자 추가 규칙 <b id="extraCount">0</b>건 적용
+          <span class="hint">(문편협 공통 기준이 항상 우선하며, 충돌하는 규칙은 자동 제외됩니다)</span>
+        </label>
+        <span style="flex:1"></span>
+        <button class="btn ghost small" id="extraViewBtn" onclick="toggleExtraRules()">내용 보기</button>
+      </div>
+      <div id="extraRulesList" style="display:none;margin-top:7px"></div>
+    </div>
     <div class="checks">
       <label><input type="checkbox" id="optVerify" checked> 실존·윤리 검증 <span class="hint">(Crossref·OpenAlex·국내DB·철회검사·URL)</span></label>
       <label><input type="checkbox" id="optAutofix"> 서지 자동 교정 <span class="hint">(공식 서지로 연도·권·호·면수 자동 수정)</span></label>
@@ -591,6 +603,30 @@ function updateStyleDesc(){
   $('styleDesc').textContent=st? (st.description||st.source||'') : '';
   const admin=window._status&&window._status.admin;
   $('delStyleBtn').style.display = st&&!st.builtin&&admin ? '' : 'none';
+  loadExtraRules($('styleSel').value);
+}
+// 선택한 기준에 추가로 적용되는 관리자 규칙(추가 기준·편집 지침) 확인·적용 선택
+async function loadExtraRules(sid){
+  try{
+    const d=await (await fetch('/api/rules?style_id='+encodeURIComponent(sid))).json();
+    const stds=d.standards||[], dirs=d.directives||[];
+    const n=stds.length+dirs.length;
+    if(!n){ $('extraRules').style.display='none'; return; }
+    $('extraCount').textContent=n;
+    let h='';
+    for(const s of stds)
+      h+=`<div class="dirline"><span style="flex:1"><b>[추가 기준]</b> ${esc(s.rule)}${s.example?` <span class="hint">예: ${esc(s.example)}</span>`:''}</span></div>`;
+    for(const t of dirs)
+      h+=`<div class="dirline"><span style="flex:1"><b>[편집 지침]</b> ${esc(t)}</span></div>`;
+    $('extraRulesList').innerHTML=h;
+    $('extraRules').style.display='';
+  }catch(e){ $('extraRules').style.display='none'; }
+}
+function toggleExtraRules(){
+  const el=$('extraRulesList');
+  const open=el.style.display==='none';
+  el.style.display=open?'':'none';
+  $('extraViewBtn').textContent=open?'접기':'내용 보기';
 }
 async function deleteStyle(){
   const st=styles.find(s=>s.id===$('styleSel').value);
@@ -639,6 +675,8 @@ function opts(fd,ui){
   fd.append('autofix',$('optAutofix').checked?'1':'0');
   fd.append('crosscheck',$('optCross').checked?'1':'0');
   fd.append('english',$('optEng').checked?'1':'0');
+  // 추가 규칙 상자가 표시된 상태에서 체크 해제한 경우에만 미적용
+  fd.append('apply_extra',($('extraRules').style.display!=='none'&&!$('optExtra').checked)?'0':'1');
   fd.append('user_name',ui.name);
   fd.append('org',ui.org);
   fd.append('org_etc',ui.etc);

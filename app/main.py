@@ -312,6 +312,14 @@ def process_file(filename: str, data: bytes, options: dict, progress) -> dict:
     result["style_name"] = style["name"]
     builtin = bool(style.get("builtin"))
     directives = feedback_mod.directives_for(style["id"])
+    # 이용자가 관리자 추가 규칙(추가 기준·편집 지침) 적용을 끈 경우
+    apply_extra = options.get("apply_extra", True)
+    if not apply_extra:
+        n_extra = len(directives) + (len(suggestions_mod.enabled_standards()) if builtin else 0)
+        if n_extra:
+            result["warnings"].append(
+                f"이용자 선택에 따라 관리자 추가 규칙 {n_extra}건(추가 기준·편집 지침)을 적용하지 않았습니다.")
+        directives = []
 
     use_ai = aiengine.is_configured()
     result["engine_label"] = f"AI({aiengine.get_model()}) + 규칙" if use_ai else "규칙 기반"
@@ -443,7 +451,7 @@ def process_file(filename: str, data: bytes, options: dict, progress) -> dict:
             })
     # 6-1) 관리자 추가 기준(문편협에 준함 — 공백 보완) + 관리자 확정 편집 지침 반영
     #      문편협 공통기준이 일순위: 명시 규정과 충돌하는 추가 기준은 적용하지 않고 경고로 알림.
-    admin_standards = suggestions_mod.enabled_standards() if builtin else []
+    admin_standards = suggestions_mod.enabled_standards() if (builtin and apply_extra) else []
     if builtin and (directives or admin_standards):
         if use_ai:
             progress(f"관리자 기준·지침 반영 (기준 {len(admin_standards)}·지침 {len(directives)}건)", filename)
@@ -934,6 +942,16 @@ def get_styles():
     return {"styles": styles_mod.list_styles()}
 
 
+@app.get("/api/rules")
+def get_rules(style_id: str = "munpyeonhyeop"):
+    """선택한 기준에 추가로 적용되는 규칙(관리자 추가 기준·편집 지침) — 이용자 확인용."""
+    builtin = style_id == styles_mod.BUILTIN_STYLE["id"]
+    standards = suggestions_mod.enabled_standards() if builtin else []
+    return {"style_id": style_id,
+            "standards": [{"rule": s["rule"], "example": s.get("example", "")} for s in standards],
+            "directives": feedback_mod.directives_for(style_id)}
+
+
 @app.post("/api/styles")
 async def add_style(request: Request, name: str = Form(""), url: str = Form(""), text: str = Form(""),
                     file: UploadFile | None = File(None)):
@@ -963,7 +981,7 @@ def remove_style(request: Request, style_id: str):
 
 def _parse_options(style_id: str, verify: str, crosscheck: str, english: str,
                    user_name: str = "", org: str = "", org_etc: str = "",
-                   autofix: str = "0") -> dict:
+                   autofix: str = "0", apply_extra: str = "1") -> dict:
     org = org.strip()
     if org == "기타":
         org = org_etc.strip() or "기타(미기입)"
@@ -974,6 +992,7 @@ def _parse_options(style_id: str, verify: str, crosscheck: str, english: str,
     return {"style_id": style_id or "munpyeonhyeop",
             "verify": verify == "1", "crosscheck": crosscheck == "1", "english": english == "1",
             "autofix": autofix == "1" and verify == "1",
+            "apply_extra": apply_extra == "1",
             "user_name": user_name.strip()[:40], "org": org[:60]}
 
 
@@ -982,6 +1001,7 @@ async def process_upload(request: Request, files: list[UploadFile] = File(...),
                          style_id: str = Form("munpyeonhyeop"),
                          verify: str = Form("1"), crosscheck: str = Form("1"),
                          english: str = Form("0"), autofix: str = Form("0"),
+                         apply_extra: str = Form("1"),
                          user_name: str = Form(""), org: str = Form(""), org_etc: str = Form("")):
     require_access(request)
     payload = []
@@ -992,7 +1012,8 @@ async def process_upload(request: Request, files: list[UploadFile] = File(...),
         payload.append((f.filename, data))
     if not payload:
         raise HTTPException(400, "업로드된 파일이 없습니다.")
-    options = _parse_options(style_id, verify, crosscheck, english, user_name, org, org_etc, autofix)
+    options = _parse_options(style_id, verify, crosscheck, english, user_name, org, org_etc,
+                             autofix, apply_extra)
     a_org = access_org(request)
     if a_org:  # 학회별 접근 코드로 인증된 경우 — 코드가 식별한 학회를 우선(통계 신뢰성)
         options["org"] = a_org
@@ -1006,13 +1027,15 @@ async def process_upload(request: Request, files: list[UploadFile] = File(...),
 def process_folder(request: Request, path: str = Form(...), style_id: str = Form("munpyeonhyeop"),
                    verify: str = Form("1"), crosscheck: str = Form("1"),
                    english: str = Form("0"), autofix: str = Form("0"),
+                   apply_extra: str = Form("1"),
                    user_name: str = Form(""), org: str = Form(""), org_etc: str = Form("")):
     # 서버 컴퓨터의 로컬 폴더를 읽는 기능이므로 관리자 전용(외부 공개 시 경로 노출 방지)
     require_admin(request)
     folder = Path(path.strip().strip('"'))
     if not folder.is_dir():
         raise HTTPException(400, f"폴더를 찾을 수 없습니다: {folder}")
-    options = _parse_options(style_id, verify, crosscheck, english, user_name, org, org_etc, autofix)
+    options = _parse_options(style_id, verify, crosscheck, english, user_name, org, org_etc,
+                             autofix, apply_extra)
     try:
         n_files = len([p for p in folder.iterdir()
                        if p.is_file() and p.suffix.lower() in parsing.SUPPORTED_EXTS
