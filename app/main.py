@@ -73,27 +73,56 @@ def _cookie_secure() -> bool:
 
 
 # ---------------------------------------------------------------- 이용자 접근 코드
-# 외부 공개 운영 시 무단 사용(API 비용 발생)을 막기 위한 공용 접근 코드.
-# 우선순위: config.json의 access_code(관리자가 ⚙ 설정에서 변경) → .env의 ACCESS_CODE.
-# 값이 비어 있으면 접근 제한 없음(로컬 사용 기본값).
+# 외부 공개 운영 시 무단 사용(API 비용 발생)을 막기 위한 접근 코드.
+# - 학회별 코드: config.json의 access_codes {학회명: 코드} — 코드 입력만으로 소속 학회가
+#   자동 식별되어 통계에 기록된다. 관리자 ⚙ 설정에서 관리.
+# - 공통 코드: config.json의 access_code → .env의 ACCESS_CODE (학회 구분 없는 예비 코드).
+# 모두 비어 있으면 접근 제한 없음(로컬 사용 기본값).
 
 def _access_code() -> str:
     return (aiengine.load_config().get("access_code") or aiengine.env_get("ACCESS_CODE")).strip()
 
 
+def _org_access_codes() -> dict[str, str]:
+    """학회별 접근 코드 {학회명: 코드}."""
+    raw = aiengine.load_config().get("access_codes") or {}
+    out = {}
+    if isinstance(raw, dict):
+        for org, code in raw.items():
+            org, code = str(org).strip(), str(code).strip()
+            if org and code:
+                out[org] = code
+    return out
+
+
 def access_required() -> bool:
-    return bool(_access_code())
+    return bool(_access_code() or _org_access_codes())
 
 
 def _access_hash(code: str) -> str:
     return hashlib.sha256(("refstd-access:" + code).encode("utf-8")).hexdigest()
 
 
+def _valid_hashes() -> dict[str, str]:
+    """{쿠키 해시: 학회명} — 공통 코드는 학회명 ''. 코드가 바뀌면 기존 쿠키는 자동 무효."""
+    out = {}
+    common = _access_code()
+    if common:
+        out[_access_hash(common)] = ""
+    for org, code in _org_access_codes().items():
+        out[_access_hash(code)] = org
+    return out
+
+
 def has_access(request: Request) -> bool:
     if not access_required() or is_admin(request):
         return True
-    tok = request.cookies.get("access_token", "")
-    return bool(tok) and secrets.compare_digest(tok, _access_hash(_access_code()))
+    return request.cookies.get("access_token", "") in _valid_hashes()
+
+
+def access_org(request: Request) -> str:
+    """접근 코드로 식별된 학회명(공통 코드·미인증·관리자는 '')."""
+    return _valid_hashes().get(request.cookies.get("access_token", ""), "")
 
 
 def require_access(request: Request):
@@ -104,10 +133,21 @@ def require_access(request: Request):
 @app.post("/api/access")
 def enter_access(code: str = Form("")):
     if not access_required():
-        return {"ok": True}
-    if secrets.compare_digest(code.strip().encode("utf-8"), _access_code().encode("utf-8")):
-        resp = JSONResponse({"ok": True})
-        resp.set_cookie("access_token", _access_hash(_access_code()), httponly=True,
+        return {"ok": True, "org": ""}
+    code = code.strip()
+    matched: str | None = None
+    org_name = ""
+    if _access_code() and secrets.compare_digest(code.encode("utf-8"),
+                                                 _access_code().encode("utf-8")):
+        matched = _access_code()
+    else:
+        for org, oc in _org_access_codes().items():
+            if secrets.compare_digest(code.encode("utf-8"), oc.encode("utf-8")):
+                matched, org_name = oc, org
+                break
+    if matched is not None:
+        resp = JSONResponse({"ok": True, "org": org_name})
+        resp.set_cookie("access_token", _access_hash(matched), httponly=True,
                         samesite="lax", max_age=30 * 24 * 3600, secure=_cookie_secure())
         return resp
     time.sleep(0.8)  # 무차별 대입 지연
@@ -779,11 +819,14 @@ def status(request: Request):
     out = {"ai": aiengine.is_configured(), "model": aiengine.get_model(),
            "models": aiengine.ALLOWED_MODELS,
            "admin": admin, "admin_configured": admin_configured(),
-           "access_required": access_required(), "access_ok": has_access(request)}
+           "access_required": access_required(), "access_ok": has_access(request),
+           "access_org": access_org(request)}
     if admin:  # 키 관련 정보는 관리자에게만 노출
         out["key_source"] = cfg.get("key_source", "user" if cfg.get("api_key") else "")
         out["key_hint"] = cfg.get("api_key", "")[:10] + "…" if cfg.get("api_key") else ""
         out["access_code"] = _access_code()
+        out["access_codes"] = _org_access_codes()
+        out["default_orgs"] = DEFAULT_ORGS
         import verify_kr
         out["kr_apis"] = verify_kr.kr_api_status()
     return out
@@ -791,7 +834,8 @@ def status(request: Request):
 
 @app.post("/api/settings")
 def save_settings(request: Request, api_key: str = Form(""), model: str = Form(aiengine.DEFAULT_MODEL),
-                  clear: str = Form("0"), access_code: str | None = Form(None)):
+                  clear: str = Form("0"), access_code: str | None = Form(None),
+                  access_codes: str | None = Form(None)):
     require_admin(request)
     cfg = aiengine.load_config()
     if clear == "1":
@@ -801,8 +845,30 @@ def save_settings(request: Request, api_key: str = Form(""), model: str = Form(a
         cfg["api_key"] = api_key.strip()
         cfg["key_source"] = "user"
     cfg["model"] = model if model in aiengine.ALLOWED_MODELS else aiengine.DEFAULT_MODEL
-    if access_code is not None:  # 필드가 전송된 경우에만 변경(빈 값 = 접근 제한 해제)
+    if access_code is not None:  # 필드가 전송된 경우에만 변경(빈 값 = 공통 코드 해제)
         cfg["access_code"] = access_code.strip()[:60]
+    if access_codes is not None:  # 학회별 코드 {학회명: 코드} JSON
+        import json
+        try:
+            data = json.loads(access_codes)
+            if not isinstance(data, dict):
+                raise ValueError
+        except (json.JSONDecodeError, ValueError):
+            return JSONResponse({"ok": False, "message": "학회별 코드 형식이 올바르지 않습니다."},
+                                status_code=400)
+        cleaned = {}
+        for org, code in data.items():
+            org, code = str(org).strip()[:60], str(code).strip()[:60]
+            if org and code:
+                cleaned[org] = code
+        all_codes = list(cleaned.values())
+        if cfg.get("access_code", "").strip():
+            all_codes.append(cfg["access_code"].strip())
+        if len(set(all_codes)) != len(all_codes):
+            return JSONResponse(
+                {"ok": False, "message": "겹치는 코드가 있습니다. 학회별 코드(공통 코드 포함)는 서로 달라야 합니다."},
+                status_code=400)
+        cfg["access_codes"] = cleaned
     aiengine.save_config(cfg)
     return {"ok": True, "ai": aiengine.is_configured(), "model": aiengine.get_model(),
             "access_required": access_required()}
@@ -882,6 +948,9 @@ async def process_upload(request: Request, files: list[UploadFile] = File(...),
     if not payload:
         raise HTTPException(400, "업로드된 파일이 없습니다.")
     options = _parse_options(style_id, verify, crosscheck, english, user_name, org, org_etc, autofix)
+    a_org = access_org(request)
+    if a_org:  # 학회별 접근 코드로 인증된 경우 — 코드가 식별한 학회를 우선(통계 신뢰성)
+        options["org"] = a_org
     job = _new_job("upload")
     threading.Thread(target=_run_upload_job, args=(job, payload, options), daemon=True).start()
     return {"job_id": job["id"]}

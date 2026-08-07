@@ -142,6 +142,7 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
       <div style="flex:1.4;min-width:200px">
         <label>사용 기관(학회)</label>
         <select id="orgSel" onchange="orgChanged()"></select>
+        <div class="hint" id="orgLockHint" style="display:none">✔ 접근 코드로 인증된 학회입니다 (자동 설정)</div>
       </div>
       <div style="flex:1.4;min-width:200px;display:none" id="orgEtcWrap">
         <label>기관(학회)명 직접 입력</label>
@@ -223,9 +224,15 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
     </div>
     <div class="field" style="margin-top:14px">
       <label>이용자 접근 코드 (외부 운영)</label>
-      <input type="text" id="setAccessCode" placeholder="비워 두면 접근 제한 없음">
-      <div class="hint">설정하면 접속자가 이 코드를 입력해야 서비스를 사용할 수 있습니다(관리자는 예외).
-        4개 학회지 편집위원회에만 공유하세요. 코드를 바꾸면 기존 이용자는 새 코드를 다시 입력해야 합니다.</div>
+      <div class="hint" style="margin-bottom:4px">학회별 코드를 설정하면 이용자가 코드를 입력하는 것만으로
+        소속 학회가 자동 식별되어 통계에 기록됩니다. 각 학회 편집위원회에 해당 코드만 안내하세요.
+        공통 코드는 학회 구분 없이 입장하는 예비 코드입니다. 모두 비우면 접근 제한이 없습니다.
+        코드를 바꾸면 기존 이용자는 새 코드를 다시 입력해야 합니다.</div>
+      <div id="orgCodeRows"></div>
+      <div class="row" style="margin-top:6px">
+        <label style="width:150px;color:var(--sub)">공통 코드 (예비)</label>
+        <input type="text" id="setAccessCode" placeholder="비워 두면 공통 코드 없음" style="flex:1">
+      </div>
     </div>
     <div class="field" style="margin-top:14px">
       <label>국내 문헌 검증 API 상태</label>
@@ -496,6 +503,25 @@ async function initOrgs(){
   if(so&&[...sel.options].some(o=>o.value===so)) sel.value=so;
   $('orgEtc').value=localStorage.getItem('refstd_orgetc')||'';
   orgChanged();
+  if(window._status) applyAccessOrg(window._status.access_org||'');
+}
+// 학회별 접근 코드로 인증된 경우 — 학회 선택을 자동 고정
+function applyAccessOrg(org){
+  const sel=$('orgSel');
+  if(!sel.options.length) return;
+  if(org){
+    if(![...sel.options].some(o=>o.value===org)){
+      const op=document.createElement('option'); op.value=org; op.textContent=org;
+      sel.insertBefore(op,sel.firstChild);
+    }
+    sel.value=org; sel.disabled=true;
+    $('orgEtcWrap').style.display='none';
+    $('orgLockHint').style.display='';
+  } else {
+    sel.disabled=false;
+    $('orgLockHint').style.display='none';
+    orgChanged();
+  }
 }
 function orgChanged(){ $('orgEtcWrap').style.display=$('orgSel').value==='기타'?'':'none'; }
 function userInfo(){
@@ -525,6 +551,7 @@ async function refreshStatus(){
   // 접근 코드 충족(또는 관리자 로그인) 시 접근 대화상자 닫기
   if(typeof dlgAccess!=='undefined'&&dlgAccess.open&&(!s.access_required||s.access_ok)) dlgAccess.close();
   window._status=s;
+  if(typeof applyAccessOrg==='function') applyAccessOrg(s.access_org||'');
   if(typeof updateStyleDesc==='function'&&styles.length) updateStyleDesc();
 }
 
@@ -1021,6 +1048,14 @@ async function openSettings(){
   sel.value=s.model;
   $('setKey').value='';
   $('setAccessCode').value=s.access_code||'';
+  // 학회별 접근 코드 입력칸 구성 (기본 4개 학회 + 코드가 등록된 기타 학회)
+  const orgList=[...(s.default_orgs||[])];
+  const orgCodes=s.access_codes||{};
+  for(const k of Object.keys(orgCodes)) if(!orgList.includes(k)) orgList.push(k);
+  $('orgCodeRows').innerHTML=orgList.map(o=>`<div class="row" style="margin-top:6px">
+    <label style="width:150px">${esc(o)}</label>
+    <input type="text" class="orgCodeInput" data-org="${esc(o)}" value="${esc(orgCodes[o]||'')}" placeholder="미설정" style="flex:1">
+  </div>`).join('');
   $('keyHint').textContent=s.key_hint?`현재 저장된 키: ${s.key_hint} (변경하려면 새 키 입력)`:'console.anthropic.com에서 발급. 키는 이 컴퓨터의 app/config.json에만 저장됩니다.';
   const kr=s.kr_apis||{};
   const lbl=(ok)=>ok?'<span class="vbadge v-ok">설정됨</span>':'<span class="vbadge v-skip">미설정</span>';
@@ -1037,7 +1072,14 @@ async function testKey(){
 async function saveSettings(){
   const fd=new FormData(); fd.append('api_key',$('setKey').value); fd.append('model',$('setModel').value);
   fd.append('access_code',$('setAccessCode').value);
-  await fetch('/api/settings',{method:'POST',body:fd});
+  const codes={};
+  document.querySelectorAll('.orgCodeInput').forEach(inp=>{
+    if(inp.value.trim()) codes[inp.dataset.org]=inp.value.trim();
+  });
+  fd.append('access_codes',JSON.stringify(codes));
+  const r=await fetch('/api/settings',{method:'POST',body:fd});
+  const d=await r.json();
+  if(!d.ok){ $('setMsg').textContent=d.message||'저장 실패'; $('setMsg').className='msg bad'; return; }
   await refreshStatus(); dlgSettings.close();
 }
 async function clearKey(){
