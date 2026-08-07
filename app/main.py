@@ -1119,10 +1119,7 @@ def _get_result(job_id: str, index: int) -> dict:
     return job["results"][index]
 
 
-@app.get("/api/jobs/{job_id}/download/{index}")
-def download_result(job_id: str, index: int, request: Request, fmt: str = "docx"):
-    require_access(request)
-    res = _get_result(job_id, index)
+def _result_download_response(res: dict, fmt: str) -> Response:
     stem = Path(res.get("filename", "결과")).stem
     if fmt == "txt":
         content = report.build_result_txt(res).encode("utf-8-sig")
@@ -1145,6 +1142,64 @@ def download_result(job_id: str, index: int, request: Request, fmt: str = "docx"
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         headers={"Content-Disposition":
                  f"attachment; filename*=UTF-8''{_quote(stem + '_참고문헌정리.docx')}"})
+
+
+@app.get("/api/jobs/{job_id}/download/{index}")
+def download_result(job_id: str, index: int, request: Request, fmt: str = "docx"):
+    require_access(request)
+    return _result_download_response(_get_result(job_id, index), fmt)
+
+
+# ================================================================ 지난 결과 열람
+# 이용자: 학회별 접근 코드로 식별된 자기 학회의 결과만 / 관리자: 전체.
+
+def _viewer_org(request: Request) -> str | None:
+    """열람 권한 범위 — None: 전체(관리자), '학회명': 해당 학회만, '': 열람 불가."""
+    if is_admin(request):
+        return None
+    return access_org(request) or ""
+
+
+@app.get("/api/results")
+def list_results(request: Request):
+    require_access(request)
+    org = _viewer_org(request)
+    if org == "":
+        return {"org": "", "results": [],
+                "message": "지난 결과 열람은 학회별 접근 코드로 입장한 경우에만 가능합니다. "
+                           "소속 학회의 접근 코드는 학회 편집위원회에 문의해 주세요."}
+    rows = history_mod.list_history()
+    if org is not None:
+        rows = [h for h in rows if h.get("org") == org]
+    return {"org": org or "", "admin": org is None, "results": rows[:200]}
+
+
+def _get_viewable_record(hid: str, request: Request) -> dict:
+    rec = history_mod.get_history(hid)
+    if not rec:
+        raise HTTPException(404, "저장된 결과를 찾을 수 없습니다.")
+    org = _viewer_org(request)
+    if org == "" or (org is not None and rec.get("org") != org):
+        raise HTTPException(403, "이 결과를 열람할 권한이 없습니다.")
+    return rec
+
+
+@app.get("/api/results/{hid}")
+def view_result(hid: str, request: Request):
+    require_access(request)
+    rec = _get_viewable_record(hid, request)
+    return {"meta": {k: rec.get(k, "") for k in ("id", "time", "filename", "user", "org")},
+            "result": history_mod.result_view(hid)}
+
+
+@app.get("/api/results/{hid}/download")
+def download_saved_result(hid: str, request: Request, fmt: str = "docx"):
+    require_access(request)
+    _get_viewable_record(hid, request)
+    res = history_mod.result_view(hid)
+    if not res:
+        raise HTTPException(404, "저장된 결과를 찾을 수 없습니다.")
+    return _result_download_response(res, fmt)
 
 
 @app.get("/api/jobs/{job_id}/download_zip")

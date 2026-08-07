@@ -109,6 +109,7 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
   </div>
   <span class="hspace"></span>
   <button onclick="resetAll()" title="처리 결과와 선택 파일을 지우고 처음 화면으로 돌아갑니다">🗒 새 논문</button>
+  <button onclick="openPast()" title="이전에 처리한 결과를 다시 보고 내려받습니다">📂 지난 결과</button>
   <span id="aiBadge" class="badge">엔진 확인 중…</span>
   <button id="kbBtn" onclick="openKb()" style="display:none">📋 기준·제안 관리</button>
   <button id="fbBtn" onclick="openFbAdmin()" style="display:none">📝 편집 요구</button>
@@ -320,6 +321,19 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
   <div class="dbody" id="statsBody" style="max-height:70vh;overflow-y:auto">불러오는 중…</div>
   <div class="dfoot">
     <button class="btn ghost" onclick="dlgStats.close()">닫기</button>
+  </div>
+</dialog>
+
+<!-- 지난 분석 결과 대화상자 -->
+<dialog id="dlgPast" style="max-width:960px">
+  <div class="dhead">지난 분석 결과</div>
+  <div class="dbody" style="max-height:76vh;overflow-y:auto">
+    <div class="hint" id="pastInfo" style="margin-bottom:8px"></div>
+    <div id="pastList">불러오는 중…</div>
+    <div id="pastView" style="margin-top:12px"></div>
+  </div>
+  <div class="dfoot">
+    <button class="btn ghost" onclick="dlgPast.close()">닫기</button>
   </div>
 </dialog>
 
@@ -826,7 +840,7 @@ function fileChips(res){
     +(s.tips?`<span class="chip amber">💡 작성 제안 ${s.tips}건</span>`:'')
     +(res.crosscheck?`<span class="chip ${s.crosscheck_issues?'warn':'ok'}">본문 대조 이슈 ${s.crosscheck_issues||0}</span>`:'');
 }
-function fileBodyHtml(job,idx){
+function fileBodyHtml(job,idx,viewHid){
   const res=job.results[idx];
   if(res.error) return `<div class="errbox">${esc(res.error)}</div>`;
   const s=res.summary||{};
@@ -834,7 +848,16 @@ function fileBodyHtml(job,idx){
     for(const w of res.warnings||[]) h+=`<div class="warnbox">⚠ ${esc(w)}</div>`;
 
     // 다운로드
-    if(job.mode==='upload'){
+    if(viewHid){
+      h+=`<div class="row" style="margin-bottom:10px">
+        <button class="btn small" onclick="location='/api/results/${viewHid}/download?fmt=docx'">결과 DOCX</button>
+        <button class="btn ghost small" onclick="location='/api/results/${viewHid}/download?fmt=txt'">TXT</button>
+        <button class="btn ghost small" onclick="location='/api/results/${viewHid}/download?fmt=ris'">RIS (EndNote·Zotero)</button>
+        <button class="btn ghost small" onclick="location='/api/results/${viewHid}/download?fmt=bib'">BibTeX</button>
+        <button class="btn ghost small" onclick="copyView()">최종 목록 복사</button>
+        <button class="btn ghost small" onclick="toggleLegend('v')" title="결과에 붙는 표시들의 의미">❓ 표시 안내</button></div>`
+        +legendHtml('v');
+    } else if(job.mode==='upload'){
       h+=`<div class="row" style="margin-bottom:10px">
         <button class="btn small" onclick="location='/api/jobs/${job.id}/download/${idx}?fmt=docx'">결과 DOCX</button>
         <button class="btn ghost small" onclick="location='/api/jobs/${job.id}/download/${idx}?fmt=txt'">TXT</button>
@@ -866,7 +889,7 @@ function fileBodyHtml(job,idx){
       h+=`<p>${esc(it.formatted)}`
         +(lb?`<span class="vbadge ${lb[1]}" title="${esc(vDetailFull(v))}">${lb[0]}</span>`:'')
         +(ret?`<span class="vbadge v-bad" style="font-weight:700">⚠ ${esc(ret.label)}</span>`:'')
-        +`<span class="fbbtn" title="이 항목이 어떻게 편집되어야 하는지 요구사항을 보냅니다 (관리자 검토 후 규정 반영)" onclick="openFeedback(${idx},${ii})">✏</span>`
+        +(viewHid?'':`<span class="fbbtn" title="이 항목이 어떻게 편집되어야 하는지 요구사항을 보냅니다 (관리자 검토 후 규정 반영)" onclick="openFeedback(${idx},${ii})">✏</span>`)
         +'</p>';
       if(ret&&ret.severe) h+=`<div class="issue" style="font-weight:600">⚠ 이 문헌은 ${esc(ret.label)} 처리된 논문입니다${ret.date?` (${esc(ret.date)})`:''} — 인용 유지 여부를 재검토하세요.</div>`;
       if(v&&v.preprint) h+=`<div class="issue" style="color:var(--amber)">📄 ${esc(v.preprint.detail)}</div>`;
@@ -1038,6 +1061,55 @@ function toggleLegend(idx){
   const el=$('legend_'+idx);
   if(el) el.style.display=el.style.display==='none'?'':'none';
 }
+// ---------- 지난 분석 결과 열람
+async function openPast(){
+  dlgPast.showModal();
+  $('pastView').innerHTML=''; $('pastInfo').textContent='';
+  $('pastList').innerHTML='불러오는 중…';
+  const r=await fetch('/api/results');
+  if(!r.ok){
+    $('pastList').innerHTML=`<div class="errbox">${r.status===401?'접근 코드를 입력한 뒤 이용할 수 있습니다.':'목록을 불러오지 못했습니다.'}</div>`;
+    return;
+  }
+  const d=await r.json();
+  if(d.message){ $('pastList').innerHTML=`<div class="warnbox">ℹ ${esc(d.message)}</div>`; return; }
+  $('pastInfo').textContent=d.admin
+    ?'관리자 — 전체 학회의 처리 결과입니다.'
+    :`${d.org}에서 처리된 결과입니다 (같은 학회 이용자와 공유됩니다).`;
+  if(!d.results.length){ $('pastList').innerHTML='<div class="hint">아직 저장된 결과가 없습니다.</div>'; return; }
+  let h='<div style="overflow-x:auto"><table class="cmp"><tr><th>처리일시</th><th>파일명</th><th>이용자</th>'
+    +(d.admin?'<th>학회</th>':'')+'<th>문헌</th><th></th></tr>';
+  for(const it of d.results){
+    h+=`<tr><td>${esc(it.time)}</td><td>${esc(it.filename)}</td><td>${esc(it.user||'익명')}</td>`
+      +(d.admin?`<td>${esc(it.org||'')}</td>`:'')
+      +`<td>${it.total||0}</td>
+      <td><button class="btn ghost small" onclick="openPastView('${it.id}')">결과 보기</button></td></tr>`;
+  }
+  $('pastList').innerHTML=h+'</table></div>';
+}
+async function openPastView(hid){
+  $('pastView').innerHTML='<div class="hint">결과를 불러오는 중…</div>';
+  const r=await fetch('/api/results/'+hid);
+  if(!r.ok){ $('pastView').innerHTML='<div class="errbox">열람 권한이 없거나 결과를 찾을 수 없습니다.</div>'; return; }
+  const d=await r.json();
+  window._viewRes=d.result;
+  const pseudo={id:'',mode:'view',results:[d.result]};
+  $('pastView').innerHTML=`<hr style="border:none;border-top:1px solid var(--line);margin:6px 0 10px">
+    <div class="row" style="margin:4px 0 10px"><b>📄 ${esc(d.result.filename)}</b>${fileChips(d.result)}
+    <span style="flex:1"></span><span class="hint">${esc(d.meta.time)} · ${esc(d.meta.user||'익명')}(${esc(d.meta.org||'-')})</span></div>`
+    +fileBodyHtml(pseudo,0,hid);
+  $('pastView').scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+function copyView(){
+  const res=window._viewRes; if(!res) return;
+  let g=null,lines=[];
+  for(const it of res.items){
+    if(it.group&&it.group!==g){g=it.group;lines.push('['+g+']');}
+    lines.push(it.formatted);
+  }
+  navigator.clipboard.writeText(lines.join('\n')).then(()=>alert('최종 목록이 클립보드에 복사되었습니다.'));
+}
+
 function copyList(idx){
   const res=window._lastJob.results[idx];
   let g=null,lines=[];
@@ -1070,7 +1142,7 @@ function resetAll(){
 // ---------- 설정
 const dlgSettings=$('dlgSettings'), dlgStyle=$('dlgStyle'), dlgLogin=$('dlgLogin'),
       dlgStats=$('dlgStats'), dlgFeedback=$('dlgFeedback'), dlgFbAdmin=$('dlgFbAdmin'),
-      dlgKb=$('dlgKb'), dlgAccess=$('dlgAccess');
+      dlgKb=$('dlgKb'), dlgAccess=$('dlgAccess'), dlgPast=$('dlgPast');
 dlgAccess.addEventListener('cancel',e=>e.preventDefault()); // Esc로 우회 방지
 
 // ---------- 편집 요구 (이용자)

@@ -72,13 +72,12 @@ def save_compare(hid: str, cmp_result: dict) -> bool:
     return _update_record(hid, {"last_compare": cmp_result})
 
 
-def _entry_slim(entry: dict) -> dict:
-    """비교에 필요한 서지요소만 보존."""
-    return {k: entry.get(k, "") for k in ("title", "doi", "year", "authors", "container")}
-
-
 def save_result(result: dict, options: dict) -> str:
-    """처리 결과 1건(파일 단위)을 이력으로 저장하고 id를 반환."""
+    """처리 결과 1건(파일 단위)을 전체 저장하고 id를 반환.
+
+    items는 검증·제안 포함 원본 그대로, 그 외 결과 필드는 result_extra에 보존해
+    나중에 처리 직후와 동일한 화면·다운로드를 재현할 수 있게 한다.
+    """
     hid = "h_" + uuid.uuid4().hex[:10]
     rec = {
         "id": hid,
@@ -90,16 +89,10 @@ def save_result(result: dict, options: dict) -> str:
         "style_name": result.get("style_name", ""),
         "engine_label": result.get("engine_label", ""),
         "total": len(result.get("items", [])),
-        "items": [
-            {
-                "raw": it.get("raw", ""),
-                "formatted": it.get("formatted", ""),
-                "group": it.get("group", ""),
-                "type": it.get("type", ""),
-                "entry": _entry_slim(it.get("entry") or {}),
-            }
-            for it in result.get("items", [])
-        ],
+        "items": result.get("items", []),
+        "result_extra": {k: result.get(k) for k in
+                         ("summary", "warnings", "crosscheck", "health",
+                          "english_list", "verify_enabled") if result.get(k) is not None},
     }
     with _LOCK:
         HISTORY_DIR.mkdir(exist_ok=True)
@@ -107,6 +100,22 @@ def save_result(result: dict, options: dict) -> str:
             json.dumps(rec, ensure_ascii=False, indent=1), encoding="utf-8")
         _prune_unlocked()
     return hid
+
+
+def result_view(hid: str) -> dict | None:
+    """저장된 이력을 처리 직후의 result 형태로 복원(열람·재다운로드용)."""
+    rec = get_history(hid)
+    if not rec:
+        return None
+    res = dict(rec.get("result_extra") or {})
+    res["filename"] = rec.get("filename", "")
+    res["style_name"] = rec.get("style_name", "")
+    res["engine_label"] = rec.get("engine_label", "")
+    res["items"] = rec.get("items") or []
+    res.setdefault("summary", {})
+    res.setdefault("warnings", [])
+    res.setdefault("error", "")
+    return res
 
 
 def _prune_unlocked():
