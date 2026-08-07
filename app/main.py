@@ -1298,6 +1298,41 @@ def admin_remove_directive(style_id: str, index: int, request: Request):
     return {"ok": feedback_mod.remove_directive(style_id, index)}
 
 
+# ================================================================ 관리자 대시보드
+
+@app.get("/api/admin/dashboard")
+def admin_dashboard(request: Request):
+    """관리자 첫 화면 요약 — 확인할 일·이번 달 사용 현황·시스템 상태."""
+    require_admin(request)
+    pending_fb = sum(1 for f in feedback_mod.list_feedback() if f.get("status") == "접수")
+    sugg = suggestions_mod.all_suggestions()
+    draft_sugg = sum(1 for s in sugg["case"] + sugg["prof"] if not s.get("enabled"))
+    hist = history_mod.list_history()
+    not_compared = sum(1 for h in hist if h.get("has_file") and not h.get("has_published"))
+
+    month = time.strftime("%Y-%m")
+    usage = [r for r in _load_usage() if (r.get("time") or "").startswith(month)]
+    by_org: dict[str, int] = {}
+    for r in usage:
+        o = r.get("org") or "(미입력)"
+        by_org[o] = by_org.get(o, 0) + 1
+
+    import verify_kr
+    return {
+        "month": month,
+        "todo": {"feedback": pending_fb, "draft_suggestions": draft_sugg,
+                 "not_compared": not_compared},
+        "usage": {"uses": len(usage),
+                  "files": sum(r.get("files", 0) for r in usage),
+                  "refs": sum(r.get("refs", 0) for r in usage),
+                  "by_org": sorted(by_org.items(), key=lambda kv: -kv[1])},
+        "system": {"ai": aiengine.is_configured(), "model": aiengine.get_model(),
+                   "org_codes": len(_org_access_codes()), "common_code": bool(_access_code()),
+                   "kr_apis": verify_kr.kr_api_status()},
+        "history_total": len(hist),
+    }
+
+
 # ================================================================ 기준·제안 관리 (관리자)
 
 @app.get("/api/admin/knowledge")

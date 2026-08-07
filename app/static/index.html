@@ -119,6 +119,16 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
 </header>
 
 <main>
+  <!-- 관리자 대시보드 (관리자 로그인 시에만 표시) -->
+  <div class="card" id="adminDash" style="display:none">
+    <div class="row">
+      <h2 style="margin:0">🧭 관리자 대시보드</h2>
+      <span style="flex:1"></span>
+      <span class="hint" id="dashMonth"></span>
+    </div>
+    <div id="dashBody" class="hint" style="margin-top:8px">불러오는 중…</div>
+  </div>
+
   <!-- 기준 & 옵션 -->
   <div class="card">
     <h2>1. 참고문헌 작성 기준 선택</h2>
@@ -587,6 +597,9 @@ async function refreshStatus(){
   $('kbBtn').style.display=s.admin?'':'none';
   $('addStyleBtn').style.display=s.admin?'':'none';
   $('adminBtn').textContent=s.admin?'로그아웃':'🔐 관리자';
+  // 관리자 대시보드
+  $('adminDash').style.display=s.admin?'':'none';
+  if(s.admin) loadDashboard();
   // 폴더 일괄 처리는 서버 로컬 폴더를 읽으므로 관리자 전용
   $('tabFo').style.display=s.admin?'':'none';
   if(!s.admin&&$('paneFo').style.display!=='none') switchTab('up');
@@ -595,6 +608,38 @@ async function refreshStatus(){
   window._status=s;
   if(typeof applyAccessOrg==='function') applyAccessOrg(s.access_org||'');
   if(typeof updateStyleDesc==='function'&&styles.length) updateStyleDesc();
+}
+
+// ---------- 관리자 대시보드
+async function loadDashboard(){
+  try{
+    const r=await fetch('/api/admin/dashboard');
+    if(!r.ok) return;
+    const d=await r.json();
+    $('dashMonth').textContent=`${d.month} 기준 · 저장된 처리 이력 ${d.history_total}건`;
+    const t=d.todo||{};
+    let h='<h3 style="margin:2px 0 6px">✅ 확인할 일 <span class="hint">(클릭하면 해당 화면으로 이동)</span></h3><div class="chips">';
+    h+=`<span class="chip ${t.feedback?'warn':'ok'}" style="cursor:pointer" onclick="openFbAdmin()">미검토 편집 요구 ${t.feedback||0}건</span>`;
+    h+=`<span class="chip ${t.draft_suggestions?'amber':'ok'}" style="cursor:pointer" onclick="openKb();kbTab('c')">검토 대기 제안 초안 ${t.draft_suggestions||0}건</span>`;
+    h+=`<span class="chip ${t.not_compared?'amber':'ok'}" style="cursor:pointer" onclick="openKb();kbTab('m')">발행본 비교 대기 ${t.not_compared||0}건</span>`;
+    h+='</div>';
+    const u=d.usage||{};
+    h+='<h3 style="margin:12px 0 6px">📊 이번 달 사용 현황</h3><div class="chips">';
+    h+=`<span class="chip">사용 ${u.uses||0}회</span><span class="chip">논문 ${u.files||0}편</span><span class="chip">문헌 ${u.refs||0}건</span></div>`;
+    if(u.by_org&&u.by_org.length)
+      h+='<div class="hint" style="margin-top:2px">'+u.by_org.map(x=>`${esc(x[0])} ${x[1]}회`).join(' · ')+'</div>';
+    const sy=d.system||{}, kr=sy.kr_apis||{};
+    h+='<h3 style="margin:12px 0 6px">⚙ 시스템 상태</h3><div class="chips">';
+    h+=`<span class="chip ${sy.ai?'ok':'warn'}">AI ${sy.ai?('켜짐 · '+esc(sy.model||'')):'꺼짐(규칙 기반)'}</span>`;
+    h+=`<span class="chip ${sy.org_codes?'ok':'amber'}">학회별 접근 코드 ${sy.org_codes||0}개</span>`;
+    h+=`<span class="chip ${sy.common_code?'ok':''}">공통 코드 ${sy.common_code?'설정됨':'없음'}</span>`;
+    h+=`<span class="chip ${kr.kci?'ok':'amber'}">KCI ${kr.kci?'연결':'미설정'}</span>`;
+    h+=`<span class="chip ${kr.nlk?'ok':'amber'}">국중 ${kr.nlk?'연결':'미설정'}</span>`;
+    h+=`<span class="chip ${kr.nanet?'ok':'amber'}">국회 ${kr.nanet?'연결':'미설정'}</span>`;
+    h+='</div>';
+    $('dashBody').innerHTML=h;
+    $('dashBody').className='';
+  }catch(e){}
 }
 
 // ---------- 관리자 로그인/로그아웃
@@ -1411,7 +1456,7 @@ const KB_JOURNALS=['한국문헌정보학회지','한국도서관·정보학회�
 let kbCaseTimer=null, kbCmpTimer=null, _kbInit=false;
 
 async function openKb(){
-  dlgKb.showModal();
+  if(!dlgKb.open) dlgKb.showModal();
   if(!_kbInit){ initKbStatic(); _kbInit=true; }
   $('kbMsg').textContent='';
   await renderKb();
