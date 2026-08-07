@@ -596,9 +596,34 @@ def _record_job_usage(job: dict, options: dict):
             "refs": refs,
             "style": options.get("style_id", ""),
             "ai": aiengine.is_configured(),
+            "verify": bool(options.get("verify")),
+            "secs": max(1, int(time.time() - job.get("created", time.time()))),
         })
     except Exception:
         pass  # 통계 기록 실패가 처리 자체를 막지 않도록
+
+
+def _estimate_secs(n_files: int, options: dict) -> tuple[int, str]:
+    """과거 사용 통계로 예상 처리 시간(초) 추정. (예상초, 근거 설명) 반환."""
+    ai = aiengine.is_configured()
+    verify = bool(options.get("verify"))
+    samples: list[float] = []
+    for r in reversed(_load_usage()):  # 최신 기록부터 동일 조건 표본 수집
+        if not r.get("secs") or not r.get("files"):
+            continue
+        if bool(r.get("ai")) != ai or bool(r.get("verify", verify)) != verify:
+            continue
+        samples.append(r["secs"] / r["files"])
+        if len(samples) >= 30:
+            break
+    if samples:
+        samples.sort()
+        per_file = samples[len(samples) // 2]  # 중앙값 — 극단값에 강함
+        basis = f"지난 {len(samples)}회 사용 통계 기반"
+    else:
+        per_file = (150 if verify else 80) if ai else (25 if verify else 8)
+        basis = "기본 추정 (사용 기록이 쌓이면 자동으로 정확해집니다)"
+    return max(15, int(per_file * max(1, n_files))), basis
 
 
 @app.get("/api/orgs")
@@ -971,9 +996,10 @@ async def process_upload(request: Request, files: list[UploadFile] = File(...),
     a_org = access_org(request)
     if a_org:  # 학회별 접근 코드로 인증된 경우 — 코드가 식별한 학회를 우선(통계 신뢰성)
         options["org"] = a_org
+    eta, eta_basis = _estimate_secs(len(payload), options)
     job = _new_job("upload")
     threading.Thread(target=_run_upload_job, args=(job, payload, options), daemon=True).start()
-    return {"job_id": job["id"]}
+    return {"job_id": job["id"], "eta_secs": eta, "eta_basis": eta_basis}
 
 
 @app.post("/api/process_folder")
@@ -987,9 +1013,16 @@ def process_folder(request: Request, path: str = Form(...), style_id: str = Form
     if not folder.is_dir():
         raise HTTPException(400, f"폴더를 찾을 수 없습니다: {folder}")
     options = _parse_options(style_id, verify, crosscheck, english, user_name, org, org_etc, autofix)
+    try:
+        n_files = len([p for p in folder.iterdir()
+                       if p.is_file() and p.suffix.lower() in parsing.SUPPORTED_EXTS
+                       and not p.name.startswith("~$")])
+    except OSError:
+        n_files = 1
+    eta, eta_basis = _estimate_secs(n_files, options)
     job = _new_job("folder")
     threading.Thread(target=_run_folder_job, args=(job, folder, options), daemon=True).start()
-    return {"job_id": job["id"]}
+    return {"job_id": job["id"], "eta_secs": eta, "eta_basis": eta_basis}
 
 
 @app.get("/api/jobs/{job_id}")

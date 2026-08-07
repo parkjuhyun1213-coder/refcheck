@@ -183,6 +183,7 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
 
     <div class="progress" id="progress">
       <div class="bar"><i id="barFill"></i></div>
+      <div class="stage" id="etaText" style="color:var(--accent);font-weight:600;margin-top:8px"></div>
       <div class="stage" id="stageText"></div>
     </div>
   </div>
@@ -471,7 +472,7 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
 
 <script>
 const $=id=>document.getElementById(id);
-let pickedFiles=[], styles=[], currentJob=null, pollTimer=null;
+let pickedFiles=[], styles=[], currentJob=null, pollTimer=null, etaTimer=null;
 
 // ---------- 초기화
 async function init(){
@@ -657,7 +658,8 @@ async function runUpload(){
   try{
     const r=await fetch('/api/process',{method:'POST',body:fd});
     if(!r.ok){ throw new Error((await r.json()).detail||'요청 실패'); }
-    startPolling((await r.json()).job_id);
+    const d=await r.json();
+    startPolling(d.job_id,d.eta_secs,d.eta_basis);
   }catch(e){ alert('오류: '+e.message); setRunning(false); }
 }
 async function runFolder(){
@@ -669,7 +671,8 @@ async function runFolder(){
   try{
     const r=await fetch('/api/process_folder',{method:'POST',body:fd});
     if(!r.ok){ throw new Error((await r.json()).detail||'요청 실패'); }
-    startPolling((await r.json()).job_id);
+    const d=await r.json();
+    startPolling(d.job_id,d.eta_secs,d.eta_basis);
   }catch(e){ alert('오류: '+e.message); setRunning(false); }
 }
 
@@ -689,11 +692,33 @@ function setRunning(on){
 }
 
 // ---------- 진행 상황
-function startPolling(jobId){
+function startPolling(jobId,etaSecs,etaBasis){
   currentJob=jobId;
   $('progress').style.display=''; $('resultCard').style.display='none';
   $('barFill').style.width='4%'; $('stageText').textContent='작업 시작…';
+  if(etaTimer) clearInterval(etaTimer);
+  window._eta=etaSecs?{total:etaSecs,start:Date.now(),basis:etaBasis||''}:null;
+  updateEta();
+  if(window._eta) etaTimer=setInterval(updateEta,1000);
   pollTimer=setInterval(poll,1200); poll();
+}
+function fmtDur(s){
+  s=Math.max(0,Math.round(s));
+  const m=Math.floor(s/60), ss=s%60;
+  return m?`${m}분 ${ss}초`:`${ss}초`;
+}
+function updateEta(){
+  const e=window._eta, el=$('etaText');
+  if(!e){ el.textContent=''; return; }
+  const remain=e.total-(Date.now()-e.start)/1000;
+  if(remain>0)
+    el.textContent=`⏱ 예상 소요 시간 약 ${fmtDur(e.total)} · 남은 예상 시간 ${fmtDur(remain)}  (${e.basis})`;
+  else
+    el.textContent='⏱ 예상 시간을 지났습니다 — 문헌이 많거나 검증이 오래 걸리는 원고는 조금 더 소요될 수 있습니다. 잠시만 기다려 주세요…';
+}
+function stopEta(){
+  if(etaTimer){ clearInterval(etaTimer); etaTimer=null; }
+  window._eta=null; $('etaText').textContent='';
 }
 async function poll(){
   const j=await (await fetch('/api/jobs/'+currentJob)).json();
@@ -702,6 +727,7 @@ async function poll(){
   $('stageText').textContent=`${j.current_file||''} — ${j.stage} (${j.done_files}/${j.total_files} 파일 완료)`;
   if(j.status==='done'||j.status==='error'){
     clearInterval(pollTimer);
+    stopEta();
     $('barFill').style.width='100%';
     $('stageText').textContent=j.status==='done'?'완료':'오류: '+j.error;
     setRunning(false);
@@ -889,6 +915,7 @@ function downloadZip(){ location='/api/jobs/'+currentJob+'/download_zip'; }
 // ---------- 새 논문(초기화)
 function resetAll(){
   if(pollTimer) clearInterval(pollTimer);
+  stopEta();
   currentJob=null; window._lastJob=null;
   pickedFiles=[]; renderFileList();
   setRunning(false);
