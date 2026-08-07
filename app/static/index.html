@@ -732,7 +732,8 @@ function setRunning(on){
 // ---------- 진행 상황
 function startPolling(jobId,etaSecs,etaBasis){
   currentJob=jobId;
-  $('progress').style.display=''; $('resultCard').style.display='none';
+  // 'block' 명시 필수 — ''로 지우면 CSS의 .progress{display:none}이 다시 적용되어 영역이 안 보임
+  $('progress').style.display='block'; $('resultCard').style.display='none';
   $('barFill').style.width='4%'; $('stageText').textContent='작업 시작…';
   if(etaTimer) clearInterval(etaTimer);
   window._eta=etaSecs?{total:etaSecs,start:Date.now(),basis:etaBasis||''}:null;
