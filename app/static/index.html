@@ -1,0 +1,1344 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>참고문헌 표준화·검증 에이전트</title>
+<style>
+:root{
+  --bg:#f4f6f9; --card:#ffffff; --ink:#1c2733; --sub:#5b6b7c; --line:#dde4ec;
+  --accent:#1f4e79; --accent-soft:#e8f0f8; --ok:#2e7d32; --warn:#b03a2e; --amber:#9a6700;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:"Pretendard","Malgun Gothic","맑은 고딕",system-ui,sans-serif;background:var(--bg);color:var(--ink);font-size:14px;line-height:1.55}
+header{background:var(--accent);color:#fff;padding:14px 24px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+header h1{font-size:17px;margin:0;font-weight:700}
+header .sub{font-size:12px;opacity:.85}
+header .credit{font-size:11.5px;opacity:.75;margin-top:2px}
+header .hspace{flex:1}
+.badge{font-size:11.5px;padding:3px 10px;border-radius:999px;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.35)}
+.badge.on{background:#2e7d32;border-color:#2e7d32}
+header button{background:rgba(255,255,255,.14);color:#fff;border:1px solid rgba(255,255,255,.4);border-radius:8px;padding:7px 14px;cursor:pointer;font-size:13px}
+header button:hover{background:rgba(255,255,255,.25)}
+main{max-width:1060px;margin:22px auto 60px;padding:0 18px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px 22px;margin-bottom:18px;box-shadow:0 1px 3px rgba(20,40,70,.05)}
+h2{font-size:15px;margin:0 0 12px;color:var(--accent)}
+h3{font-size:13.5px;margin:18px 0 8px;color:var(--accent)}
+label{font-size:13px;color:var(--sub)}
+select,input[type=text],input[type=password],textarea{font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:#fff;color:var(--ink);width:100%}
+textarea{resize:vertical}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.btn{font:inherit;border:none;border-radius:9px;padding:9px 16px;cursor:pointer;background:var(--accent);color:#fff;font-weight:600}
+.btn:hover{filter:brightness(1.1)}
+.btn.ghost{background:var(--accent-soft);color:var(--accent)}
+.btn.small{padding:5px 11px;font-size:12.5px}
+.btn:disabled{opacity:.5;cursor:default}
+.checks{display:flex;gap:18px;flex-wrap:wrap;margin-top:10px}
+.checks label{display:flex;gap:6px;align-items:center;color:var(--ink);cursor:pointer}
+.tabs{display:flex;gap:4px;border-bottom:2px solid var(--line);margin:14px 0}
+.tabs button{font:inherit;border:none;background:none;padding:9px 16px;cursor:pointer;color:var(--sub);border-bottom:2.5px solid transparent;margin-bottom:-2px;font-weight:600}
+.tabs button.active{color:var(--accent);border-color:var(--accent)}
+.drop{border:2px dashed #b9c7d6;border-radius:12px;padding:34px 20px;text-align:center;color:var(--sub);cursor:pointer;transition:.15s}
+.drop.over{border-color:var(--accent);background:var(--accent-soft)}
+.filelist{margin-top:10px;display:flex;flex-direction:column;gap:5px}
+.filelist .f{display:flex;align-items:center;gap:8px;background:var(--accent-soft);border-radius:8px;padding:6px 12px;font-size:13px}
+.filelist .f .x{margin-left:auto;cursor:pointer;color:var(--warn);font-weight:700}
+.progress{display:none;margin-top:14px}
+.bar{height:9px;background:var(--line);border-radius:99px;overflow:hidden}
+.bar>i{display:block;height:100%;width:0;background:var(--accent);transition:width .4s}
+.stage{font-size:12.5px;color:var(--sub);margin-top:6px}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
+.chip{font-size:12px;padding:4px 11px;border-radius:999px;background:var(--accent-soft);color:var(--accent);font-weight:600}
+.chip.warn{background:#fdecea;color:var(--warn)}
+.chip.ok{background:#e7f4e8;color:var(--ok)}
+.chip.amber{background:#fff4d6;color:var(--amber)}
+.result-file{border:1px solid var(--line);border-radius:12px;margin-bottom:14px;overflow:hidden}
+.result-file>.head{padding:12px 16px;background:#f8fafc;display:flex;align-items:center;gap:10px;cursor:pointer;flex-wrap:wrap}
+.result-file>.head b{font-size:13.5px}
+.result-file>.body{padding:14px 18px;display:none;border-top:1px solid var(--line)}
+.result-file.open>.body{display:block}
+.reflist p{margin:5px 0;padding-left:22px;text-indent:-22px}
+.group-label{font-weight:700;color:var(--accent);margin:12px 0 4px}
+.issue{font-size:12px;color:var(--warn);padding-left:22px}
+.vbadge{display:inline-block;font-size:11px;border-radius:6px;padding:1px 7px;margin-left:6px;vertical-align:1px}
+.fbbtn{display:inline-block;cursor:pointer;color:var(--sub);font-size:12px;margin-left:7px;border:1px solid var(--line);border-radius:6px;padding:0 6px;vertical-align:1px}
+.fbbtn:hover{color:var(--accent);border-color:var(--accent);background:var(--accent-soft)}
+.fbcard{border:1px solid var(--line);border-radius:10px;padding:10px 13px;margin-bottom:10px;font-size:12.5px}
+.fbcard .st{font-size:11px;border-radius:999px;padding:2px 9px;font-weight:700}
+.st-접수{background:#fff4d6;color:var(--amber)} .st-반영{background:#e7f4e8;color:var(--ok)} .st-보류{background:#eef1f5;color:var(--sub)}
+.dirline{display:flex;gap:8px;align-items:flex-start;background:var(--accent-soft);border-radius:8px;padding:6px 10px;margin:4px 0;font-size:12.5px}
+.v-ok{background:#e7f4e8;color:var(--ok)} .v-bad{background:#fdecea;color:var(--warn)} .v-skip{background:#eef1f5;color:var(--sub)}
+table.cmp{border-collapse:collapse;width:100%;font-size:12.5px;margin-top:6px}
+table.cmp th,table.cmp td{border:1px solid var(--line);padding:7px 9px;text-align:left;vertical-align:top}
+table.cmp th{background:#f2f6fa;color:var(--accent)}
+table.cmp td.after{color:var(--accent)}
+.warnbox{background:#fff8e6;border:1px solid #f0dfa8;border-radius:8px;padding:8px 12px;font-size:12.5px;color:#7a5b00;margin:8px 0}
+.errbox{background:#fdecea;border:1px solid #f2c4bd;border-radius:8px;padding:10px 14px;font-size:13px;color:var(--warn)}
+dialog{border:none;border-radius:14px;padding:0;max-width:560px;width:92%;box-shadow:0 12px 40px rgba(0,0,0,.25)}
+dialog::backdrop{background:rgba(15,30,50,.45)}
+dialog .dhead{background:var(--accent);color:#fff;padding:13px 20px;font-weight:700;font-size:14.5px}
+dialog .dbody{padding:18px 20px}
+dialog .dfoot{padding:12px 20px;border-top:1px solid var(--line);display:flex;gap:8px;justify-content:flex-end}
+.field{margin-bottom:12px}
+.field label{display:block;margin-bottom:4px;font-weight:600;color:var(--ink)}
+.hint{font-size:12px;color:var(--sub);margin-top:3px}
+.msg{font-size:12.5px;margin-top:8px}
+.msg.ok{color:var(--ok)} .msg.bad{color:var(--warn)}
+mark.da{background:#fdecea;color:var(--warn);border-radius:3px;padding:0 1px}
+mark.db{background:#e7f4e8;color:var(--ok);border-radius:3px;padding:0 1px}
+.kbcard{border:1px solid var(--line);border-radius:10px;padding:10px 13px;margin-bottom:9px;font-size:12.5px}
+.kbcard.off{opacity:.55;background:#f6f8fa}
+.kbcard .topic{font-size:11px;border-radius:999px;padding:2px 9px;font-weight:700;background:var(--accent-soft);color:var(--accent)}
+.cmp-pair{border:1px solid var(--line);border-radius:10px;padding:10px 13px;margin-bottom:10px;font-size:12.5px}
+.cmp-pair .lbl{display:inline-block;width:78px;font-weight:700;color:var(--sub);vertical-align:top}
+.cmp-pair .txt{display:inline-block;width:calc(100% - 90px)}
+.footer-note{font-size:12px;color:var(--sub);text-align:center;margin-top:24px}
+code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:12px}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>📚 참고문헌 표준화·검증 에이전트</h1>
+    <div class="sub">원고 파일에서 참고문헌을 추출해 선택한 학술지 기준으로 정리하고 검증합니다</div>
+    <div class="credit">개발: 전남대학교 문헌정보학과 박주현 교수 (<a href="mailto:park51566@jnu.ac.kr" style="color:inherit">park51566@jnu.ac.kr</a>)</div>
+  </div>
+  <span class="hspace"></span>
+  <button onclick="resetAll()" title="처리 결과와 선택 파일을 지우고 처음 화면으로 돌아갑니다">🗒 새 논문</button>
+  <span id="aiBadge" class="badge">엔진 확인 중…</span>
+  <button id="kbBtn" onclick="openKb()" style="display:none">📋 기준·제안 관리</button>
+  <button id="fbBtn" onclick="openFbAdmin()" style="display:none">📝 편집 요구</button>
+  <button id="statsBtn" onclick="openStats()" style="display:none">📊 사용 통계</button>
+  <button id="settingsBtn" onclick="openSettings()" style="display:none">⚙ 설정</button>
+  <button id="adminBtn" onclick="adminAction()" title="관리자 로그인/로그아웃">🔐 관리자</button>
+</header>
+
+<main>
+  <!-- 기준 & 옵션 -->
+  <div class="card">
+    <h2>1. 참고문헌 작성 기준 선택</h2>
+    <div class="row">
+      <select id="styleSel" style="flex:1;min-width:240px"></select>
+      <button class="btn ghost" id="addStyleBtn" onclick="openStyleDlg()" style="display:none">＋ 새 기준 추가</button>
+      <button class="btn ghost small" id="delStyleBtn" onclick="deleteStyle()" style="display:none">기준 삭제</button>
+    </div>
+    <div class="hint" id="styleDesc"></div>
+    <div class="checks">
+      <label><input type="checkbox" id="optVerify" checked> 실존·윤리 검증 <span class="hint">(Crossref·OpenAlex·국내DB·철회검사·URL)</span></label>
+      <label><input type="checkbox" id="optAutofix"> 서지 자동 교정 <span class="hint">(공식 서지로 연도·권·호·면수 자동 수정)</span></label>
+      <label><input type="checkbox" id="optCross" checked> 본문 인용 ↔ 목록 대조</label>
+      <label><input type="checkbox" id="optEng"> 영문 변환 목록 <span class="hint">(문편협 기준·AI 모드)</span></label>
+    </div>
+  </div>
+
+  <!-- 입력 -->
+  <div class="card">
+    <h2>2. 사용자 정보</h2>
+    <div class="row">
+      <div style="flex:1;min-width:150px">
+        <label>이름</label>
+        <input type="text" id="userName" placeholder="사용자 이름" maxlength="40">
+      </div>
+      <div style="flex:1.4;min-width:200px">
+        <label>사용 기관(학회)</label>
+        <select id="orgSel" onchange="orgChanged()"></select>
+      </div>
+      <div style="flex:1.4;min-width:200px;display:none" id="orgEtcWrap">
+        <label>기관(학회)명 직접 입력</label>
+        <input type="text" id="orgEtc" placeholder="예: 한국기록관리학회" maxlength="60">
+      </div>
+    </div>
+    <div class="hint" style="margin-top:6px">누가 어떤 기관(학회) 업무로 사용했는지 기록됩니다(관리자 통계용).</div>
+  </div>
+
+  <div class="card">
+    <h2>3. 원고 입력</h2>
+    <div class="tabs">
+      <button id="tabUp" class="active" onclick="switchTab('up')">파일 업로드</button>
+      <button id="tabFo" onclick="switchTab('fo')">폴더 일괄 처리</button>
+    </div>
+
+    <div id="paneUp">
+      <div class="drop" id="drop" onclick="document.getElementById('fileInput').click()">
+        <div style="font-size:30px">📄</div>
+        <b>원고 파일을 끌어다 놓거나 클릭해서 선택하세요</b>
+        <div class="hint">HWPX · DOCX · PDF · TXT — 여러 편 동시 선택 가능 (HWP 구형은 HWPX/PDF로 변환 후 사용)</div>
+      </div>
+      <input type="file" id="fileInput" multiple accept=".hwpx,.docx,.pdf,.txt" style="display:none">
+      <div class="filelist" id="fileList"></div>
+      <div class="row" style="margin-top:14px">
+        <button class="btn" id="runUpBtn" onclick="runUpload()" disabled>참고문헌 정리 시작</button>
+      </div>
+    </div>
+
+    <div id="paneFo" style="display:none">
+      <div class="field">
+        <label>원고가 모여 있는 폴더 경로</label>
+        <input type="text" id="folderPath" placeholder="예: C:\연구\투고원고">
+        <div class="hint">폴더 안의 지원 형식 파일을 모두 처리하고, 결과를 같은 폴더의 <code>참고문헌_정리결과</code> 하위 폴더에 파일별 DOCX + 종합리포트로 저장합니다.</div>
+      </div>
+      <button class="btn" id="runFoBtn" onclick="runFolder()">폴더 일괄 처리 시작</button>
+    </div>
+
+    <div class="progress" id="progress">
+      <div class="bar"><i id="barFill"></i></div>
+      <div class="stage" id="stageText"></div>
+    </div>
+  </div>
+
+  <!-- 결과 -->
+  <div class="card" id="resultCard" style="display:none">
+    <div class="row">
+      <h2 style="margin:0">4. 처리 결과</h2>
+      <span style="flex:1"></span>
+      <button class="btn ghost small" id="zipBtn" onclick="downloadZip()" style="display:none">전체 결과 ZIP 다운로드</button>
+    </div>
+    <div id="outDirNote" class="hint" style="margin:6px 0"></div>
+    <div id="results"></div>
+  </div>
+
+  <div class="footer-note">
+    기준 양식 기본값: 문편협 「인용 및 참고문헌의 기술요소와 형식에 관한 공통기준」(2024. 6. 17. 개정) ·
+    AI의 추출·변환에는 오류가 있을 수 있으므로 변경 전·후 대비표로 최종 확인하세요.
+  </div>
+</main>
+
+<!-- 설정 대화상자 -->
+<dialog id="dlgSettings">
+  <div class="dhead">설정 — AI 엔진</div>
+  <div class="dbody">
+    <div class="field">
+      <label>Claude API 키</label>
+      <input type="password" id="setKey" placeholder="sk-ant-api03-…  (미입력 시 규칙 기반 엔진으로 동작)">
+      <div class="hint" id="keyHint">console.anthropic.com에서 발급. 키는 이 컴퓨터의 <code>app/config.json</code>에만 저장됩니다.</div>
+    </div>
+    <div class="field">
+      <label>AI 모델</label>
+      <select id="setModel"></select>
+      <div class="hint">기본값 claude-opus-5(정확도 우선). 비용을 줄이려면 claude-sonnet-5 또는 claude-haiku-4-5 선택.</div>
+    </div>
+    <div class="row">
+      <button class="btn ghost small" onclick="testKey()">키 검증</button>
+      <button class="btn ghost small" onclick="clearKey()">키 삭제(규칙 기반으로 전환)</button>
+    </div>
+    <div class="field" style="margin-top:14px">
+      <label>이용자 접근 코드 (외부 운영)</label>
+      <input type="text" id="setAccessCode" placeholder="비워 두면 접근 제한 없음">
+      <div class="hint">설정하면 접속자가 이 코드를 입력해야 서비스를 사용할 수 있습니다(관리자는 예외).
+        4개 학회지 편집위원회에만 공유하세요. 코드를 바꾸면 기존 이용자는 새 코드를 다시 입력해야 합니다.</div>
+    </div>
+    <div class="field" style="margin-top:14px">
+      <label>국내 문헌 검증 API 상태</label>
+      <div id="krApiStatus" class="hint"></div>
+      <div class="hint">키는 서버 컴퓨터의 <code>.env</code>에 <code>KCI_API_KEY</code>(KCI 논문),
+        <code>NLK_CERT_KEY</code>(국립중앙도서관 단행본), <code>NANET_API_KEY</code>(국회도서관 학위논문)로 설정합니다.
+        미설정 시 해당 유형은 '대조 생략' 처리됩니다.</div>
+    </div>
+    <div class="msg" id="setMsg"></div>
+  </div>
+  <div class="dfoot">
+    <button class="btn ghost" onclick="dlgSettings.close()">닫기</button>
+    <button class="btn" onclick="saveSettings()">저장</button>
+  </div>
+</dialog>
+
+<!-- 편집 요구 제출 대화상자 (이용자) -->
+<dialog id="dlgFeedback">
+  <div class="dhead">편집 요구 보내기</div>
+  <div class="dbody">
+    <div class="field">
+      <label>원문</label>
+      <div id="fbRaw" class="hint" style="background:var(--accent-soft);border-radius:8px;padding:8px 10px"></div>
+    </div>
+    <div class="field">
+      <label>현재 변환 결과</label>
+      <div id="fbFormatted" class="hint" style="background:var(--accent-soft);border-radius:8px;padding:8px 10px"></div>
+    </div>
+    <div class="field">
+      <label>이렇게 편집되어야 합니다 (요구 내용)</label>
+      <textarea id="fbRequest" rows="4" placeholder="예: 학술지명 뒤에 쉼표가 아니라 마침표가 와야 합니다. / 권(호) 표기는 '제54권 제2호' 형식이어야 합니다."></textarea>
+      <div class="hint">요구사항은 바로 반영되지 않습니다. 관리자가 검토한 뒤 타당한 내용을 작성 규정(편집 지침)에 반영하면 이후 변환부터 적용됩니다.</div>
+    </div>
+    <div class="msg" id="fbMsg"></div>
+  </div>
+  <div class="dfoot">
+    <button class="btn ghost" onclick="dlgFeedback.close()">취소</button>
+    <button class="btn" onclick="sendFeedback()">요구 제출</button>
+  </div>
+</dialog>
+
+<!-- 편집 요구 관리 대화상자 (관리자) -->
+<dialog id="dlgFbAdmin" style="max-width:820px">
+  <div class="dhead">편집 요구 관리 (관리자)</div>
+  <div class="dbody" style="max-height:72vh;overflow-y:auto">
+    <div class="hint" style="margin-bottom:8px">
+      이용자가 제출한 편집 요구를 검토하고, 반영할 내용을 <b>편집 지침</b>으로 입력하면
+      해당 기준의 향후 변환(AI 모드)에 자동 적용됩니다.
+    </div>
+    <div id="fbAdminList">불러오는 중…</div>
+    <h3 style="margin:16px 0 6px;color:var(--accent)">적용 중인 편집 지침</h3>
+    <div id="dirList"></div>
+    <div class="row" style="margin-top:8px">
+      <select id="dirStyleSel" style="max-width:220px"></select>
+      <input type="text" id="dirNew" placeholder="지침 직접 추가 (예: 면수 표기는 pp. 없이 숫자만 기재)" style="flex:1">
+      <button class="btn ghost small" onclick="addDirective()">지침 추가</button>
+    </div>
+    <div class="msg" id="fbAdminMsg"></div>
+  </div>
+  <div class="dfoot">
+    <button class="btn ghost" onclick="dlgFbAdmin.close()">닫기</button>
+  </div>
+</dialog>
+
+<!-- 사용 통계 대화상자 (관리자) -->
+<dialog id="dlgStats" style="max-width:760px">
+  <div class="dhead">사용 통계 (관리자)</div>
+  <div class="dbody" id="statsBody" style="max-height:70vh;overflow-y:auto">불러오는 중…</div>
+  <div class="dfoot">
+    <button class="btn ghost" onclick="dlgStats.close()">닫기</button>
+  </div>
+</dialog>
+
+<!-- 접근 코드 대화상자 (외부 운영) -->
+<dialog id="dlgAccess">
+  <div class="dhead">접근 코드 입력</div>
+  <div class="dbody">
+    <div class="hint" style="margin-bottom:10px">
+      이 서비스는 승인된 이용자(학회지 편집위원회 등)를 위해 운영됩니다.
+      안내받은 접근 코드를 입력해 주세요. 코드가 없다면 관리자에게 문의해 주세요.
+    </div>
+    <div class="field">
+      <label>접근 코드</label>
+      <input type="password" id="accessCode" onkeydown="if(event.key==='Enter')submitAccess()">
+    </div>
+    <div class="msg" id="accessMsg"></div>
+  </div>
+  <div class="dfoot">
+    <button class="btn ghost" onclick="dlgLogin.showModal()">관리자 로그인</button>
+    <button class="btn" onclick="submitAccess()">확인</button>
+  </div>
+</dialog>
+
+<!-- 관리자 로그인 대화상자 -->
+<dialog id="dlgLogin">
+  <div class="dhead">관리자 로그인</div>
+  <div class="dbody">
+    <div class="field">
+      <label>아이디</label>
+      <input type="text" id="loginId" autocomplete="username">
+    </div>
+    <div class="field">
+      <label>비밀번호</label>
+      <input type="password" id="loginPw" autocomplete="current-password"
+             onkeydown="if(event.key==='Enter')doLogin()">
+    </div>
+    <div class="hint">관리자 계정은 서버 컴퓨터의 <code>.env</code> 파일에 <code>ADMIN_ID</code>, <code>ADMIN_PASSWORD</code>로 설정합니다.</div>
+    <div class="msg" id="loginMsg"></div>
+  </div>
+  <div class="dfoot">
+    <button class="btn ghost" onclick="dlgLogin.close()">취소</button>
+    <button class="btn" onclick="doLogin()">로그인</button>
+  </div>
+</dialog>
+
+<!-- 기준·제안 관리 대화상자 (관리자) -->
+<dialog id="dlgKb" style="max-width:940px">
+  <div class="dhead">기준·제안 관리 (관리자)</div>
+  <div class="dbody" style="max-height:76vh;overflow-y:auto">
+    <div class="hint" style="margin-bottom:4px">
+      적용 우선순위: ① <b>문편협 공통 기준</b>(항상 일순위) → ② <b>관리자 추가 기준</b>(변환에 반영,
+      문편협과 충돌 시 문편협 우선·공백만 보완) → ③ <b>논문 사례를 통한 제안</b> · ④ <b>박주현 교수의 추가 제안</b>
+      (변환 결과를 바꾸지 않고 이용자에게 참고용으로 표시).
+    </div>
+    <div class="tabs" style="margin-top:6px">
+      <button id="kbTabC" class="active" onclick="kbTab('c')">논문 사례를 통한 제안</button>
+      <button id="kbTabP" onclick="kbTab('p')">박주현 교수의 추가 제안</button>
+      <button id="kbTabS" onclick="kbTab('s')">관리자 추가 기준</button>
+      <button id="kbTabM" onclick="kbTab('m')">발행본 비교</button>
+    </div>
+
+    <div id="kbPaneC">
+      <h3 style="margin-top:4px">사례 논문 등록 (2025년 이후 발행 논문)</h3>
+      <div class="hint">학회지에 실제 게재된 논문 파일을 올리면 AI가 참고문헌 관행을 분석해
+        제안 <b>초안(미사용 상태)</b>으로 추가합니다. 아래 목록에서 검토 후 '사용'으로 켜 주세요.</div>
+      <div class="row" style="margin:8px 0">
+        <select id="caseJournal" onchange="caseJournalChanged()" style="max-width:210px"></select>
+        <input type="text" id="caseJournalEtc" placeholder="학회지명 직접 입력" style="display:none;max-width:190px">
+        <input type="file" id="caseFiles" multiple accept=".hwpx,.docx,.pdf,.txt" style="flex:1;min-width:220px">
+        <button class="btn small" id="caseRunBtn" onclick="runCaseAnalysis()">분석 시작</button>
+      </div>
+      <div class="msg" id="caseMsg"></div>
+      <h3>제안 목록</h3>
+      <div id="kbListC">불러오는 중…</div>
+      <h3>직접 추가</h3>
+      <div class="row">
+        <input type="text" id="sugTopicC" placeholder="구분 (예: DOI 표기)" style="max-width:150px">
+        <select id="sugTypeC" style="max-width:150px"></select>
+        <input type="text" id="sugRuleC" placeholder="제안 내용 ('~한다' 형태 한 문장)" style="flex:1;min-width:200px">
+      </div>
+      <div class="row" style="margin-top:6px">
+        <input type="text" id="sugExC" placeholder="예시 표기 (선택)" style="flex:1">
+        <button class="btn small" onclick="addSug('case')">제안 추가</button>
+      </div>
+    </div>
+
+    <div id="kbPaneP" style="display:none">
+      <div class="hint">에이전트 결과와 학회지 발행본의 차이를 <b>'발행본 비교' 탭</b>에서 채택하면 여기에 쌓입니다.
+        문편협 공통 기준이 아니므로 이용자에게 '박주현 교수의 추가 제안'이라는 이름의 참고 정보로 표시됩니다.</div>
+      <h3>제안 목록</h3>
+      <div id="kbListP">불러오는 중…</div>
+      <h3>직접 추가</h3>
+      <div class="row">
+        <input type="text" id="sugTopicP" placeholder="구분 (예: 보고서 발행처)" style="max-width:150px">
+        <select id="sugTypeP" style="max-width:150px"></select>
+        <input type="text" id="sugRuleP" placeholder="제안 내용 ('~한다' 형태 한 문장)" style="flex:1;min-width:200px">
+      </div>
+      <div class="row" style="margin-top:6px">
+        <input type="text" id="sugExP" placeholder="예시 표기 (선택)" style="flex:1">
+        <button class="btn small" onclick="addSug('prof')">제안 추가</button>
+      </div>
+    </div>
+
+    <div id="kbPaneS" style="display:none">
+      <div class="hint">문편협 공통 기준에 <b>준하는</b> 추가 기준입니다. 실제 변환 결과에 반영되며(AI 모드),
+        문편협이 명시한 규정과 충돌하면 문편협을 우선하고 처리 결과에 경고로 알려줍니다.</div>
+      <h3>기준 목록</h3>
+      <div id="kbListS">불러오는 중…</div>
+      <div class="row" style="margin-top:8px">
+        <input type="text" id="stdRule" placeholder="기준 내용 (예: 온라인 자료의 접속일은 'YYYY. M. D. 검색' 형식으로 기재한다)" style="flex:2;min-width:260px">
+        <input type="text" id="stdExample" placeholder="예시 (선택)" style="flex:1">
+        <button class="btn small" onclick="addStd()">기준 추가</button>
+      </div>
+    </div>
+
+    <div id="kbPaneM" style="display:none">
+      <div class="hint">에이전트가 정리했던 결과(처리 이력)와 학회지 <b>최종 발행본</b>을 비교합니다.
+        차이 항목을 검토해 체크하면 '박주현 교수의 추가 제안'으로 등록되어 이후 처리 결과에 표시됩니다.</div>
+      <div class="row" style="margin:8px 0">
+        <select id="cmpHistory" style="flex:1.5;min-width:280px"></select>
+        <input type="file" id="cmpFile" accept=".hwpx,.docx,.pdf,.txt" style="flex:1;min-width:200px">
+        <button class="btn small" id="cmpRunBtn" onclick="runCompare()">비교 시작</button>
+      </div>
+      <div class="msg" id="cmpMsg"></div>
+      <div id="cmpResult"></div>
+    </div>
+
+    <div class="msg" id="kbMsg"></div>
+  </div>
+  <div class="dfoot">
+    <button class="btn ghost" onclick="dlgKb.close()">닫기</button>
+  </div>
+</dialog>
+
+<!-- 기준 추가 대화상자 -->
+<dialog id="dlgStyle">
+  <div class="dhead">새 참고문헌 작성 기준 추가</div>
+  <div class="dbody">
+    <div class="field">
+      <label>기준 이름</label>
+      <input type="text" id="stName" placeholder="예: OO학회지 투고규정">
+    </div>
+    <div class="tabs" style="margin-top:4px">
+      <button id="stTabF" class="active" onclick="stTab('f')">파일 업로드</button>
+      <button id="stTabU" onclick="stTab('u')">링크(URL)</button>
+      <button id="stTabT" onclick="stTab('t')">직접 입력</button>
+    </div>
+    <div id="stPaneF">
+      <input type="file" id="stFile" accept=".pdf,.docx,.hwpx,.txt">
+      <div class="hint">학술지 투고규정·참고문헌 작성 기준 문서(PDF·DOCX·HWPX·TXT)</div>
+    </div>
+    <div id="stPaneU" style="display:none">
+      <input type="text" id="stUrl" placeholder="https://… (투고규정 안내 페이지 또는 PDF 링크)">
+    </div>
+    <div id="stPaneT" style="display:none">
+      <textarea id="stText" rows="7" placeholder="참고문헌 작성 규정 원문을 붙여넣으세요"></textarea>
+    </div>
+    <div class="hint" style="margin-top:8px">추가한 기준은 AI 모드에서 적용됩니다(AI가 기준 원문을 읽고 그에 맞춰 변환).</div>
+    <div class="msg" id="stMsg"></div>
+  </div>
+  <div class="dfoot">
+    <button class="btn ghost" onclick="dlgStyle.close()">취소</button>
+    <button class="btn" onclick="addStyle()">추가</button>
+  </div>
+</dialog>
+
+<script>
+const $=id=>document.getElementById(id);
+let pickedFiles=[], styles=[], currentJob=null, pollTimer=null;
+
+// ---------- 초기화
+async function init(){
+  await refreshStatus(); await refreshStyles(); await initOrgs();
+  checkAccess();
+}
+function checkAccess(){
+  const s=window._status;
+  if(s&&s.access_required&&!s.access_ok&&!dlgAccess.open){
+    $('accessMsg').textContent='';
+    dlgAccess.showModal();
+    setTimeout(()=>$('accessCode').focus(),50);
+  }
+}
+async function submitAccess(){
+  const fd=new FormData(); fd.append('code',$('accessCode').value);
+  const r=await fetch('/api/access',{method:'POST',body:fd});
+  const d=await r.json();
+  if(d.ok){ dlgAccess.close(); await refreshStatus(); }
+  else { $('accessMsg').textContent=d.message||'코드가 올바르지 않습니다.'; $('accessMsg').className='msg bad'; }
+}
+async function initOrgs(){
+  const d=await (await fetch('/api/orgs')).json();
+  const sel=$('orgSel'); sel.innerHTML='';
+  for(const o of d.orgs){ const op=document.createElement('option'); op.value=o; op.textContent=o; sel.appendChild(op); }
+  const etc=document.createElement('option'); etc.value='기타'; etc.textContent='기타 (직접 입력)'; sel.appendChild(etc);
+  $('userName').value=localStorage.getItem('refstd_user')||'';
+  const so=localStorage.getItem('refstd_org');
+  if(so&&[...sel.options].some(o=>o.value===so)) sel.value=so;
+  $('orgEtc').value=localStorage.getItem('refstd_orgetc')||'';
+  orgChanged();
+}
+function orgChanged(){ $('orgEtcWrap').style.display=$('orgSel').value==='기타'?'':'none'; }
+function userInfo(){
+  const name=$('userName').value.trim();
+  const org=$('orgSel').value;
+  const etc=$('orgEtc').value.trim();
+  if(!name){ alert('사용자 이름을 입력해 주세요.'); $('userName').focus(); return null; }
+  if(org==='기타'&&!etc){ alert('기관(학회)명을 직접 입력해 주세요.'); $('orgEtc').focus(); return null; }
+  localStorage.setItem('refstd_user',name); localStorage.setItem('refstd_org',org); localStorage.setItem('refstd_orgetc',etc);
+  return {name,org,etc};
+}
+async function refreshStatus(){
+  const s=await (await fetch('/api/status')).json();
+  const b=$('aiBadge');
+  if(s.ai){ b.textContent='AI 모드 · '+s.model; b.className='badge on'; }
+  else { b.textContent='규칙 기반 모드'; b.className='badge'; }
+  if(s.admin) b.textContent+=' · 관리자';
+  $('settingsBtn').style.display=s.admin?'':'none';
+  $('statsBtn').style.display=s.admin?'':'none';
+  $('fbBtn').style.display=s.admin?'':'none';
+  $('kbBtn').style.display=s.admin?'':'none';
+  $('addStyleBtn').style.display=s.admin?'':'none';
+  $('adminBtn').textContent=s.admin?'로그아웃':'🔐 관리자';
+  // 폴더 일괄 처리는 서버 로컬 폴더를 읽으므로 관리자 전용
+  $('tabFo').style.display=s.admin?'':'none';
+  if(!s.admin&&$('paneFo').style.display!=='none') switchTab('up');
+  // 접근 코드 충족(또는 관리자 로그인) 시 접근 대화상자 닫기
+  if(typeof dlgAccess!=='undefined'&&dlgAccess.open&&(!s.access_required||s.access_ok)) dlgAccess.close();
+  window._status=s;
+  if(typeof updateStyleDesc==='function'&&styles.length) updateStyleDesc();
+}
+
+// ---------- 관리자 로그인/로그아웃
+async function adminAction(){
+  if(window._status&&window._status.admin){
+    await fetch('/api/admin/logout',{method:'POST'});
+    await refreshStatus();
+    return;
+  }
+  $('loginMsg').textContent=''; $('loginId').value=''; $('loginPw').value='';
+  dlgLogin.showModal();
+  setTimeout(()=>$('loginId').focus(),50);
+}
+async function doLogin(){
+  const fd=new FormData();
+  fd.append('admin_id',$('loginId').value); fd.append('password',$('loginPw').value);
+  const r=await fetch('/api/admin/login',{method:'POST',body:fd});
+  const d=await r.json();
+  if(d.ok){ dlgLogin.close(); await refreshStatus(); }
+  else { $('loginMsg').textContent=d.message||'로그인 실패'; $('loginMsg').className='msg bad'; }
+}
+async function refreshStyles(){
+  const d=await (await fetch('/api/styles')).json();
+  styles=d.styles;
+  const sel=$('styleSel'); sel.innerHTML='';
+  for(const st of styles){
+    const o=document.createElement('option');
+    o.value=st.id; o.textContent=st.name+(st.builtin?'':' (사용자 추가)');
+    sel.appendChild(o);
+  }
+  sel.onchange=updateStyleDesc; updateStyleDesc();
+}
+function updateStyleDesc(){
+  const st=styles.find(s=>s.id===$('styleSel').value);
+  $('styleDesc').textContent=st? (st.description||st.source||'') : '';
+  const admin=window._status&&window._status.admin;
+  $('delStyleBtn').style.display = st&&!st.builtin&&admin ? '' : 'none';
+}
+async function deleteStyle(){
+  const st=styles.find(s=>s.id===$('styleSel').value);
+  if(!st||st.builtin) return;
+  if(!confirm(`기준 "${st.name}"을(를) 삭제할까요?`)) return;
+  await fetch('/api/styles/'+st.id,{method:'DELETE'});
+  await refreshStyles();
+}
+
+// ---------- 탭
+function switchTab(t){
+  $('tabUp').className=t==='up'?'active':''; $('tabFo').className=t==='fo'?'active':'';
+  $('paneUp').style.display=t==='up'?'':'none'; $('paneFo').style.display=t==='fo'?'':'none';
+}
+
+// ---------- 파일 선택
+const drop=$('drop');
+drop.addEventListener('dragover',e=>{e.preventDefault();drop.classList.add('over')});
+drop.addEventListener('dragleave',()=>drop.classList.remove('over'));
+drop.addEventListener('drop',e=>{e.preventDefault();drop.classList.remove('over');addFiles(e.dataTransfer.files)});
+$('fileInput').addEventListener('change',e=>addFiles(e.target.files));
+function addFiles(list){
+  for(const f of list){
+    const ext=f.name.split('.').pop().toLowerCase();
+    if(ext==='hwp'){ alert(f.name+': HWP 구형 파일은 HWPX 또는 PDF로 변환 후 업로드해 주세요.'); continue; }
+    if(!['hwpx','docx','pdf','txt'].includes(ext)){ alert(f.name+': 지원하지 않는 형식입니다.'); continue; }
+    if(!pickedFiles.some(p=>p.name===f.name&&p.size===f.size)) pickedFiles.push(f);
+  }
+  renderFileList();
+}
+function renderFileList(){
+  const el=$('fileList'); el.innerHTML='';
+  pickedFiles.forEach((f,i)=>{
+    const d=document.createElement('div'); d.className='f';
+    d.innerHTML=`<span>📄</span><span>${f.name}</span><span class="hint">${(f.size/1024).toFixed(0)} KB</span><span class="x" data-i="${i}">✕</span>`;
+    d.querySelector('.x').onclick=()=>{pickedFiles.splice(i,1);renderFileList();};
+    el.appendChild(d);
+  });
+  $('runUpBtn').disabled=pickedFiles.length===0;
+}
+
+// ---------- 실행
+function opts(fd,ui){
+  fd.append('style_id',$('styleSel').value);
+  fd.append('verify',$('optVerify').checked?'1':'0');
+  fd.append('autofix',$('optAutofix').checked?'1':'0');
+  fd.append('crosscheck',$('optCross').checked?'1':'0');
+  fd.append('english',$('optEng').checked?'1':'0');
+  fd.append('user_name',ui.name);
+  fd.append('org',ui.org);
+  fd.append('org_etc',ui.etc);
+  return fd;
+}
+async function runUpload(){
+  if(!pickedFiles.length) return;
+  const ui=userInfo(); if(!ui) return;
+  const st=styles.find(s=>s.id===$('styleSel').value);
+  if(st&&!st.builtin&&!window._status.ai){
+    alert('사용자 추가 기준은 AI 모드가 필요합니다. 관리자에게 문의해 주세요.'); return;
+  }
+  const fd=new FormData();
+  for(const f of pickedFiles) fd.append('files',f);
+  opts(fd,ui);
+  setRunning(true);
+  try{
+    const r=await fetch('/api/process',{method:'POST',body:fd});
+    if(!r.ok){ throw new Error((await r.json()).detail||'요청 실패'); }
+    startPolling((await r.json()).job_id);
+  }catch(e){ alert('오류: '+e.message); setRunning(false); }
+}
+async function runFolder(){
+  const p=$('folderPath').value.trim();
+  if(!p){ alert('폴더 경로를 입력해 주세요.'); return; }
+  const ui=userInfo(); if(!ui) return;
+  const fd=new FormData(); fd.append('path',p); opts(fd,ui);
+  setRunning(true);
+  try{
+    const r=await fetch('/api/process_folder',{method:'POST',body:fd});
+    if(!r.ok){ throw new Error((await r.json()).detail||'요청 실패'); }
+    startPolling((await r.json()).job_id);
+  }catch(e){ alert('오류: '+e.message); setRunning(false); }
+}
+
+// 처리 중/대기 상태에 따른 시작 버튼 표시
+function setRunning(on){
+  const up=$('runUpBtn'), fo=$('runFoBtn');
+  if(on){
+    up.disabled=true; fo.disabled=true;
+    up.textContent='⏳ 참고문헌 정리 중…';
+    fo.textContent='⏳ 참고문헌 정리 중…';
+  } else {
+    up.textContent='참고문헌 정리 시작';
+    fo.textContent='폴더 일괄 처리 시작';
+    up.disabled=pickedFiles.length===0;
+    fo.disabled=false;
+  }
+}
+
+// ---------- 진행 상황
+function startPolling(jobId){
+  currentJob=jobId;
+  $('progress').style.display=''; $('resultCard').style.display='none';
+  $('barFill').style.width='4%'; $('stageText').textContent='작업 시작…';
+  pollTimer=setInterval(poll,1200); poll();
+}
+async function poll(){
+  const j=await (await fetch('/api/jobs/'+currentJob)).json();
+  const frac=j.total_files? (j.done_files+0.5)/j.total_files : 0.1;
+  $('barFill').style.width=Math.min(97,Math.round(frac*100))+'%';
+  $('stageText').textContent=`${j.current_file||''} — ${j.stage} (${j.done_files}/${j.total_files} 파일 완료)`;
+  if(j.status==='done'||j.status==='error'){
+    clearInterval(pollTimer);
+    $('barFill').style.width='100%';
+    $('stageText').textContent=j.status==='done'?'완료':'오류: '+j.error;
+    setRunning(false);
+    renderResults(j);
+  }
+}
+
+// ---------- 결과 렌더링
+const VLABEL={verified:['실존 확인','v-ok'],mismatch:['제목 불일치','v-bad'],not_found:['미발견','v-bad'],
+  suspect:['실존 의심','v-bad'],
+  link_ok:['링크 정상','v-ok'],link_dead:['링크 오류','v-bad'],skipped:['대조 생략','v-skip']};
+function vDetailFull(v){
+  const parts=[v.detail||''];
+  if(v.journal&&v.journal.detail) parts.push(v.journal.detail);
+  if(v.preprint&&v.preprint.detail) parts.push(v.preprint.detail);
+  return parts.filter(Boolean).join(' · ');
+}
+function esc(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+
+function renderResults(job){
+  $('resultCard').style.display='';
+  $('zipBtn').style.display=job.mode==='upload'&&job.results.some(r=>!r.error)?'':'none';
+  $('outDirNote').textContent=job.output_dir?`결과 파일 저장 위치: ${job.output_dir} (파일별 DOCX + 종합리포트.docx)`:'';
+  const root=$('results'); root.innerHTML='';
+  if(job.error){ root.innerHTML=`<div class="errbox">${esc(job.error)}</div>`; return; }
+
+  job.results.forEach((res,idx)=>{
+    const div=document.createElement('div'); div.className='result-file'+(job.results.length===1?' open':'');
+    const s=res.summary||{};
+    let chips='';
+    if(!res.error){
+      chips=`<span class="chip">문헌 ${s.total||0}건</span>
+        <span class="chip ${s.changed?'':'ok'}">형식 수정 ${s.changed||0}</span>
+        <span class="chip ${s.needs_check?'warn':'ok'}">확인 필요 ${s.needs_check||0}</span>`
+        +(res.verify_enabled?`<span class="chip ok">실존 확인 ${s.verified||0}</span>`:'')
+        +(s.retracted?`<span class="chip warn">⚠ 철회 인용 ${s.retracted}</span>`:'')
+        +(s.suspect?`<span class="chip warn">실존 의심 ${s.suspect}</span>`:'')
+        +(s.suggestions?`<span class="chip amber">교정 ${s.suggestions}건</span>`:'')
+        +(s.tips?`<span class="chip amber">💡 작성 제안 ${s.tips}건</span>`:'')
+        +(res.crosscheck?`<span class="chip ${s.crosscheck_issues?'warn':'ok'}">본문 대조 이슈 ${s.crosscheck_issues||0}</span>`:'');
+    }
+    div.innerHTML=`<div class="head"><b>📄 ${esc(res.filename)}</b>${chips}
+      ${res.error?'<span class="chip warn">오류</span>':''}
+      <span style="flex:1"></span><span class="hint">${esc(res.style_name||'')} · ${esc(res.engine_label||'')}</span></div>
+      <div class="body"></div>`;
+    div.querySelector('.head').onclick=()=>div.classList.toggle('open');
+    const body=div.querySelector('.body');
+
+    if(res.error){ body.innerHTML=`<div class="errbox">${esc(res.error)}</div>`; root.appendChild(div); return; }
+
+    let h='';
+    for(const w of res.warnings||[]) h+=`<div class="warnbox">⚠ ${esc(w)}</div>`;
+
+    // 다운로드
+    if(job.mode==='upload'){
+      h+=`<div class="row" style="margin-bottom:10px">
+        <button class="btn small" onclick="location='/api/jobs/${job.id}/download/${idx}?fmt=docx'">결과 DOCX</button>
+        <button class="btn ghost small" onclick="location='/api/jobs/${job.id}/download/${idx}?fmt=txt'">TXT</button>
+        <button class="btn ghost small" onclick="location='/api/jobs/${job.id}/download/${idx}?fmt=ris'">RIS (EndNote·Zotero)</button>
+        <button class="btn ghost small" onclick="location='/api/jobs/${job.id}/download/${idx}?fmt=bib'">BibTeX</button>
+        <button class="btn ghost small" onclick="copyList(${idx})">최종 목록 복사</button></div>`;
+    } else {
+      h+=`<div class="row" style="margin-bottom:10px">
+        <button class="btn ghost small" onclick="location='/api/jobs/${job.id}/download/${idx}?fmt=ris'">RIS</button>
+        <button class="btn ghost small" onclick="location='/api/jobs/${job.id}/download/${idx}?fmt=bib'">BibTeX</button>
+        <button class="btn ghost small" onclick="copyList(${idx})">최종 목록 복사</button></div>`;
+    }
+    // 철회·실존의심 경고 배너
+    if(s.retracted) h+=`<div class="errbox" style="margin-bottom:8px"><b>⚠ 철회(Retraction)된 문헌을 인용하고 있습니다 (${s.retracted}건).</b> 아래 목록의 붉은 표시 항목을 확인하고 인용 유지 여부를 재검토하세요.</div>`;
+    if(s.suspect) h+=`<div class="warnbox">⚠ 다중 DB(Crossref·OpenAlex·Semantic Scholar)에서 찾지 못한 실존 의심 문헌이 ${s.suspect}건 있습니다. AI 생성 인용이나 서지 오류 가능성을 확인하세요.</div>`;
+
+    // 최종 목록
+    h+='<h3>정리된 참고문헌 목록 <span class="hint">(각 항목의 ✏로 편집 요구를 보낼 수 있습니다)</span></h3><div class="reflist">';
+    let g=null;
+    res.items.forEach((it,ii)=>{
+      if(it.group&&it.group!==g){ g=it.group; h+=`<div class="group-label">[${esc(g)}]</div>`; }
+      const v=it.verify||null;
+      const lb=v? VLABEL[v.status]||null : null;
+      const ret=v&&v.retraction;
+      h+=`<p>${esc(it.formatted)}`
+        +(lb?`<span class="vbadge ${lb[1]}" title="${esc(vDetailFull(v))}">${lb[0]}</span>`:'')
+        +(ret?`<span class="vbadge v-bad" style="font-weight:700">⚠ ${esc(ret.label)}</span>`:'')
+        +`<span class="fbbtn" title="이 항목이 어떻게 편집되어야 하는지 요구사항을 보냅니다 (관리자 검토 후 규정 반영)" onclick="openFeedback(${idx},${ii})">✏</span>`
+        +'</p>';
+      if(ret&&ret.severe) h+=`<div class="issue" style="font-weight:600">⚠ 이 문헌은 ${esc(ret.label)} 처리된 논문입니다${ret.date?` (${esc(ret.date)})`:''} — 인용 유지 여부를 재검토하세요.</div>`;
+      if(v&&v.preprint) h+=`<div class="issue" style="color:var(--amber)">📄 ${esc(v.preprint.detail)}</div>`;
+      if(v&&v.journal&&v.journal.flag==='warn') h+=`<div class="issue" style="color:var(--amber)">📓 ${esc(v.journal.detail)}</div>`;
+      if(it.suggestions&&it.suggestions.length){
+        const ap=it.suggestions.some(sg=>sg.applied);
+        h+=`<div class="issue" style="color:${ap?'var(--ok)':'var(--amber)'}">✏ ${ap?'자동 교정 적용':'교정 제안'}: `
+          +it.suggestions.map(sg=>`${esc(sg.label)} ${esc(sg.current)}→${esc(sg.suggested)}(${esc(sg.source)})`).join(', ')
+          +'</div>';
+      }
+      if(it.tips&&it.tips.length){
+        for(const tp of it.tips)
+          h+=`<div class="issue" style="color:var(--amber)">💡 <b>[${esc(tp.label)}]</b> ${esc(tp.rule)}${tp.example?` <span class="hint">예: ${esc(tp.example)}</span>`:''}</div>`;
+      }
+      if(it.issues&&it.issues.length) h+=`<div class="issue">⚠ ${esc(it.issues.join(' / '))}</div>`;
+    });
+    h+='</div>';
+
+    // 대비표
+    h+=`<h3>변경 전·후 대비표</h3><div style="overflow-x:auto"><table class="cmp"><tr><th style="width:26px">#</th><th>변경 전(원문)</th><th>변경 후</th></tr>`;
+    res.items.forEach((it,i)=>{
+      h+=`<tr><td>${i+1}</td><td>${esc(it.raw)}</td><td class="${it.changed?'after':''}">${esc(it.formatted)}</td></tr>`;
+    });
+    h+='</table></div>';
+
+    // 검증 상세
+    if(res.verify_enabled){
+      h+=`<h3>실존·윤리 검증 상세</h3><div style="overflow-x:auto"><table class="cmp"><tr><th style="width:26px">#</th><th style="width:90px">판정</th><th style="width:110px">출처</th><th>상세</th></tr>`;
+      res.items.forEach((it,i)=>{
+        const v=it.verify||{status:'skipped',detail:''};
+        const lb=VLABEL[v.status]||['-','v-skip'];
+        h+=`<tr><td>${i+1}</td><td><span class="vbadge ${lb[1]}">${lb[0]}</span>${v.retraction?'<br><span class="vbadge v-bad">'+esc(v.retraction.label)+'</span>':''}</td><td>${esc(v.source||'-')}</td><td>${esc(vDetailFull(v))}</td></tr>`;
+      });
+      h+='</table></div>';
+    }
+
+    // 본문 대조
+    if(res.crosscheck){
+      const cc=res.crosscheck;
+      h+=`<h3>본문 인용 ↔ 목록 대조 <span class="hint">(본문 인용 ${cc.citations_found}건 탐지)</span></h3>`;
+      if(cc.cited_not_listed.length){
+        h+='<div><b style="color:var(--warn)">본문에 인용됐지만 목록에 없음</b>';
+        for(const c of cc.cited_not_listed)
+          h+=`<div class="issue">· ${esc(c.name)}(${esc(c.year)}) — “…${esc(c.snippet)}…”${c.name_only_match?' <span class="hint">(같은 저자 다른 연도는 목록에 있음 — 연도 확인)</span>':''}</div>`;
+        h+='</div>';
+      }
+      if(cc.listed_not_cited.length){
+        h+='<div style="margin-top:6px"><b style="color:var(--amber)">목록에 있지만 본문 인용을 찾지 못함</b>';
+        for(const c of cc.listed_not_cited)
+          h+=`<div class="issue" style="color:var(--amber)">· ${esc(c.authors||'')} (${esc(c.year)}) — ${esc(c.raw)}</div>`;
+        h+='</div>';
+      }
+      if(!cc.cited_not_listed.length&&!cc.listed_not_cited.length)
+        h+='<div class="chip ok" style="display:inline-block">이상 없음 — 본문 인용과 목록이 일치합니다</div>';
+    }
+
+    // 건전성 리포트
+    if(res.health){
+      const hl=res.health;
+      h+='<h3>참고문헌 건전성 리포트</h3><div class="chips">';
+      h+=`<span class="chip">총 ${hl.total}건</span>`;
+      if(hl.year_min) h+=`<span class="chip">연도 ${hl.year_min}~${hl.year_max}</span>`;
+      if(hl.recent_ratio!==null&&hl.recent_ratio!==undefined)
+        h+=`<span class="chip ${hl.recent_ratio>=0.5?'ok':'amber'}">최근 ${hl.recent_years}년 문헌 ${(hl.recent_ratio*100).toFixed(0)}%</span>`;
+      if(hl.self_cites) h+=`<span class="chip amber">자기인용 ${hl.self_cites}건</span>`;
+      if(hl.duplicates&&hl.duplicates.length) h+=`<span class="chip warn">중복 의심 ${hl.duplicates.length}쌍</span>`;
+      h+='</div>';
+      if(hl.top_journals&&hl.top_journals.length){
+        h+='<div class="hint" style="margin-top:4px">자주 인용된 학술지: '
+          +hl.top_journals.map(j=>`${esc(j.name)} ${j.count}건(${(j.share*100).toFixed(0)}%)`).join(' · ')+'</div>';
+      }
+      if(hl.duplicates&&hl.duplicates.length){
+        for(const d of hl.duplicates)
+          h+=`<div class="issue">중복 의심 [${esc(d.reason)}] ${esc(d.a)} ↔ ${esc(d.b)}</div>`;
+      }
+    }
+
+    // 영문 변환
+    if(res.english_list&&res.english_list.length){
+      h+='<h3>국문 참고문헌 영문 변환 목록 (알파벳순)</h3><div class="reflist">';
+      for(const line of res.english_list) h+=`<p>${esc(line)}</p>`;
+      h+='</div>';
+    }
+
+    body.innerHTML=h;
+    root.appendChild(div);
+  });
+  window._lastJob=job;
+  $('resultCard').scrollIntoView({behavior:'smooth'});
+}
+function copyList(idx){
+  const res=window._lastJob.results[idx];
+  let g=null,lines=[];
+  for(const it of res.items){
+    if(it.group&&it.group!==g){g=it.group;lines.push('['+g+']');}
+    lines.push(it.formatted);
+  }
+  navigator.clipboard.writeText(lines.join('\n')).then(()=>alert('최종 목록이 클립보드에 복사되었습니다.'));
+}
+function downloadZip(){ location='/api/jobs/'+currentJob+'/download_zip'; }
+
+// ---------- 새 논문(초기화)
+function resetAll(){
+  if(pollTimer) clearInterval(pollTimer);
+  currentJob=null; window._lastJob=null;
+  pickedFiles=[]; renderFileList();
+  setRunning(false);
+  $('fileInput').value='';
+  $('folderPath').value='';
+  $('progress').style.display='none';
+  $('barFill').style.width='0'; $('stageText').textContent='';
+  $('results').innerHTML=''; $('resultCard').style.display='none';
+  $('outDirNote').textContent='';
+  switchTab('up');
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+
+// ---------- 설정
+const dlgSettings=$('dlgSettings'), dlgStyle=$('dlgStyle'), dlgLogin=$('dlgLogin'),
+      dlgStats=$('dlgStats'), dlgFeedback=$('dlgFeedback'), dlgFbAdmin=$('dlgFbAdmin'),
+      dlgKb=$('dlgKb'), dlgAccess=$('dlgAccess');
+dlgAccess.addEventListener('cancel',e=>e.preventDefault()); // Esc로 우회 방지
+
+// ---------- 편집 요구 (이용자)
+let _fbTarget=null;
+function openFeedback(resIdx,itemIdx){
+  const res=window._lastJob.results[resIdx];
+  const it=res.items[itemIdx];
+  _fbTarget={res,it};
+  $('fbRaw').textContent=it.raw||'(원문 없음)';
+  $('fbFormatted').textContent=it.formatted||'';
+  $('fbRequest').value=''; $('fbMsg').textContent='';
+  dlgFeedback.showModal();
+}
+async function sendFeedback(){
+  if(!_fbTarget) return;
+  const req=$('fbRequest').value.trim();
+  if(req.length<5){ $('fbMsg').textContent='요구 내용을 5자 이상 입력해 주세요.'; $('fbMsg').className='msg bad'; return; }
+  const fd=new FormData();
+  fd.append('user_name',localStorage.getItem('refstd_user')||'');
+  const org=localStorage.getItem('refstd_org')||'';
+  fd.append('org',org==='기타'?(localStorage.getItem('refstd_orgetc')||'기타'):org);
+  fd.append('style_id',$('styleSel').value);
+  fd.append('style_name',_fbTarget.res.style_name||'');
+  fd.append('raw',_fbTarget.it.raw||'');
+  fd.append('formatted',_fbTarget.it.formatted||'');
+  fd.append('request_text',req);
+  const r=await fetch('/api/feedback',{method:'POST',body:fd});
+  const d=await r.json();
+  if(d.ok){ $('fbMsg').textContent=d.message; $('fbMsg').className='msg ok';
+    setTimeout(()=>dlgFeedback.close(),1400); }
+  else { $('fbMsg').textContent=d.message||'제출 실패'; $('fbMsg').className='msg bad'; }
+}
+
+// ---------- 편집 요구 관리 (관리자)
+async function openFbAdmin(){
+  dlgFbAdmin.showModal();
+  await renderFbAdmin();
+}
+async function renderFbAdmin(){
+  const r=await fetch('/api/admin/feedback');
+  if(!r.ok){ $('fbAdminList').innerHTML='<div class="errbox">관리자 로그인이 필요합니다.</div>'; return; }
+  const d=await r.json();
+  window._fbData=d;
+  // 요구 목록
+  let h='';
+  if(!d.feedback.length) h='<div class="hint">접수된 편집 요구가 없습니다.</div>';
+  for(const f of d.feedback){
+    h+=`<div class="fbcard">
+      <div class="row" style="margin-bottom:4px">
+        <span class="st st-${esc(f.status)}">${esc(f.status)}</span>
+        <b>${esc(f.user||'익명')}</b><span class="hint">${esc(f.org||'')} · ${esc(f.time)} · 기준: ${esc(f.style_name||f.style_id)}</span>
+      </div>
+      <div class="hint">원문: ${esc(f.raw)}</div>
+      <div class="hint">결과: ${esc(f.formatted)}</div>
+      <div style="margin:5px 0"><b>요구:</b> ${esc(f.request)}</div>`;
+    if(f.status==='접수'){
+      h+=`<div class="row">
+        <input type="text" id="dir_${f.id}" placeholder="반영할 편집 지침 입력 (예: 학술지명 뒤 구두점은 마침표로 한다)" style="flex:1">
+        <button class="btn small" onclick="resolveFb('${f.id}','반영')">규정에 반영</button>
+        <button class="btn ghost small" onclick="resolveFb('${f.id}','보류')">보류</button>
+      </div>`;
+    } else if(f.admin_note){
+      h+=`<div class="hint" style="color:var(--ok)">반영 지침: ${esc(f.admin_note)} (${esc(f.resolved_time)})</div>`;
+    }
+    h+='</div>';
+  }
+  $('fbAdminList').innerHTML=h;
+  // 지침 목록
+  let dh='';
+  const names=d.style_names||{};
+  for(const [sid,dirs] of Object.entries(d.directives||{})){
+    if(!dirs.length) continue;
+    dh+=`<div class="hint" style="margin-top:6px"><b>${esc(names[sid]||sid)}</b></div>`;
+    dirs.forEach((dir,i)=>{
+      dh+=`<div class="dirline"><span style="flex:1">· ${esc(dir.text)} <span class="hint">(${esc(dir.time)})</span></span>
+        <span class="fbbtn" onclick="delDirective('${sid}',${i})" title="지침 삭제">✕</span></div>`;
+    });
+  }
+  $('dirList').innerHTML=dh||'<div class="hint">아직 확정된 편집 지침이 없습니다.</div>';
+  // 지침 직접 추가용 기준 선택
+  const sel=$('dirStyleSel'); sel.innerHTML='';
+  for(const st of styles){ const o=document.createElement('option'); o.value=st.id; o.textContent=st.name; sel.appendChild(o); }
+}
+async function resolveFb(fid,action){
+  const f=(window._fbData.feedback||[]).find(x=>x.id===fid);
+  const fd=new FormData();
+  fd.append('action',action);
+  fd.append('style_id',f?f.style_id:'');
+  fd.append('directive_text',action==='반영'?($('dir_'+fid).value||''):'');
+  const r=await fetch(`/api/admin/feedback/${fid}/resolve`,{method:'POST',body:fd});
+  const d=await r.json();
+  if(!d.ok){ $('fbAdminMsg').textContent=d.message||'처리 실패'; $('fbAdminMsg').className='msg bad'; return; }
+  $('fbAdminMsg').textContent=action==='반영'?'지침이 규정에 반영되었습니다. 이후 처리부터 적용됩니다.':'보류 처리되었습니다.';
+  $('fbAdminMsg').className='msg ok';
+  await renderFbAdmin();
+}
+async function addDirective(){
+  const text=$('dirNew').value.trim();
+  if(text.length<5){ $('fbAdminMsg').textContent='지침을 5자 이상 입력해 주세요.'; $('fbAdminMsg').className='msg bad'; return; }
+  const fd=new FormData(); fd.append('style_id',$('dirStyleSel').value); fd.append('text',text);
+  const r=await fetch('/api/admin/directives',{method:'POST',body:fd});
+  const d=await r.json();
+  if(d.ok){ $('dirNew').value=''; $('fbAdminMsg').textContent='지침이 추가되었습니다.'; $('fbAdminMsg').className='msg ok'; await renderFbAdmin(); }
+  else { $('fbAdminMsg').textContent=d.message||'추가 실패'; $('fbAdminMsg').className='msg bad'; }
+}
+async function delDirective(sid,i){
+  if(!confirm('이 편집 지침을 삭제할까요?')) return;
+  await fetch(`/api/admin/directives/${sid}/${i}`,{method:'DELETE'});
+  await renderFbAdmin();
+}
+
+// ---------- 사용 통계(관리자)
+async function openStats(){
+  dlgStats.showModal();
+  $('statsBody').textContent='불러오는 중…';
+  const r=await fetch('/api/admin/stats');
+  if(!r.ok){ $('statsBody').innerHTML='<div class="errbox">통계를 불러올 수 없습니다(관리자 로그인이 필요합니다).</div>'; return; }
+  const d=await r.json();
+  let h=`<div class="chips"><span class="chip">총 사용 ${d.total_uses}회</span>`+
+        `<span class="chip">처리 파일 ${d.total_files}건</span>`+
+        `<span class="chip">처리 문헌 ${d.total_refs}건</span></div>`;
+  h+='<h3 style="margin:10px 0 4px;color:var(--accent)">기관(학회)별 통계</h3>';
+  h+='<div style="overflow-x:auto"><table class="cmp"><tr><th>기관(학회)</th><th>사용 횟수</th><th>사용자 수</th><th>파일</th><th>문헌</th></tr>';
+  for(const o of d.by_org)
+    h+=`<tr><td>${esc(o.org)}</td><td>${o.uses}</td><td>${o.users}</td><td>${o.files}</td><td>${o.refs}</td></tr>`;
+  h+='</table></div>';
+  h+='<h3 style="margin:12px 0 4px;color:var(--accent)">최근 사용 내역 (최근 50건)</h3>';
+  h+='<div style="overflow-x:auto"><table class="cmp"><tr><th>일시</th><th>사용자</th><th>기관(학회)</th><th>방식</th><th>파일</th><th>문헌</th><th>엔진</th></tr>';
+  for(const u of d.recent)
+    h+=`<tr><td>${esc(u.time)}</td><td>${esc(u.user)}</td><td>${esc(u.org)}</td><td>${u.mode==='folder'?'폴더 일괄':'업로드'}</td><td>${u.files}</td><td>${u.refs}</td><td>${u.ai?'AI':'규칙'}</td></tr>`;
+  h+='</table></div>';
+  if(!d.total_uses) h+='<div class="hint" style="margin-top:8px">아직 사용 기록이 없습니다.</div>';
+  $('statsBody').innerHTML=h;
+}
+async function openSettings(){
+  const s=window._status||await (await fetch('/api/status')).json();
+  if(!s.admin){ adminAction(); return; }
+  const sel=$('setModel'); sel.innerHTML='';
+  for(const m of s.models){ const o=document.createElement('option');o.value=m;o.textContent=m;sel.appendChild(o); }
+  sel.value=s.model;
+  $('setKey').value='';
+  $('setAccessCode').value=s.access_code||'';
+  $('keyHint').textContent=s.key_hint?`현재 저장된 키: ${s.key_hint} (변경하려면 새 키 입력)`:'console.anthropic.com에서 발급. 키는 이 컴퓨터의 app/config.json에만 저장됩니다.';
+  const kr=s.kr_apis||{};
+  const lbl=(ok)=>ok?'<span class="vbadge v-ok">설정됨</span>':'<span class="vbadge v-skip">미설정</span>';
+  $('krApiStatus').innerHTML=`KCI(학술지 논문) ${lbl(kr.kci)} &nbsp; 국립중앙도서관(단행본) ${lbl(kr.nlk)} &nbsp; 국회도서관(학위논문) ${lbl(kr.nanet)}`;
+  $('setMsg').textContent='';
+  dlgSettings.showModal();
+}
+async function testKey(){
+  $('setMsg').textContent='검증 중…'; $('setMsg').className='msg';
+  const fd=new FormData(); fd.append('api_key',$('setKey').value); fd.append('model',$('setModel').value);
+  const r=await (await fetch('/api/settings/test',{method:'POST',body:fd})).json();
+  $('setMsg').textContent=r.message; $('setMsg').className='msg '+(r.ok?'ok':'bad');
+}
+async function saveSettings(){
+  const fd=new FormData(); fd.append('api_key',$('setKey').value); fd.append('model',$('setModel').value);
+  fd.append('access_code',$('setAccessCode').value);
+  await fetch('/api/settings',{method:'POST',body:fd});
+  await refreshStatus(); dlgSettings.close();
+}
+async function clearKey(){
+  if(!confirm('저장된 API 키를 삭제하고 규칙 기반 엔진으로 전환할까요?')) return;
+  const fd=new FormData(); fd.append('clear','1'); fd.append('model',$('setModel').value);
+  await fetch('/api/settings',{method:'POST',body:fd});
+  await refreshStatus();
+  $('setMsg').textContent='키가 삭제되었습니다. 규칙 기반 모드로 동작합니다.'; $('setMsg').className='msg ok';
+}
+
+// ---------- 기준 추가
+function openStyleDlg(){ $('stMsg').textContent=''; dlgStyle.showModal(); }
+function stTab(t){
+  for(const k of ['F','U','T']){
+    $('stTab'+k).className=t===k.toLowerCase()?'active':'';
+    $('stPane'+k).style.display=t===k.toLowerCase()?'':'none';
+  }
+}
+async function addStyle(){
+  const fd=new FormData();
+  fd.append('name',$('stName').value);
+  const f=$('stFile').files[0];
+  if($('stPaneF').style.display!=='none'&&f) fd.append('file',f);
+  else if($('stPaneU').style.display!=='none'&&$('stUrl').value.trim()) fd.append('url',$('stUrl').value.trim());
+  else if($('stPaneT').style.display!=='none'&&$('stText').value.trim()) fd.append('text',$('stText').value);
+  else { $('stMsg').textContent='파일·URL·직접 입력 중 하나를 제공해 주세요.'; $('stMsg').className='msg bad'; return; }
+  $('stMsg').textContent='등록 중…'; $('stMsg').className='msg';
+  const r=await fetch('/api/styles',{method:'POST',body:fd});
+  const d=await r.json();
+  if(d.ok){
+    await refreshStyles(); $('styleSel').value=d.style.id; updateStyleDesc();
+    dlgStyle.close();
+    $('stName').value='';$('stUrl').value='';$('stText').value='';$('stFile').value='';
+  } else { $('stMsg').textContent=d.message||'등록 실패'; $('stMsg').className='msg bad'; }
+}
+
+// ---------- 기준·제안 관리 (관리자)
+const TYPE_LABEL={journal:'학술지 논문',book:'단행본',book_chapter:'단행본 장',thesis:'학위논문',
+  report:'보고서·정부간행물',newspaper:'신문·잡지',web:'웹 자원',conference:'학술대회',
+  law:'법령',standard:'표준·특허',interview:'인터뷰',av:'영상·음반',unknown:'기타'};
+const KB_JOURNALS=['한국문헌정보학회지','한국도서관·정보학회지','한국비블리아학회지','정보관리학회지'];
+let kbCaseTimer=null, kbCmpTimer=null, _kbInit=false;
+
+async function openKb(){
+  dlgKb.showModal();
+  if(!_kbInit){ initKbStatic(); _kbInit=true; }
+  $('kbMsg').textContent='';
+  await renderKb();
+  await loadCmpHistory();
+}
+function initKbStatic(){
+  const jsel=$('caseJournal'); jsel.innerHTML='';
+  for(const j of KB_JOURNALS){ const o=document.createElement('option'); o.value=j; o.textContent=j; jsel.appendChild(o); }
+  const etc=document.createElement('option'); etc.value='기타'; etc.textContent='기타 (직접 입력)'; jsel.appendChild(etc);
+  for(const id of ['sugTypeC','sugTypeP']){
+    const sel=$(id); sel.innerHTML='';
+    const all=document.createElement('option'); all.value=''; all.textContent='적용 유형: 전체'; sel.appendChild(all);
+    for(const [k,v] of Object.entries(TYPE_LABEL)){
+      if(k==='unknown') continue;
+      const o=document.createElement('option'); o.value=k; o.textContent=v; sel.appendChild(o);
+    }
+  }
+}
+function caseJournalChanged(){ $('caseJournalEtc').style.display=$('caseJournal').value==='기타'?'':'none'; }
+function kbTab(t){
+  for(const k of ['C','P','S','M']){
+    $('kbTab'+k).className=t===k.toLowerCase()?'active':'';
+    $('kbPane'+k).style.display=t===k.toLowerCase()?'':'none';
+  }
+}
+async function renderKb(){
+  const r=await fetch('/api/admin/knowledge');
+  if(!r.ok){ $('kbListC').innerHTML='<div class="errbox">관리자 로그인이 필요합니다.</div>'; return; }
+  const d=await r.json(); window._kb=d;
+  $('kbListC').innerHTML=sugListHtml(d.case)||'<div class="hint">아직 등록된 제안이 없습니다. 사례 논문을 등록하거나 직접 추가하세요.</div>';
+  $('kbListP').innerHTML=sugListHtml(d.prof)||'<div class="hint">아직 등록된 제안이 없습니다. 발행본 비교에서 채택하거나 직접 추가하세요.</div>';
+  $('kbListS').innerHTML=stdListHtml(d.standards)||'<div class="hint">아직 등록된 추가 기준이 없습니다.</div>';
+}
+function typeChips(types){
+  if(!types||!types.length) return '<span class="hint">전체 유형</span>';
+  return types.map(t=>`<span class="hint">${esc(TYPE_LABEL[t]||t)}</span>`).join(' · ');
+}
+function sugListHtml(list){
+  let h='';
+  for(const s of list||[]){
+    h+=`<div class="kbcard${s.enabled?'':' off'}">
+      <div class="row" style="margin-bottom:3px">
+        <span class="topic">${esc(s.topic||'일반')}</span> ${typeChips(s.types)}
+        <span style="flex:1"></span>
+        <span class="hint">${esc(s.time||'')}${s.origin==='seed'?' · 초기 시드':s.origin==='case_upload'?' · 사례 분석':s.origin==='compare'?' · 발행본 비교':''}</span>
+        <button class="btn ghost small" onclick="toggleSug('${s.id}')">${s.enabled?'사용 중 ✓':'미사용'}</button>
+        <span class="fbbtn" onclick="delSug('${s.id}')" title="삭제">✕</span>
+      </div>
+      <div>${esc(s.rule)}</div>
+      ${s.example?`<div class="hint" style="margin-top:2px">예: ${esc(s.example)}</div>`:''}
+      ${s.evidence?`<div class="hint" style="margin-top:2px">근거: ${esc(s.evidence)}</div>`:''}
+    </div>`;
+  }
+  return h;
+}
+function stdListHtml(list){
+  let h='';
+  for(const s of list||[]){
+    h+=`<div class="kbcard${s.enabled?'':' off'}">
+      <div class="row" style="margin-bottom:3px">
+        <span class="topic">추가 기준</span>
+        <span style="flex:1"></span>
+        <span class="hint">${esc(s.time||'')}</span>
+        <button class="btn ghost small" onclick="toggleStd('${s.id}')">${s.enabled?'적용 중 ✓':'미적용'}</button>
+        <span class="fbbtn" onclick="delStd('${s.id}')" title="삭제">✕</span>
+      </div>
+      <div>${esc(s.rule)}</div>
+      ${s.example?`<div class="hint" style="margin-top:2px">예: ${esc(s.example)}</div>`:''}
+    </div>`;
+  }
+  return h;
+}
+async function toggleSug(id){ await fetch(`/api/admin/suggestions/${id}/toggle`,{method:'POST'}); await renderKb(); }
+async function delSug(id){ if(!confirm('이 제안을 삭제할까요?')) return;
+  await fetch(`/api/admin/suggestions/${id}`,{method:'DELETE'}); await renderKb(); }
+async function toggleStd(id){ await fetch(`/api/admin/standards/${id}/toggle`,{method:'POST'}); await renderKb(); }
+async function delStd(id){ if(!confirm('이 추가 기준을 삭제할까요?')) return;
+  await fetch(`/api/admin/standards/${id}`,{method:'DELETE'}); await renderKb(); }
+async function addSug(source){
+  const sfx=source==='case'?'C':'P';
+  const rule=$('sugRule'+sfx).value.trim();
+  if(rule.length<5){ $('kbMsg').textContent='제안 내용을 5자 이상 입력해 주세요.'; $('kbMsg').className='msg bad'; return; }
+  const fd=new FormData();
+  fd.append('source',source); fd.append('topic',$('sugTopic'+sfx).value);
+  fd.append('types',$('sugType'+sfx).value); fd.append('rule',rule); fd.append('example',$('sugEx'+sfx).value);
+  const r=await fetch('/api/admin/suggestions',{method:'POST',body:fd});
+  const d=await r.json();
+  if(d.ok){ $('sugRule'+sfx).value=''; $('sugEx'+sfx).value=''; $('sugTopic'+sfx).value='';
+    $('kbMsg').textContent='제안이 추가되었습니다.'; $('kbMsg').className='msg ok'; await renderKb(); }
+  else { $('kbMsg').textContent=d.message||'추가 실패'; $('kbMsg').className='msg bad'; }
+}
+async function addStd(){
+  const rule=$('stdRule').value.trim();
+  if(rule.length<5){ $('kbMsg').textContent='기준 내용을 5자 이상 입력해 주세요.'; $('kbMsg').className='msg bad'; return; }
+  const fd=new FormData(); fd.append('rule',rule); fd.append('example',$('stdExample').value);
+  const r=await fetch('/api/admin/standards',{method:'POST',body:fd});
+  const d=await r.json();
+  if(d.ok){ $('stdRule').value=''; $('stdExample').value='';
+    $('kbMsg').textContent='추가 기준이 등록되었습니다. 이후 처리부터 변환에 반영됩니다(AI 모드).'; $('kbMsg').className='msg ok'; await renderKb(); }
+  else { $('kbMsg').textContent=d.message||'등록 실패'; $('kbMsg').className='msg bad'; }
+}
+
+// ---------- 사례 논문 분석
+async function runCaseAnalysis(){
+  const files=$('caseFiles').files;
+  if(!files.length){ $('caseMsg').textContent='발행 논문 파일을 선택해 주세요.'; $('caseMsg').className='msg bad'; return; }
+  let journal=$('caseJournal').value;
+  if(journal==='기타') journal=$('caseJournalEtc').value.trim();
+  if(!journal){ $('caseMsg').textContent='학회지명을 입력해 주세요.'; $('caseMsg').className='msg bad'; return; }
+  const fd=new FormData(); fd.append('journal',journal);
+  for(const f of files) fd.append('files',f);
+  $('caseRunBtn').disabled=true;
+  $('caseMsg').textContent='분석 시작…'; $('caseMsg').className='msg';
+  let r;
+  try{ r=await fetch('/api/admin/cases',{method:'POST',body:fd}); }
+  catch(e){ $('caseMsg').textContent='요청 실패: '+e.message; $('caseMsg').className='msg bad'; $('caseRunBtn').disabled=false; return; }
+  if(!r.ok){ $('caseMsg').textContent=(await r.json()).detail||'요청 실패'; $('caseMsg').className='msg bad'; $('caseRunBtn').disabled=false; return; }
+  const id=(await r.json()).job_id;
+  kbCaseTimer=setInterval(async()=>{
+    const j=await (await fetch('/api/jobs/'+id)).json();
+    $('caseMsg').textContent=`${j.current_file||''} — ${j.stage} (${j.done_files}/${j.total_files} 파일)`;
+    if(j.status==='done'||j.status==='error'){
+      clearInterval(kbCaseTimer); $('caseRunBtn').disabled=false;
+      if(j.status==='error'){ $('caseMsg').textContent='오류: '+j.error; $('caseMsg').className='msg bad'; return; }
+      let drafts=0, refs=0, errs=[];
+      for(const res of j.results){ drafts+=res.n_drafts||0; refs+=res.n_refs||0; if(res.error) errs.push(`${res.filename}: ${res.error}`); }
+      $('caseMsg').textContent=`완료 — 참고문헌 ${refs}건 분석, 제안 초안 ${drafts}건 추가`
+        +(drafts?` (아래 목록에서 검토 후 '사용'으로 켜 주세요)`:' (새로운 패턴이 발견되지 않았습니다)')
+        +(errs.length?` / 실패: ${errs.join(' · ')}`:'');
+      $('caseMsg').className='msg '+(errs.length?'bad':'ok');
+      $('caseFiles').value='';
+      await renderKb();
+    }
+  },1200);
+}
+
+// ---------- 발행본 비교
+async function loadCmpHistory(){
+  const r=await fetch('/api/admin/history');
+  if(!r.ok) return;
+  const d=await r.json();
+  const sel=$('cmpHistory'); sel.innerHTML='';
+  if(!d.history.length){
+    const o=document.createElement('option'); o.value=''; o.textContent='처리 이력이 없습니다 — 먼저 원고를 처리해 주세요'; sel.appendChild(o);
+    return;
+  }
+  for(const h of d.history){
+    const o=document.createElement('option'); o.value=h.id;
+    o.textContent=`${h.time} · ${h.filename} · ${h.user||'익명'}(${h.org||'-'}) · ${h.total}건`;
+    sel.appendChild(o);
+  }
+}
+async function runCompare(){
+  const hid=$('cmpHistory').value;
+  const f=$('cmpFile').files[0];
+  if(!hid){ $('cmpMsg').textContent='비교할 처리 이력을 선택해 주세요.'; $('cmpMsg').className='msg bad'; return; }
+  if(!f){ $('cmpMsg').textContent='학회지 발행본 파일을 선택해 주세요.'; $('cmpMsg').className='msg bad'; return; }
+  const fd=new FormData(); fd.append('history_id',hid); fd.append('file',f);
+  $('cmpRunBtn').disabled=true; $('cmpResult').innerHTML='';
+  $('cmpMsg').textContent='비교 시작…'; $('cmpMsg').className='msg';
+  let r;
+  try{ r=await fetch('/api/admin/compare',{method:'POST',body:fd}); }
+  catch(e){ $('cmpMsg').textContent='요청 실패: '+e.message; $('cmpMsg').className='msg bad'; $('cmpRunBtn').disabled=false; return; }
+  if(!r.ok){ $('cmpMsg').textContent=(await r.json()).detail||'요청 실패'; $('cmpMsg').className='msg bad'; $('cmpRunBtn').disabled=false; return; }
+  const id=(await r.json()).job_id;
+  kbCmpTimer=setInterval(async()=>{
+    const j=await (await fetch('/api/jobs/'+id)).json();
+    $('cmpMsg').textContent=j.stage||'비교 중…';
+    if(j.status==='done'||j.status==='error'){
+      clearInterval(kbCmpTimer); $('cmpRunBtn').disabled=false;
+      if(j.status==='error'){ $('cmpMsg').textContent='오류: '+j.error; $('cmpMsg').className='msg bad'; return; }
+      $('cmpMsg').textContent='';
+      renderCompare(j.results[0]);
+    }
+  },1200);
+}
+function diffHtml(diff,side){
+  if(!diff||!diff.length) return '';
+  return diff.map(seg=>{
+    const t=side==='a'?seg[1]:seg[2];
+    if(!t) return '';
+    return seg[0]==='equal'?esc(t):`<mark class="${side==='a'?'da':'db'}">${esc(t)}</mark>`;
+  }).join('');
+}
+function renderCompare(res){
+  window._cmp=res;
+  const c=res.compare;
+  let h=`<div class="chips" style="margin-top:8px">
+    <span class="chip">짝지은 문헌 ${c.n_pairs}건</span>
+    <span class="chip ok">일치 ${c.n_same}건</span>
+    <span class="chip ${c.n_diff?'warn':'ok'}">차이 ${c.n_diff}건</span>
+    ${c.agent_only.length?`<span class="chip amber">에이전트에만 있음 ${c.agent_only.length}건</span>`:''}
+    ${c.published_only.length?`<span class="chip amber">발행본에만 있음 ${c.published_only.length}건</span>`:''}
+  </div>`;
+  const diffs=c.pairs.filter(p=>!p.same);
+  if(diffs.length){
+    h+=`<div class="hint" style="margin:6px 0">차이 항목입니다. <mark class="da">에이전트 결과에만 있는 부분</mark> ·
+      <mark class="db">발행본에만 있는 부분</mark>이 표시됩니다. 기준으로 삼을 항목을 체크하고 제안 문구를 다듬은 뒤 아래 등록 버튼을 누르세요.</div>`;
+    for(const p of diffs){
+      const d=p.draft||{};
+      h+=`<div class="cmp-pair" id="pair_${p.pair_id}">
+        <div class="row" style="margin-bottom:5px">
+          <label style="color:var(--ink)"><input type="checkbox" id="ck_${p.pair_id}"> <b>채택</b></label>
+          <span class="hint">${esc(TYPE_LABEL[p.type]||p.type||'')} · 유사도 ${(p.sim*100).toFixed(0)}%</span>
+        </div>
+        <div style="margin-bottom:3px"><span class="lbl">에이전트</span><span class="txt">${diffHtml(p.diff,'a')||esc(p.agent)}</span></div>
+        <div style="margin-bottom:6px"><span class="lbl">발행본</span><span class="txt">${diffHtml(p.diff,'b')||esc(p.published)}</span></div>
+        <div class="row">
+          <input type="text" id="tp_${p.pair_id}" value="${esc(d.topic||'')}" placeholder="구분" style="max-width:140px">
+          <input type="text" id="rl_${p.pair_id}" value="${esc(d.rule||'')}" placeholder="제안 문구 ('~한다' 형태)" style="flex:1;min-width:220px">
+        </div>
+        <input type="hidden" id="ex_${p.pair_id}" value="${esc(d.example||p.published)}">
+        <input type="hidden" id="ev_${p.pair_id}" value="${esc(d.evidence||'')}">
+      </div>`;
+    }
+    h+=`<div class="row" style="margin:10px 0">
+      <button class="btn" onclick="adoptChecked()">체크한 항목을 '박주현 교수의 추가 제안'으로 등록</button>
+      <span class="hint">'[서지 차이]'로 표시된 초안은 형식 규칙이 아닌 데이터 차이이므로 등록하지 않는 것이 좋습니다.</span>
+    </div>`;
+  } else {
+    h+='<div class="chip ok" style="display:inline-block;margin:8px 0">에이전트 결과와 발행본 표기가 모두 일치합니다.</div>';
+  }
+  if(c.agent_only.length){
+    h+='<div style="margin-top:8px"><b style="color:var(--amber)">에이전트 결과에만 있는 문헌</b>';
+    for(const a of c.agent_only) h+=`<div class="issue" style="color:var(--amber)">· ${esc(a.agent)}</div>`;
+    h+='</div>';
+  }
+  if(c.published_only.length){
+    h+='<div style="margin-top:8px"><b style="color:var(--amber)">발행본에만 있는 문헌</b>';
+    for(const p of c.published_only) h+=`<div class="issue" style="color:var(--amber)">· ${esc(p)}</div>`;
+    h+='</div>';
+  }
+  $('cmpResult').innerHTML=h;
+}
+async function adoptChecked(){
+  const c=window._cmp&&window._cmp.compare; if(!c) return;
+  const items=[];
+  for(const p of c.pairs.filter(x=>!x.same)){
+    const ck=$('ck_'+p.pair_id);
+    if(!ck||!ck.checked) continue;
+    items.push({topic:$('tp_'+p.pair_id).value, rule:$('rl_'+p.pair_id).value,
+      example:$('ex_'+p.pair_id).value, evidence:$('ev_'+p.pair_id).value,
+      types:p.type?[p.type]:[]});
+  }
+  if(!items.length){ $('cmpMsg').textContent='채택할 항목을 체크해 주세요.'; $('cmpMsg').className='msg bad'; return; }
+  const r=await fetch('/api/admin/compare/adopt',{method:'POST',
+    headers:{'Content-Type':'application/json'}, body:JSON.stringify({items})});
+  const d=await r.json();
+  if(d.ok){
+    $('cmpMsg').textContent=`'박주현 교수의 추가 제안'에 ${d.added}건 등록되었습니다`+(d.skipped?` (중복·미비 ${d.skipped}건 제외)`:'')+'. 이후 처리 결과부터 표시됩니다.';
+    $('cmpMsg').className='msg ok';
+    await renderKb();
+  } else { $('cmpMsg').textContent='등록 실패'; $('cmpMsg').className='msg bad'; }
+}
+
+init();
+</script>
+</body>
+</html>

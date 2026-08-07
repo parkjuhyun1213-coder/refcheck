@@ -1,0 +1,24 @@
+공공도서관의 다문화서비스에 관한 연구
+
+1. 서론
+
+공공도서관의 역할 변화에 대한 논의는 오래전부터 이어져 왔다(곽동철, 2020). 특히 김영석과 이용재(2018)는 지역사회 기반 서비스의 중요성을 강조하였고, 디지털 환경에서의 이용자 연구도 활발하다(Wilson, 2000; Shiri, 2003). 도서관 다문화서비스 교육과정에 관한 연구(구정화, 우윤희, 신난희, 조용완, 2020)와 함께, 개방형 리포지터리 수용 요인을 분석한 정영미와 배정희(2015)의 연구도 주목할 만하다. 학교도서관 사서의 SNS 활용에 대해서는 변회균(2014)이 다룬 바 있다. 한편 혁신 저항 모델은 Ram(1987)이 제시하였다. 최근 연구(홍성철, 2024)는 인공지능 기반 서비스 확산을 다루었다.
+
+2. 결론
+
+이상의 논의를 종합하면 공공도서관 다문화서비스의 체계적 확대가 필요하다.
+
+참고문헌
+
+곽동철(2020). 도서관의 사회적 역할에 관한 연구, 한국문헌정보학회지 54권 2호, pp.5-27.
+구정화·우윤희·신난희·조용완, "사서 대상 도서관 다문화서비스 교육과정의 교과목에 관한 연구", 한국도서관·정보학회지 제51권 제3호(2020), 351-384쪽.
+김영석, 이용재. (2018). 공공도서관 지역사회 서비스 연구. 한국도서관․정보학회지, 49(1), 22-45
+정영미, 배정희 (2015) 기술확산 통합모델을 통한 개방형 기관 리포지터리 수용의 영향요인 분석. 한국도서관․정보학회지 46(4) 529-549 http://dx.doi.org/10.16981/kliss.46.4.201512.529
+변회균. 학교도서관 사서의 SNS 활용과 업무성과의 영향요인 연구. 박사학위논문, 경기대학교, 2014.
+이수상 (2008). 디지털도서관운영론, 한국도서관협회: 서울.
+Ram, S. "A model of innovation resistance." Advances in Consumer Research 13 (1987): 208-212.
+Shiri, A. (2003). Digital Library Research: Current Developments And Trends. Library Review, vol. 52, no. 5, pp. 198-202.
+Wilson, T.D. Recent trends in user studies: action research and qualitative methods. Information Research: An International Electronic Journal 5(3), 2000. https://doaj.org/article/5e27e254b4164507bab6bda09cab4fac
+Huber, E., Rueschemeyer, D., and Stephens, J. D. (1993). The Impact Of Economic Development On Democracy. Journal of Economic Perspectives 7(3), 71-86. doi:10.1257/jep.7.3.71
+Caplan, Priscilla. Metadata Fundamentals for All Librarians. American Library Association, Chicago, 2003.
+국립중앙도서관 (2019). 도서관 다문화서비스 운영 매뉴얼. 국립중앙도서관.

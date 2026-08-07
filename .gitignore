@@ -1,0 +1,22 @@
+# ── 비밀 정보 (절대 커밋 금지)
+*.env
+!.env.example
+app/config.json
+
+# ── 런타임 데이터 (서비스 사용 기록·관리자 축적 데이터)
+app/usage_log.json
+app/feedback_log.json
+app/style_directives.json
+app/admin_standards.json
+app/case_corpus.json
+app/history/
+app/styles/
+
+# ── 결과물·캐시
+__pycache__/
+*.pyc
+참고문헌_정리결과/
+
+# ── 루트의 개인 문서 (샘플원고 폴더는 포함됨)
+/*.docx
+/*.pdf

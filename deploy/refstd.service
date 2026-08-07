@@ -1,0 +1,14 @@
+[Unit]
+Description=참고문헌 표준화·검증 에이전트 (FastAPI)
+After=network.target
+
+[Service]
+WorkingDirectory=/opt/refstd/app
+ExecStart=/opt/refstd/venv/bin/python -m uvicorn main:app --host 127.0.0.1 --port 8765
+Restart=always
+RestartSec=3
+User=www-data
+Group=www-data
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,1174 @@
+# -*- coding: utf-8 -*-
+"""파일 기반 참고문헌 표준화·검증 에이전트 — FastAPI 서버.
+
+실행:  python -m uvicorn main:app --port 8765   (run.bat 참조)
+접속:  http://localhost:8765
+"""
+import hashlib
+import io
+import re
+import secrets
+import threading
+import time
+import uuid
+import zipfile
+from pathlib import Path
+
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
+from fastapi.responses import HTMLResponse, Response, JSONResponse
+
+import aiengine
+import compare as compare_mod
+import crosscheck as cc_mod
+import extract
+import feedback as feedback_mod
+import formatter
+import history as history_mod
+import parsing
+import report
+import rules
+import styles as styles_mod
+import suggestions as suggestions_mod
+import verify as verify_mod
+
+app = FastAPI(title="파일 기반 참고문헌 표준화·검증 에이전트")
+
+APP_DIR = Path(__file__).parent
+JOBS: dict[str, dict] = {}
+_JOBS_LOCK = threading.Lock()
+
+GROUP_LABEL = {"ko": "국내문헌", "west": "서양문헌", "east": "동양문헌"}
+
+
+# ================================================================ 관리자 인증
+# 관리자 계정은 프로젝트 루트 .env의 ADMIN_ID / ADMIN_PASSWORD 로 설정한다.
+ADMIN_SESSIONS: dict[str, float] = {}
+SESSION_TTL = 12 * 3600  # 12시간
+_PLACEHOLDER_PW = {"", "바꿔주세요", "changeme", "password", "1234"}
+
+
+def _admin_creds() -> tuple[str, str]:
+    return aiengine.env_get("ADMIN_ID").strip(), aiengine.env_get("ADMIN_PASSWORD").strip()
+
+
+def admin_configured() -> bool:
+    aid, pw = _admin_creds()
+    return bool(aid) and pw not in _PLACEHOLDER_PW
+
+
+def is_admin(request: Request) -> bool:
+    tok = request.cookies.get("admin_token", "")
+    exp = ADMIN_SESSIONS.get(tok)
+    if not tok or not exp:
+        return False
+    if time.time() > exp:
+        ADMIN_SESSIONS.pop(tok, None)
+        return False
+    return True
+
+
+def _cookie_secure() -> bool:
+    """HTTPS 정식 운영 환경에서는 .env의 COOKIE_SECURE=1 로 쿠키를 HTTPS 전용으로 보호."""
+    return aiengine.env_get("COOKIE_SECURE") == "1"
+
+
+# ---------------------------------------------------------------- 이용자 접근 코드
+# 외부 공개 운영 시 무단 사용(API 비용 발생)을 막기 위한 공용 접근 코드.
+# 우선순위: config.json의 access_code(관리자가 ⚙ 설정에서 변경) → .env의 ACCESS_CODE.
+# 값이 비어 있으면 접근 제한 없음(로컬 사용 기본값).
+
+def _access_code() -> str:
+    return (aiengine.load_config().get("access_code") or aiengine.env_get("ACCESS_CODE")).strip()
+
+
+def access_required() -> bool:
+    return bool(_access_code())
+
+
+def _access_hash(code: str) -> str:
+    return hashlib.sha256(("refstd-access:" + code).encode("utf-8")).hexdigest()
+
+
+def has_access(request: Request) -> bool:
+    if not access_required() or is_admin(request):
+        return True
+    tok = request.cookies.get("access_token", "")
+    return bool(tok) and secrets.compare_digest(tok, _access_hash(_access_code()))
+
+
+def require_access(request: Request):
+    if not has_access(request):
+        raise HTTPException(401, "접근 코드가 필요합니다. 첫 화면에서 접근 코드를 입력해 주세요.")
+
+
+@app.post("/api/access")
+def enter_access(code: str = Form("")):
+    if not access_required():
+        return {"ok": True}
+    if secrets.compare_digest(code.strip().encode("utf-8"), _access_code().encode("utf-8")):
+        resp = JSONResponse({"ok": True})
+        resp.set_cookie("access_token", _access_hash(_access_code()), httponly=True,
+                        samesite="lax", max_age=30 * 24 * 3600, secure=_cookie_secure())
+        return resp
+    time.sleep(0.8)  # 무차별 대입 지연
+    return JSONResponse({"ok": False, "message": "접근 코드가 올바르지 않습니다."}, status_code=401)
+
+
+def require_admin(request: Request):
+    if not is_admin(request):
+        raise HTTPException(403, "관리자 모드가 필요합니다. 화면 오른쪽 위 '관리자'에서 로그인해 주세요.")
+
+
+@app.post("/api/admin/login")
+def admin_login(admin_id: str = Form(""), password: str = Form("")):
+    if not admin_configured():
+        return JSONResponse(
+            {"ok": False,
+             "message": "관리자 계정이 아직 설정되지 않았습니다. .env 파일의 ADMIN_ID와 ADMIN_PASSWORD 값을 원하는 계정으로 바꾼 뒤 다시 시도해 주세요."},
+            status_code=400)
+    aid, pw = _admin_creds()
+    # UTF-8 바이트 비교(compare_digest는 비ASCII 문자열을 지원하지 않음)
+    if secrets.compare_digest(admin_id.strip().encode("utf-8"), aid.encode("utf-8")) \
+            and secrets.compare_digest(password.encode("utf-8"), pw.encode("utf-8")):
+        tok = secrets.token_urlsafe(32)
+        ADMIN_SESSIONS[tok] = time.time() + SESSION_TTL
+        resp = JSONResponse({"ok": True})
+        resp.set_cookie("admin_token", tok, httponly=True, samesite="lax",
+                        max_age=SESSION_TTL, secure=_cookie_secure())
+        return resp
+    return JSONResponse({"ok": False, "message": "아이디 또는 비밀번호가 올바르지 않습니다."}, status_code=401)
+
+
+@app.post("/api/admin/logout")
+def admin_logout(request: Request):
+    ADMIN_SESSIONS.pop(request.cookies.get("admin_token", ""), None)
+    resp = JSONResponse({"ok": True})
+    resp.delete_cookie("admin_token")
+    return resp
+
+
+# ================================================================ 처리 파이프라인
+
+def _norm_for_compare(s: str) -> str:
+    return re.sub(r"[\s\.,;::()\[\]“”\"'·]+", "", s or "")
+
+
+_SUGGEST_FIELDS = [("year", "연도"), ("volume", "권"), ("issue", "호"), ("pages", "면수")]
+
+
+def _build_suggestions(entry: dict, meta: dict | None) -> list[dict]:
+    """검증에서 매칭된 정규 서지(meta)와 파싱 결과의 차이 → 필드별 수정 제안."""
+    if not meta:
+        return []
+    out = []
+    for f, label in _SUGGEST_FIELDS:
+        cur = (entry.get(f) or "").strip()
+        new = (meta.get(f) or "").strip().replace("–", "-")
+        if f == "year":
+            cur = re.sub(r"[a-z]$", "", cur)
+            if not re.fullmatch(r"\d{4}", new):
+                continue
+        if not new or new == cur:
+            continue
+        if f == "pages" and cur and _norm_for_compare(cur) == _norm_for_compare(new):
+            continue
+        out.append({"field": f, "label": label, "current": cur or "(없음)",
+                    "suggested": new, "source": meta.get("source", "")})
+    return out
+
+
+def _apply_suggestions(entry: dict, suggestions: list[dict]) -> list[str]:
+    """자동 교정 적용. 적용 내역 문자열 목록 반환."""
+    applied = []
+    for s in suggestions:
+        entry[s["field"]] = s["suggested"]
+        applied.append(f"자동 교정: {s['label']} {s['current']}→{s['suggested']} ({s['source']})")
+    return applied
+
+
+def _title_sim(a: str, b: str) -> float:
+    import difflib
+    na = re.sub(r"[^0-9a-z가-힣]", "", (a or "").lower())
+    nb = re.sub(r"[^0-9a-z가-힣]", "", (b or "").lower())
+    if not na or not nb:
+        return 0.0
+    return difflib.SequenceMatcher(None, na, nb).ratio()
+
+
+RECENT_YEARS = 10  # 최근 문헌 기준 연한
+
+
+def _health_report(entries: list[dict], user_name: str) -> dict:
+    """참고문헌 건전성 리포트: 연도 분포·중복·자기인용·저널 편중."""
+    cur_year = time.localtime().tm_year
+    years = []
+    for e in entries:
+        m = re.match(r"(\d{4})", e.get("year") or "")
+        if m:
+            years.append(int(m.group(1)))
+    year_dist: dict[str, int] = {}
+    for y in sorted(years):
+        year_dist[str(y)] = year_dist.get(str(y), 0) + 1
+    recent = sum(1 for y in years if y >= cur_year - (RECENT_YEARS - 1))
+
+    # 중복 검출: 동일 DOI 또는 제목 유사도 0.92 이상
+    duplicates = []
+    for i in range(len(entries)):
+        for j in range(i + 1, len(entries)):
+            a, b = entries[i], entries[j]
+            same_doi = a.get("doi") and a.get("doi") == b.get("doi")
+            sim = _title_sim(a.get("title", ""), b.get("title", ""))
+            if same_doi or sim >= 0.92:
+                duplicates.append({
+                    "a": (a.get("raw") or "")[:80], "b": (b.get("raw") or "")[:80],
+                    "reason": "동일 DOI" if same_doi else f"제목 유사({sim:.0%})",
+                })
+
+    self_cites = 0
+    if user_name:
+        for e in entries:
+            if any(user_name in (a or "") for a in e.get("authors") or []):
+                self_cites += 1
+
+    journals: dict[str, int] = {}
+    for e in entries:
+        if e.get("type") == "journal" and e.get("container"):
+            jn = e["container"].strip()
+            journals[jn] = journals.get(jn, 0) + 1
+    top_journals = sorted(journals.items(), key=lambda kv: -kv[1])[:5]
+    j_total = sum(journals.values())
+
+    types: dict[str, int] = {}
+    for e in entries:
+        types[e.get("type", "unknown")] = types.get(e.get("type", "unknown"), 0) + 1
+
+    return {
+        "total": len(entries),
+        "year_min": min(years) if years else None,
+        "year_max": max(years) if years else None,
+        "year_dist": year_dist,
+        "recent_years": RECENT_YEARS,
+        "recent_count": recent,
+        "recent_ratio": round(recent / len(years), 3) if years else None,
+        "duplicates": duplicates,
+        "self_cites": self_cites,
+        "top_journals": [{"name": n, "count": c,
+                          "share": round(c / j_total, 3) if j_total else 0}
+                         for n, c in top_journals],
+        "types": types,
+    }
+
+
+def process_file(filename: str, data: bytes, options: dict, progress) -> dict:
+    """단일 원고 파일 처리. options: {style_id, verify, crosscheck, english}"""
+    result = {"filename": filename, "error": "", "warnings": [], "items": [],
+              "summary": {}, "verify_enabled": bool(options.get("verify")),
+              "crosscheck": None, "english_list": None}
+
+    style = styles_mod.get_style(options.get("style_id") or "munpyeonhyeop")
+    if not style:
+        result["error"] = "선택한 참고문헌 작성 기준을 찾을 수 없습니다."
+        return result
+    result["style_name"] = style["name"]
+    builtin = bool(style.get("builtin"))
+    directives = feedback_mod.directives_for(style["id"])
+
+    use_ai = aiengine.is_configured()
+    result["engine_label"] = f"AI({aiengine.get_model()}) + 규칙" if use_ai else "규칙 기반"
+
+    if not builtin and not use_ai:
+        result["error"] = ("사용자 정의 기준 적용은 AI 모드가 필요합니다. "
+                           "설정에서 Claude API 키를 등록하거나, 기본 기준(문편협)을 선택해 주세요.")
+        return result
+
+    # 1) 파싱
+    progress("파일 파싱", filename)
+    try:
+        text = parsing.extract_text(filename, data)
+    except parsing.ParseError as ex:
+        result["error"] = str(ex)
+        return result
+
+    # 2) 참고문헌 구역 탐지
+    progress("참고문헌 구역 탐지", filename)
+    body, section = extract.find_reference_section(text)
+    if not section:
+        # 파일 전체가 참고문헌 목록인 경우(목록만 담긴 파일) 감지
+        probe = extract.split_entries(text)
+        if len(probe) >= 3 and sum(1 for p in probe if re.search(r"\(?\d{4}", p)) >= len(probe) * 0.6:
+            section, body = text, ""
+            result["warnings"].append("참고문헌 표제를 찾지 못해 파일 전체를 참고문헌 목록으로 처리했습니다.")
+        else:
+            result["error"] = "참고문헌 구역을 찾을 수 없습니다. 원고에 '참고문헌' 또는 'References' 표제가 있는지 확인해 주세요."
+            return result
+
+    # 3) 문헌 건별 분리
+    progress("문헌 추출·분리", filename)
+    raws: list[str] = []
+    if use_ai:
+        try:
+            raws = aiengine.split_entries_ai(section)
+        except aiengine.AIError as ex:
+            result["warnings"].append(f"AI 분리 실패({ex}) — 규칙 엔진으로 대체")
+    if not raws:
+        raws = extract.split_entries(section)
+    if not raws:
+        result["error"] = "참고문헌 구역에서 문헌을 추출하지 못했습니다."
+        return result
+
+    # 4) 서지 구조화
+    progress(f"서지 구조화 ({len(raws)}건)", filename)
+    entries: list[dict] = []
+    if use_ai:
+        try:
+            entries = aiengine.structure_entries_ai(raws)
+        except aiengine.AIError as ex:
+            result["warnings"].append(f"AI 구조화 실패({ex}) — 규칙 엔진으로 대체")
+    if not entries:
+        entries = [rules.structure_entry(r) for r in raws]
+
+    # 5) 실존·윤리 검증(형식 변환 전에 수행해 발견된 DOI·교정을 반영)
+    verify_results = None
+    suggestions_by_idx: dict[int, list[dict]] = {}
+    autofix_notes_by_idx: dict[int, list[str]] = {}
+    if options.get("verify"):
+        progress(f"실존·윤리 검증 (Crossref·OpenAlex·국내DB, {len(entries)}건)", filename)
+        verify_results = verify_mod.verify_entries(entries)
+        for i, (e, v) in enumerate(zip(entries, verify_results)):
+            if v.get("status") != "verified":
+                continue  # mismatch 등 불확실 매칭의 서지는 교정·DOI 반영에 사용하지 않음
+            if v.get("found_doi") and not e.get("doi"):
+                e["doi"] = v["found_doi"]
+            sugg = _build_suggestions(e, v.get("meta"))
+            if sugg:
+                if options.get("autofix"):
+                    autofix_notes_by_idx[i] = _apply_suggestions(e, sugg)
+                    for s in sugg:
+                        s["applied"] = True
+                suggestions_by_idx[i] = sugg
+
+    # 6) 형식 변환·정렬
+    progress("형식 변환·정렬", filename)
+    items: list[dict] = []
+    if builtin:
+        order = formatter.sort_and_disambiguate(entries)
+        idx_of = {id(e): i for i, e in enumerate(entries)}
+        for e in order:
+            i = idx_of[id(e)]
+            formatted = formatter.format_entry(e)
+            issues = formatter.validate_entry(e) + autofix_notes_by_idx.get(i, [])
+            items.append({
+                "raw": e.get("raw", ""), "formatted": formatted,
+                "group": GROUP_LABEL.get(e.get("lang", "ko"), "국내문헌"),
+                "issues": issues, "type": e.get("type", ""),
+                "changed": _norm_for_compare(e.get("raw")) != _norm_for_compare(formatted),
+                "verify": verify_results[i] if verify_results else None,
+                "suggestions": suggestions_by_idx.get(i, []),
+                "entry": {k: e.get(k, "") for k in
+                          ("authors", "year", "title", "container", "volume", "issue",
+                           "pages", "publisher", "place", "doi", "url", "degree",
+                           "institution", "edition", "lang")},
+            })
+    else:
+        try:
+            refs, order_note = aiengine.format_custom_style_ai(entries, style, directives)
+        except aiengine.AIError as ex:
+            result["error"] = f"사용자 기준 변환 실패: {ex}"
+            return result
+        if order_note:
+            result["warnings"].append(f"적용된 배열 규칙: {order_note}")
+        # 그룹 등장 순서 유지, 그룹 내에서는 변환 결과 문자열순(저자명 선두 가정)
+        seen_groups: list[str] = []
+        for r in refs:
+            g = r.get("group") or "전체"
+            if g not in seen_groups:
+                seen_groups.append(g)
+        refs_sorted = sorted(refs, key=lambda r: (seen_groups.index(r.get("group") or "전체"),
+                                                  (r.get("formatted") or "").lower()))
+        for r in refs_sorted:
+            i = r.get("index", 0)
+            e = entries[i] if 0 <= i < len(entries) else {}
+            items.append({
+                "raw": e.get("raw", ""), "formatted": r.get("formatted", ""),
+                "group": r.get("group") or "전체",
+                "issues": (r.get("issues") or []) + list(e.get("notes") or []) + autofix_notes_by_idx.get(i, []),
+                "type": e.get("type", ""),
+                "changed": _norm_for_compare(e.get("raw")) != _norm_for_compare(r.get("formatted")),
+                "verify": verify_results[i] if verify_results and 0 <= i < len(verify_results) else None,
+                "suggestions": suggestions_by_idx.get(i, []),
+                "entry": {k: e.get(k, "") for k in
+                          ("authors", "year", "title", "container", "volume", "issue",
+                           "pages", "publisher", "place", "doi", "url", "degree",
+                           "institution", "edition", "lang")},
+            })
+    # 6-1) 관리자 추가 기준(문편협에 준함 — 공백 보완) + 관리자 확정 편집 지침 반영
+    #      문편협 공통기준이 일순위: 명시 규정과 충돌하는 추가 기준은 적용하지 않고 경고로 알림.
+    admin_standards = suggestions_mod.enabled_standards() if builtin else []
+    if builtin and (directives or admin_standards):
+        if use_ai:
+            progress(f"관리자 기준·지침 반영 (기준 {len(admin_standards)}·지침 {len(directives)}건)", filename)
+            try:
+                fixed = aiengine.apply_standards_ai(
+                    [it["formatted"] for it in items], admin_standards, directives, style["name"])
+                for it, r in zip(items, fixed):
+                    nf = r.get("formatted", "")
+                    if nf and nf != it["formatted"]:
+                        it["formatted"] = nf
+                        it["changed"] = _norm_for_compare(it["raw"]) != _norm_for_compare(nf)
+                        note = r.get("note") or "관리자 기준·지침 반영"
+                        it["issues"] = list(it["issues"]) + [f"반영: {note}"]
+                    if r.get("conflict"):
+                        result["warnings"].append(
+                            f"관리자 추가 기준이 문편협 공통 기준과 충돌해 적용하지 않음 — {r['conflict']}")
+            except aiengine.AIError as ex:
+                result["warnings"].append(f"관리자 기준·지침 반영 실패({ex}) — 미적용 상태로 출력")
+        else:
+            result["warnings"].append(
+                f"관리자 추가 기준 {len(admin_standards)}건·편집 지침 {len(directives)}건이 있으나 "
+                "AI 모드에서만 적용됩니다.")
+
+    # 6-2) 작성 제안 매칭 — '논문 사례를 통한 제안' · '박주현 교수의 추가 제안' (표시 전용)
+    if builtin:
+        sugg_pool = suggestions_mod.enabled_suggestions()
+        if sugg_pool:
+            by_id = {s["id"]: s for s in sugg_pool}
+            tips_by_idx: dict[int, list[str]] = {}
+            if use_ai:
+                progress(f"작성 제안 대조 ({len(sugg_pool)}건 기준)", filename)
+                try:
+                    payload = [{"index": i, "formatted": it["formatted"],
+                                "type": it.get("type", ""), "issues": it.get("issues") or []}
+                               for i, it in enumerate(items)]
+                    tips_by_idx = aiengine.match_suggestions_ai(payload, sugg_pool)
+                except aiengine.AIError as ex:
+                    result["warnings"].append(f"작성 제안 대조 실패({ex}) — 유형 기준으로 표시")
+            if not tips_by_idx and not use_ai:
+                # 규칙 모드 폴백: 자료 유형이 일치하는 제안을 표시
+                for i, it in enumerate(items):
+                    ids = [s["id"] for s in sugg_pool
+                           if s.get("types") and it.get("type", "") in s["types"]]
+                    if ids:
+                        tips_by_idx[i] = ids
+            for i, ids in tips_by_idx.items():
+                if 0 <= i < len(items):
+                    items[i]["tips"] = [
+                        {"id": sid, "source": by_id[sid]["source"], "label": by_id[sid]["label"],
+                         "topic": by_id[sid].get("topic", ""), "rule": by_id[sid].get("rule", ""),
+                         "example": by_id[sid].get("example", "")}
+                        for sid in ids if sid in by_id]
+    result["items"] = items
+
+    # 7) 본문 인용 대조
+    if options.get("crosscheck") and body:
+        progress("본문 인용 ↔ 목록 대조", filename)
+        result["crosscheck"] = cc_mod.cross_check(body, entries)
+    elif options.get("crosscheck"):
+        result["warnings"].append("본문이 없어(목록 전용 파일) 본문-목록 대조를 건너뛰었습니다.")
+
+    # 8) 영문 변환 목록(문편협 기준 9·10항 — AI 모드)
+    if options.get("english") and builtin:
+        ko_entries = [e for e in entries if e.get("lang") == "ko"]
+        if ko_entries and use_ai:
+            progress(f"영문 변환 목록 생성 ({len(ko_entries)}건)", filename)
+            try:
+                eng = aiengine.translate_to_english_ai(ko_entries)
+                lines = sorted((r.get("formatted", "") for r in eng if r.get("formatted")),
+                               key=str.lower)
+                result["english_list"] = lines
+            except aiengine.AIError as ex:
+                result["warnings"].append(f"영문 변환 실패({ex})")
+        elif ko_entries:
+            result["warnings"].append("영문 변환 목록은 AI 모드(API 키 등록)에서만 생성됩니다.")
+    elif options.get("english") and not builtin:
+        result["warnings"].append("영문 변환 목록은 문편협 기준에서만 제공됩니다.")
+
+    # 건전성 리포트
+    progress("건전성 리포트 집계", filename)
+    result["health"] = _health_report(entries, options.get("user_name", ""))
+
+    # 요약
+    result["summary"] = {
+        "total": len(items),
+        "changed": sum(1 for it in items if it["changed"]),
+        "needs_check": sum(1 for it in items if it["issues"]),
+        "verified": sum(1 for it in items if (it.get("verify") or {}).get("status") in ("verified", "link_ok")),
+        "retracted": sum(1 for it in items
+                         if ((it.get("verify") or {}).get("retraction") or {}).get("severe")),
+        "suspect": sum(1 for it in items if (it.get("verify") or {}).get("status") == "suspect"),
+        "suggestions": sum(len(it.get("suggestions") or []) for it in items),
+        "tips": sum(len(it.get("tips") or []) for it in items),
+        "crosscheck_issues": (len(result["crosscheck"]["cited_not_listed"]) +
+                              len(result["crosscheck"]["listed_not_cited"])) if result.get("crosscheck") else 0,
+    }
+
+    # 처리 이력 저장(발행본 비교용) — 실패해도 처리 자체를 막지 않음
+    if items:
+        try:
+            result["history_id"] = history_mod.save_result(result, options)
+        except Exception:
+            pass
+    return result
+
+
+# ================================================================ 사용 기록(통계)
+
+USAGE_PATH = APP_DIR / "usage_log.json"
+_USAGE_LOCK = threading.Lock()
+DEFAULT_ORGS = ["한국도서관정보학회", "한국문헌정보학회", "한국비블리아학회", "한국정보관리학회"]
+
+
+def _load_usage_unlocked() -> list[dict]:
+    if USAGE_PATH.exists():
+        try:
+            import json
+            return json.loads(USAGE_PATH.read_text(encoding="utf-8"))
+        except Exception:
+            return []
+    return []
+
+
+def _load_usage() -> list[dict]:
+    with _USAGE_LOCK:
+        return _load_usage_unlocked()
+
+
+def _append_usage(record: dict):
+    import json
+    import os
+    with _USAGE_LOCK:
+        data = _load_usage_unlocked()
+        data.append(record)
+        tmp = USAGE_PATH.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+        os.replace(tmp, USAGE_PATH)  # 원자적 교체 — 기록 유실 방지
+
+
+def _record_job_usage(job: dict, options: dict):
+    """잡 완료 시 사용 기록 저장."""
+    try:
+        refs = sum((r.get("summary") or {}).get("total", 0) for r in job["results"])
+        _append_usage({
+            "time": time.strftime("%Y-%m-%d %H:%M"),
+            "user": options.get("user_name", ""),
+            "org": options.get("org", ""),
+            "mode": job.get("mode", ""),
+            "files": job.get("done_files", 0),
+            "refs": refs,
+            "style": options.get("style_id", ""),
+            "ai": aiengine.is_configured(),
+        })
+    except Exception:
+        pass  # 통계 기록 실패가 처리 자체를 막지 않도록
+
+
+@app.get("/api/orgs")
+def get_orgs():
+    return {"orgs": DEFAULT_ORGS}
+
+
+@app.get("/api/admin/stats")
+def admin_stats(request: Request):
+    require_admin(request)
+    data = _load_usage()
+    by_org: dict[str, dict] = {}
+    for r in data:
+        org = r.get("org") or "(미입력)"
+        agg = by_org.setdefault(org, {"org": org, "uses": 0, "files": 0, "refs": 0, "users": set()})
+        agg["uses"] += 1
+        agg["files"] += r.get("files", 0)
+        agg["refs"] += r.get("refs", 0)
+        if r.get("user"):
+            agg["users"].add(r["user"])
+    org_rows = []
+    for agg in sorted(by_org.values(), key=lambda a: -a["uses"]):
+        org_rows.append({"org": agg["org"], "uses": agg["uses"], "files": agg["files"],
+                         "refs": agg["refs"], "users": len(agg["users"])})
+    return {"total_uses": len(data),
+            "total_files": sum(r.get("files", 0) for r in data),
+            "total_refs": sum(r.get("refs", 0) for r in data),
+            "by_org": org_rows,
+            "recent": list(reversed(data[-50:]))}
+
+
+# ================================================================ 잡 관리
+
+_JOB_TTL = 2 * 3600  # 완료된 잡 보존 시간
+
+
+def _new_job(mode: str) -> dict:
+    job = {"id": uuid.uuid4().hex[:12], "mode": mode, "status": "running",
+           "stage": "대기", "current_file": "", "done_files": 0, "total_files": 0,
+           "results": [], "error": "", "output_dir": "", "created": time.time()}
+    with _JOBS_LOCK:
+        # 오래된 완료 잡 정리(메모리 무한 증가 방지)
+        cutoff = time.time() - _JOB_TTL
+        for jid in [k for k, v in JOBS.items()
+                    if v.get("status") in ("done", "error") and v.get("created", 0) < cutoff]:
+            JOBS.pop(jid, None)
+        JOBS[job["id"]] = job
+    return job
+
+
+def _run_upload_job(job: dict, files: list[tuple[str, bytes]], options: dict):
+    def progress(stage, filename):
+        job["stage"], job["current_file"] = stage, filename
+    try:
+        job["total_files"] = len(files)
+        for name, data in files:
+            res = process_file(name, data, options, progress)
+            job["results"].append(res)
+            job["done_files"] += 1
+        job["status"] = "done"
+        job["stage"] = "완료"
+        _record_job_usage(job, options)
+    except Exception as ex:
+        job["status"] = "error"
+        job["error"] = f"처리 중 오류: {ex}"
+
+
+def _run_folder_job(job: dict, folder: Path, options: dict):
+    def progress(stage, filename):
+        job["stage"], job["current_file"] = stage, filename
+    try:
+        targets = [p for p in sorted(folder.iterdir())
+                   if p.is_file() and p.suffix.lower() in parsing.SUPPORTED_EXTS
+                   and not p.name.startswith("~$")]
+        if not targets:
+            job["status"] = "error"
+            job["error"] = "폴더에서 지원 형식(HWPX·DOCX·PDF·TXT) 파일을 찾지 못했습니다."
+            return
+        out_dir = folder / "참고문헌_정리결과"
+        out_dir.mkdir(exist_ok=True)
+        job["output_dir"] = str(out_dir)
+        job["total_files"] = len(targets)
+        for p in targets:
+            res = process_file(p.name, p.read_bytes(), options, progress)
+            job["results"].append(res)
+            if not res.get("error"):
+                docx_bytes = report.build_result_docx(res)
+                (out_dir / f"{p.stem}_참고문헌정리.docx").write_bytes(docx_bytes)
+            job["done_files"] += 1
+        summary = report.build_batch_report_docx(job["results"], str(folder))
+        (out_dir / "종합리포트.docx").write_bytes(summary)
+        job["status"] = "done"
+        job["stage"] = "완료"
+        _record_job_usage(job, options)
+    except Exception as ex:
+        job["status"] = "error"
+        job["error"] = f"처리 중 오류: {ex}"
+
+
+def _run_case_job(job: dict, journal: str, files: list[tuple[str, bytes]]):
+    """사례 논문 등록: 발행 논문에서 참고문헌을 추출해 관행 패턴을 분석하고
+    '논문 사례를 통한 제안' 초안(미사용 상태)으로 축적한다."""
+    def progress(stage, filename):
+        job["stage"], job["current_file"] = stage, filename
+    try:
+        job["total_files"] = len(files)
+        for name, data in files:
+            res = {"filename": name, "error": "", "n_refs": 0, "n_drafts": 0}
+            try:
+                progress("파일 파싱", name)
+                text = parsing.extract_text(name, data)
+                body, section = extract.find_reference_section(text)
+                if not section:
+                    probe = extract.split_entries(text)
+                    if len(probe) >= 3:
+                        section = text
+                    else:
+                        raise ValueError("참고문헌 구역을 찾을 수 없습니다.")
+                progress("문헌 추출·분리", name)
+                raws = []
+                try:
+                    raws = aiengine.split_entries_ai(section)
+                except aiengine.AIError:
+                    pass
+                if not raws:
+                    raws = extract.split_entries(section)
+                if not raws:
+                    raise ValueError("참고문헌을 추출하지 못했습니다.")
+                res["n_refs"] = len(raws)
+                progress(f"관행 패턴 분석 ({len(raws)}건)", name)
+                existing = [s.get("rule", "") for s in suggestions_mod.all_suggestions()["case"]]
+                drafts = aiengine.analyze_case_refs_ai(journal, raws, existing)
+                added = 0
+                for d in drafts:
+                    if suggestions_mod.is_duplicate_rule("case", d.get("rule", "")):
+                        continue
+                    suggestions_mod.add_suggestion(
+                        "case", topic=d.get("topic", ""), types=d.get("types") or [],
+                        rule=d.get("rule", ""), example=d.get("example", ""),
+                        evidence=f"{journal} 발행 논문 '{name}' 참고문헌 {len(raws)}건 분석",
+                        journal=journal, origin="case_upload", enabled=False)
+                    added += 1
+                res["n_drafts"] = added
+                suggestions_mod.add_corpus_record(journal, name, len(raws), added)
+            except (parsing.ParseError, ValueError, aiengine.AIError) as ex:
+                res["error"] = str(ex)
+            job["results"].append(res)
+            job["done_files"] += 1
+        job["status"] = "done"
+        job["stage"] = "완료"
+    except Exception as ex:
+        job["status"] = "error"
+        job["error"] = f"사례 분석 중 오류: {ex}"
+
+
+def _run_compare_job(job: dict, hid: str, filename: str, data: bytes):
+    """발행본 비교: 처리 이력의 에이전트 결과와 발행본 참고문헌을 짝지어 차이를 찾는다."""
+    def progress(stage, fn):
+        job["stage"], job["current_file"] = stage, fn
+    try:
+        job["total_files"] = 1
+        rec = history_mod.get_history(hid)
+        if not rec:
+            job["status"] = "error"
+            job["error"] = "선택한 처리 이력을 찾을 수 없습니다."
+            return
+        progress("발행본 참고문헌 추출", filename)
+        use_ai = aiengine.is_configured()
+        try:
+            raws = compare_mod.extract_published_refs(
+                filename, data, split_ai=aiengine.split_entries_ai if use_ai else None)
+        except (parsing.ParseError, ValueError) as ex:
+            job["status"] = "error"
+            job["error"] = str(ex)
+            return
+        progress(f"항목 대조 (에이전트 {len(rec['items'])}건 ↔ 발행본 {len(raws)}건)", filename)
+        cmp = compare_mod.align(rec["items"], raws)
+        diffs = [p for p in cmp["pairs"] if not p["same"]]
+        drafts: dict[int, dict] = {}
+        if diffs and use_ai:
+            progress(f"차이 분석·제안 초안 작성 ({len(diffs)}건)", filename)
+            try:
+                drafts = aiengine.draft_rules_from_diffs_ai(diffs[:40])
+            except aiengine.AIError:
+                drafts = {}
+        for p in diffs:
+            p["draft"] = drafts.get(p["pair_id"]) or compare_mod.fallback_draft(p)
+            p["draft"]["evidence"] = (f"발행본 비교: {rec.get('filename', '')} ↔ {filename} "
+                                      f"({time.strftime('%Y-%m-%d')})")
+        job["results"].append({
+            "filename": filename, "error": "",
+            "history": {k: rec.get(k, "") for k in ("id", "time", "filename", "user", "org")},
+            "compare": cmp,
+        })
+        job["done_files"] = 1
+        job["status"] = "done"
+        job["stage"] = "완료"
+    except Exception as ex:
+        job["status"] = "error"
+        job["error"] = f"발행본 비교 중 오류: {ex}"
+
+
+def _job_public(job: dict) -> dict:
+    return {k: v for k, v in job.items() if k != "created"}
+
+
+# ================================================================ API
+
+@app.get("/", response_class=HTMLResponse)
+def index():
+    return (APP_DIR / "static" / "index.html").read_text(encoding="utf-8")
+
+
+@app.get("/api/status")
+def status(request: Request):
+    cfg = aiengine.load_config()
+    admin = is_admin(request)
+    out = {"ai": aiengine.is_configured(), "model": aiengine.get_model(),
+           "models": aiengine.ALLOWED_MODELS,
+           "admin": admin, "admin_configured": admin_configured(),
+           "access_required": access_required(), "access_ok": has_access(request)}
+    if admin:  # 키 관련 정보는 관리자에게만 노출
+        out["key_source"] = cfg.get("key_source", "user" if cfg.get("api_key") else "")
+        out["key_hint"] = cfg.get("api_key", "")[:10] + "…" if cfg.get("api_key") else ""
+        out["access_code"] = _access_code()
+        import verify_kr
+        out["kr_apis"] = verify_kr.kr_api_status()
+    return out
+
+
+@app.post("/api/settings")
+def save_settings(request: Request, api_key: str = Form(""), model: str = Form(aiengine.DEFAULT_MODEL),
+                  clear: str = Form("0"), access_code: str | None = Form(None)):
+    require_admin(request)
+    cfg = aiengine.load_config()
+    if clear == "1":
+        cfg.pop("api_key", None)
+        cfg.pop("key_source", None)
+    elif api_key.strip():
+        cfg["api_key"] = api_key.strip()
+        cfg["key_source"] = "user"
+    cfg["model"] = model if model in aiengine.ALLOWED_MODELS else aiengine.DEFAULT_MODEL
+    if access_code is not None:  # 필드가 전송된 경우에만 변경(빈 값 = 접근 제한 해제)
+        cfg["access_code"] = access_code.strip()[:60]
+    aiengine.save_config(cfg)
+    return {"ok": True, "ai": aiengine.is_configured(), "model": aiengine.get_model(),
+            "access_required": access_required()}
+
+
+@app.post("/api/settings/test")
+def test_settings(request: Request, api_key: str = Form(""), model: str = Form(aiengine.DEFAULT_MODEL)):
+    require_admin(request)
+    key = api_key.strip() or aiengine.load_config().get("api_key", "")
+    if not key:
+        return {"ok": False, "message": "API 키를 입력해 주세요."}
+    ok, msg = aiengine.test_key(key, model)
+    return {"ok": ok, "message": msg}
+
+
+@app.get("/api/styles")
+def get_styles():
+    return {"styles": styles_mod.list_styles()}
+
+
+@app.post("/api/styles")
+async def add_style(request: Request, name: str = Form(""), url: str = Form(""), text: str = Form(""),
+                    file: UploadFile | None = File(None)):
+    require_admin(request)
+    try:
+        if file is not None and file.filename:
+            data = await file.read()
+            st = styles_mod.add_style_from_file(name or Path(file.filename).stem, file.filename, data)
+        elif url.strip():
+            st = styles_mod.add_style_from_url(name, url.strip())
+        elif text.strip():
+            st = styles_mod.add_style_from_text(name, text)
+        else:
+            raise ValueError("기준 파일, URL, 직접 입력 중 하나를 제공해 주세요.")
+    except ValueError as ex:
+        return JSONResponse({"ok": False, "message": str(ex)}, status_code=400)
+    return {"ok": True, "style": {"id": st["id"], "name": st["name"]}}
+
+
+@app.delete("/api/styles/{style_id}")
+def remove_style(request: Request, style_id: str):
+    require_admin(request)
+    if style_id == styles_mod.BUILTIN_STYLE["id"]:
+        raise HTTPException(400, "기본 기준은 삭제할 수 없습니다.")
+    return {"ok": styles_mod.delete_style(style_id)}
+
+
+def _parse_options(style_id: str, verify: str, crosscheck: str, english: str,
+                   user_name: str = "", org: str = "", org_etc: str = "",
+                   autofix: str = "0") -> dict:
+    org = org.strip()
+    if org == "기타":
+        org = org_etc.strip() or "기타(미기입)"
+    if not user_name.strip():
+        raise HTTPException(400, "사용자 이름을 입력해 주세요.")
+    if not org:
+        raise HTTPException(400, "사용 기관(학회)을 선택해 주세요.")
+    return {"style_id": style_id or "munpyeonhyeop",
+            "verify": verify == "1", "crosscheck": crosscheck == "1", "english": english == "1",
+            "autofix": autofix == "1" and verify == "1",
+            "user_name": user_name.strip()[:40], "org": org[:60]}
+
+
+@app.post("/api/process")
+async def process_upload(request: Request, files: list[UploadFile] = File(...),
+                         style_id: str = Form("munpyeonhyeop"),
+                         verify: str = Form("1"), crosscheck: str = Form("1"),
+                         english: str = Form("0"), autofix: str = Form("0"),
+                         user_name: str = Form(""), org: str = Form(""), org_etc: str = Form("")):
+    require_access(request)
+    payload = []
+    for f in files:
+        data = await f.read()
+        if len(data) > 50 * 1024 * 1024:
+            raise HTTPException(400, f"{f.filename}: 파일이 너무 큽니다(50MB 이하).")
+        payload.append((f.filename, data))
+    if not payload:
+        raise HTTPException(400, "업로드된 파일이 없습니다.")
+    options = _parse_options(style_id, verify, crosscheck, english, user_name, org, org_etc, autofix)
+    job = _new_job("upload")
+    threading.Thread(target=_run_upload_job, args=(job, payload, options), daemon=True).start()
+    return {"job_id": job["id"]}
+
+
+@app.post("/api/process_folder")
+def process_folder(request: Request, path: str = Form(...), style_id: str = Form("munpyeonhyeop"),
+                   verify: str = Form("1"), crosscheck: str = Form("1"),
+                   english: str = Form("0"), autofix: str = Form("0"),
+                   user_name: str = Form(""), org: str = Form(""), org_etc: str = Form("")):
+    # 서버 컴퓨터의 로컬 폴더를 읽는 기능이므로 관리자 전용(외부 공개 시 경로 노출 방지)
+    require_admin(request)
+    folder = Path(path.strip().strip('"'))
+    if not folder.is_dir():
+        raise HTTPException(400, f"폴더를 찾을 수 없습니다: {folder}")
+    options = _parse_options(style_id, verify, crosscheck, english, user_name, org, org_etc, autofix)
+    job = _new_job("folder")
+    threading.Thread(target=_run_folder_job, args=(job, folder, options), daemon=True).start()
+    return {"job_id": job["id"]}
+
+
+@app.get("/api/jobs/{job_id}")
+def job_status(job_id: str, request: Request):
+    require_access(request)
+    job = JOBS.get(job_id)
+    if not job:
+        raise HTTPException(404, "작업을 찾을 수 없습니다.")
+    return _job_public(job)
+
+
+def _get_result(job_id: str, index: int) -> dict:
+    job = JOBS.get(job_id)
+    if not job:
+        raise HTTPException(404, "작업을 찾을 수 없습니다.")
+    if index < 0 or index >= len(job["results"]):
+        raise HTTPException(404, "결과를 찾을 수 없습니다.")
+    return job["results"][index]
+
+
+@app.get("/api/jobs/{job_id}/download/{index}")
+def download_result(job_id: str, index: int, request: Request, fmt: str = "docx"):
+    require_access(request)
+    res = _get_result(job_id, index)
+    stem = Path(res.get("filename", "결과")).stem
+    if fmt == "txt":
+        content = report.build_result_txt(res).encode("utf-8-sig")
+        return Response(content, media_type="text/plain; charset=utf-8",
+                        headers={"Content-Disposition":
+                                 f"attachment; filename*=UTF-8''{_quote(stem + '_refs.txt')}"})
+    if fmt == "ris":
+        content = report.build_ris(res).encode("utf-8-sig")
+        return Response(content, media_type="application/x-research-info-systems",
+                        headers={"Content-Disposition":
+                                 f"attachment; filename*=UTF-8''{_quote(stem + '.ris')}"})
+    if fmt == "bib":
+        content = report.build_bibtex(res).encode("utf-8")
+        return Response(content, media_type="application/x-bibtex",
+                        headers={"Content-Disposition":
+                                 f"attachment; filename*=UTF-8''{_quote(stem + '.bib')}"})
+    content = report.build_result_docx(res)
+    return Response(
+        content,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition":
+                 f"attachment; filename*=UTF-8''{_quote(stem + '_참고문헌정리.docx')}"})
+
+
+@app.get("/api/jobs/{job_id}/download_zip")
+def download_zip(job_id: str, request: Request):
+    require_access(request)
+    job = JOBS.get(job_id)
+    if not job:
+        raise HTTPException(404, "작업을 찾을 수 없습니다.")
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for res in job["results"]:
+            if res.get("error"):
+                continue
+            stem = Path(res.get("filename", "결과")).stem
+            zf.writestr(f"{stem}_참고문헌정리.docx", report.build_result_docx(res))
+            zf.writestr(f"{stem}_refs.txt", report.build_result_txt(res).encode("utf-8-sig"))
+            zf.writestr(f"{stem}.ris", report.build_ris(res).encode("utf-8-sig"))
+            zf.writestr(f"{stem}.bib", report.build_bibtex(res).encode("utf-8"))
+        if len(job["results"]) > 1:
+            zf.writestr("종합리포트.docx",
+                        report.build_batch_report_docx(job["results"], "업로드 일괄 처리"))
+    return Response(buf.getvalue(), media_type="application/zip",
+                    headers={"Content-Disposition":
+                             "attachment; filename*=UTF-8''%s" % _quote("참고문헌_정리결과.zip")})
+
+
+def _quote(s: str) -> str:
+    from urllib.parse import quote
+    return quote(s)
+
+
+# ================================================================ 편집 요구·편집 지침
+
+@app.post("/api/feedback")
+def submit_feedback(request: Request, user_name: str = Form(""), org: str = Form(""),
+                    style_id: str = Form(""), style_name: str = Form(""),
+                    raw: str = Form(""), formatted: str = Form(""),
+                    request_text: str = Form("")):
+    """이용자의 편집 요구 제출 — 즉시 반영되지 않고 관리자 검토 대기열에 저장."""
+    require_access(request)
+    try:
+        rec = feedback_mod.add_feedback(user_name, org, style_id, style_name,
+                                        raw, formatted, request_text)
+    except ValueError as ex:
+        return JSONResponse({"ok": False, "message": str(ex)}, status_code=400)
+    return {"ok": True, "id": rec["id"],
+            "message": "편집 요구가 접수되었습니다. 관리자 검토 후 작성 규정에 반영됩니다."}
+
+
+@app.get("/api/admin/feedback")
+def admin_feedback(request: Request):
+    require_admin(request)
+    styles_by_id = {s["id"]: s["name"] for s in styles_mod.list_styles()}
+    return {"feedback": list(reversed(feedback_mod.list_feedback())),
+            "directives": feedback_mod.all_directives(),
+            "style_names": styles_by_id}
+
+
+@app.post("/api/admin/feedback/{fid}/resolve")
+def admin_resolve_feedback(fid: str, request: Request,
+                           action: str = Form(...), directive_text: str = Form(""),
+                           style_id: str = Form("")):
+    """action='반영'이면 directive_text를 해당 기준의 편집 지침으로 확정 추가."""
+    require_admin(request)
+    if action not in ("반영", "보류"):
+        raise HTTPException(400, "action은 '반영' 또는 '보류'여야 합니다.")
+    if action == "반영":
+        if not directive_text.strip():
+            return JSONResponse({"ok": False, "message": "반영하려면 편집 지침 내용을 입력해 주세요."},
+                                status_code=400)
+        try:
+            feedback_mod.add_directive(style_id or "munpyeonhyeop", directive_text, from_feedback=fid)
+        except ValueError as ex:
+            return JSONResponse({"ok": False, "message": str(ex)}, status_code=400)
+    rec = feedback_mod.resolve_feedback(fid, action, directive_text)
+    if not rec:
+        raise HTTPException(404, "해당 편집 요구를 찾을 수 없습니다.")
+    return {"ok": True}
+
+
+@app.post("/api/admin/directives")
+def admin_add_directive(request: Request, style_id: str = Form(...), text: str = Form(...)):
+    """피드백 없이 관리자가 직접 편집 지침 추가."""
+    require_admin(request)
+    try:
+        feedback_mod.add_directive(style_id, text)
+    except ValueError as ex:
+        return JSONResponse({"ok": False, "message": str(ex)}, status_code=400)
+    return {"ok": True}
+
+
+@app.delete("/api/admin/directives/{style_id}/{index}")
+def admin_remove_directive(style_id: str, index: int, request: Request):
+    require_admin(request)
+    return {"ok": feedback_mod.remove_directive(style_id, index)}
+
+
+# ================================================================ 기준·제안 관리 (관리자)
+
+@app.get("/api/admin/knowledge")
+def admin_knowledge(request: Request):
+    """작성 제안(case/prof)·관리자 추가 기준·사례 등록 기록 일괄 조회."""
+    require_admin(request)
+    data = suggestions_mod.all_suggestions()
+    return {"case": list(reversed(data["case"])),
+            "prof": list(reversed(data["prof"])),
+            "standards": list(reversed(suggestions_mod.list_standards())),
+            "corpus": list(reversed(suggestions_mod.list_corpus()))[:50],
+            "labels": suggestions_mod.SOURCE_LABEL}
+
+
+@app.post("/api/admin/suggestions")
+def admin_add_suggestion(request: Request, source: str = Form(...), topic: str = Form(""),
+                         types: str = Form(""), rule: str = Form(...), example: str = Form("")):
+    require_admin(request)
+    try:
+        type_list = [t.strip() for t in types.split(",") if t.strip()]
+        rec = suggestions_mod.add_suggestion(source, topic, type_list, rule, example,
+                                             origin="manual", enabled=True)
+    except ValueError as ex:
+        return JSONResponse({"ok": False, "message": str(ex)}, status_code=400)
+    return {"ok": True, "id": rec["id"]}
+
+
+@app.post("/api/admin/suggestions/{sid}/toggle")
+def admin_toggle_suggestion(sid: str, request: Request):
+    require_admin(request)
+    return {"ok": suggestions_mod.toggle_suggestion(sid)}
+
+
+@app.delete("/api/admin/suggestions/{sid}")
+def admin_delete_suggestion(sid: str, request: Request):
+    require_admin(request)
+    return {"ok": suggestions_mod.delete_suggestion(sid)}
+
+
+@app.post("/api/admin/standards")
+def admin_add_standard(request: Request, rule: str = Form(...), example: str = Form("")):
+    require_admin(request)
+    try:
+        rec = suggestions_mod.add_standard(rule, example)
+    except ValueError as ex:
+        return JSONResponse({"ok": False, "message": str(ex)}, status_code=400)
+    return {"ok": True, "id": rec["id"]}
+
+
+@app.post("/api/admin/standards/{aid}/toggle")
+def admin_toggle_standard(aid: str, request: Request):
+    require_admin(request)
+    return {"ok": suggestions_mod.toggle_standard(aid)}
+
+
+@app.delete("/api/admin/standards/{aid}")
+def admin_delete_standard(aid: str, request: Request):
+    require_admin(request)
+    return {"ok": suggestions_mod.delete_standard(aid)}
+
+
+@app.get("/api/admin/history")
+def admin_history(request: Request):
+    require_admin(request)
+    return {"history": history_mod.list_history()}
+
+
+@app.post("/api/admin/cases")
+async def admin_add_cases(request: Request, journal: str = Form(...),
+                          files: list[UploadFile] = File(...)):
+    """사례 논문 등록 — 발행 논문에서 참고문헌 관행을 분석해 제안 초안으로 축적."""
+    require_admin(request)
+    if not aiengine.is_configured():
+        raise HTTPException(400, "사례 논문 분석은 AI 모드(API 키 등록)에서만 가능합니다.")
+    journal = journal.strip()
+    if not journal:
+        raise HTTPException(400, "학회지명을 선택하거나 입력해 주세요.")
+    payload = []
+    for f in files:
+        data = await f.read()
+        if len(data) > 50 * 1024 * 1024:
+            raise HTTPException(400, f"{f.filename}: 파일이 너무 큽니다(50MB 이하).")
+        payload.append((f.filename, data))
+    if not payload:
+        raise HTTPException(400, "업로드된 파일이 없습니다.")
+    job = _new_job("cases")
+    threading.Thread(target=_run_case_job, args=(job, journal, payload), daemon=True).start()
+    return {"job_id": job["id"]}
+
+
+@app.post("/api/admin/compare")
+async def admin_compare(request: Request, history_id: str = Form(...),
+                        file: UploadFile = File(...)):
+    """발행본 비교 — 처리 이력과 학회지 발행본의 참고문헌 차이 분석."""
+    require_admin(request)
+    data = await file.read()
+    if len(data) > 50 * 1024 * 1024:
+        raise HTTPException(400, "파일이 너무 큽니다(50MB 이하).")
+    job = _new_job("compare")
+    threading.Thread(target=_run_compare_job,
+                     args=(job, history_id, file.filename, data), daemon=True).start()
+    return {"job_id": job["id"]}
+
+
+@app.post("/api/admin/compare/adopt")
+async def admin_compare_adopt(request: Request):
+    """비교 결과에서 관리자가 체크한 차이를 '박주현 교수의 추가 제안'으로 등록."""
+    require_admin(request)
+    try:
+        payload = await request.json()
+    except Exception:
+        raise HTTPException(400, "요청 형식이 올바르지 않습니다.")
+    added, skipped = 0, 0
+    for it in (payload.get("items") or [])[:100]:
+        rule = (it.get("rule") or "").strip()
+        if len(rule) < 5:
+            skipped += 1
+            continue
+        if suggestions_mod.is_duplicate_rule("prof", rule):
+            skipped += 1
+            continue
+        type_list = [t.strip() for t in (it.get("types") or []) if isinstance(t, str)]
+        suggestions_mod.add_suggestion(
+            "prof", topic=it.get("topic") or "발행본 비교", types=type_list,
+            rule=rule, example=it.get("example", ""), evidence=it.get("evidence", ""),
+            origin="compare", enabled=True)
+        added += 1
+    return {"ok": True, "added": added, "skipped": skipped}
