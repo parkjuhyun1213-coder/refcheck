@@ -606,6 +606,24 @@ def get_orgs():
     return {"orgs": DEFAULT_ORGS}
 
 
+def _agg_by_period(data: list[dict], width: int) -> list[dict]:
+    """기간별 집계. width=7 → 월(YYYY-MM), width=10 → 일(YYYY-MM-DD). 최신순."""
+    agg: dict[str, dict] = {}
+    for r in data:
+        key = (r.get("time") or "")[:width]
+        if len(key) < width:
+            continue
+        a = agg.setdefault(key, {"period": key, "uses": 0, "files": 0, "refs": 0, "users": set()})
+        a["uses"] += 1
+        a["files"] += r.get("files", 0)
+        a["refs"] += r.get("refs", 0)
+        if r.get("user"):
+            a["users"].add(r["user"])
+    return [{"period": a["period"], "uses": a["uses"], "files": a["files"],
+             "refs": a["refs"], "users": len(a["users"])}
+            for a in sorted(agg.values(), key=lambda x: x["period"], reverse=True)]
+
+
 @app.get("/api/admin/stats")
 def admin_stats(request: Request):
     require_admin(request)
@@ -627,6 +645,8 @@ def admin_stats(request: Request):
             "total_files": sum(r.get("files", 0) for r in data),
             "total_refs": sum(r.get("refs", 0) for r in data),
             "by_org": org_rows,
+            "by_month": _agg_by_period(data, 7),
+            "by_day": _agg_by_period(data, 10)[:60],
             "recent": list(reversed(data[-50:]))}
 
 

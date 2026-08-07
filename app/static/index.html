@@ -1032,6 +1032,20 @@ async function openStats(){
   for(const o of d.by_org)
     h+=`<tr><td>${esc(o.org)}</td><td>${o.uses}</td><td>${o.users}</td><td>${o.files}</td><td>${o.refs}</td></tr>`;
   h+='</table></div>';
+  if(d.by_month&&d.by_month.length){
+    h+='<h3 style="margin:12px 0 4px;color:var(--accent)">월별 통계</h3>';
+    h+='<div style="overflow-x:auto"><table class="cmp"><tr><th>월</th><th>사용 횟수</th><th>사용자 수</th><th>파일</th><th>문헌</th></tr>';
+    for(const m of d.by_month)
+      h+=`<tr><td>${esc(m.period)}</td><td>${m.uses}</td><td>${m.users}</td><td>${m.files}</td><td>${m.refs}</td></tr>`;
+    h+='</table></div>';
+  }
+  if(d.by_day&&d.by_day.length){
+    h+='<h3 style="margin:12px 0 4px;color:var(--accent)">일별 통계 <span class="hint">(최근 60일)</span></h3>';
+    h+='<div style="overflow-x:auto"><table class="cmp"><tr><th>날짜</th><th>사용 횟수</th><th>사용자 수</th><th>파일</th><th>문헌</th></tr>';
+    for(const dy of d.by_day)
+      h+=`<tr><td>${esc(dy.period)}</td><td>${dy.uses}</td><td>${dy.users}</td><td>${dy.files}</td><td>${dy.refs}</td></tr>`;
+    h+='</table></div>';
+  }
   h+='<h3 style="margin:12px 0 4px;color:var(--accent)">최근 사용 내역 (최근 50건)</h3>';
   h+='<div style="overflow-x:auto"><table class="cmp"><tr><th>일시</th><th>사용자</th><th>기관(학회)</th><th>방식</th><th>파일</th><th>문헌</th><th>엔진</th></tr>';
   for(const u of d.recent)
