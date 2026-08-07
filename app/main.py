@@ -594,7 +594,7 @@ def _append_usage(record: dict):
 def _record_job_usage(job: dict, options: dict):
     """잡 완료 시 사용 기록 저장."""
     try:
-        refs = sum((r.get("summary") or {}).get("total", 0) for r in job["results"])
+        refs = sum((r.get("summary") or {}).get("total", 0) for r in job["results"] if r)
         _append_usage({
             "time": time.strftime("%Y-%m-%d %H:%M"),
             "user": options.get("user_name", ""),
@@ -611,8 +611,12 @@ def _record_job_usage(job: dict, options: dict):
         pass  # 통계 기록 실패가 처리 자체를 막지 않도록
 
 
-def _estimate_secs(n_files: int, options: dict) -> tuple[int, str]:
-    """과거 사용 통계로 예상 처리 시간(초) 추정. (예상초, 근거 설명) 반환."""
+def _estimate_secs(n_files: int, options: dict) -> tuple[int, int, str]:
+    """과거 사용 통계로 예상 처리 시간(초) 추정 — 4편씩 동시 처리(웨이브) 기준.
+
+    (전체 예상초, 첫 묶음(최대 4편) 예상초, 근거 설명) 반환.
+    """
+    import math
     ai = aiengine.is_configured()
     verify = bool(options.get("verify"))
     samples: list[float] = []
@@ -621,17 +625,19 @@ def _estimate_secs(n_files: int, options: dict) -> tuple[int, str]:
             continue
         if bool(r.get("ai")) != ai or bool(r.get("verify", verify)) != verify:
             continue
-        samples.append(r["secs"] / r["files"])
+        waves = max(1, math.ceil(r["files"] / MAX_PARALLEL))
+        samples.append(r["secs"] / waves)
         if len(samples) >= 30:
             break
     if samples:
         samples.sort()
-        per_file = samples[len(samples) // 2]  # 중앙값 — 극단값에 강함
+        per_wave = samples[len(samples) // 2]  # 중앙값 — 극단값에 강함
         basis = f"지난 {len(samples)}회 사용 통계 기반"
     else:
-        per_file = (150 if verify else 80) if ai else (25 if verify else 8)
+        per_wave = (150 if verify else 80) if ai else (25 if verify else 8)
         basis = "기본 추정 (사용 기록이 쌓이면 자동으로 정확해집니다)"
-    return max(15, int(per_file * max(1, n_files))), basis
+    total = per_wave * math.ceil(max(1, n_files) / MAX_PARALLEL)
+    return max(15, int(total)), max(15, int(per_wave)), basis
 
 
 @app.get("/api/orgs")
@@ -702,15 +708,57 @@ def _new_job(mode: str) -> dict:
     return job
 
 
-def _run_upload_job(job: dict, files: list[tuple[str, bytes]], options: dict):
-    def progress(stage, filename):
-        job["stage"], job["current_file"] = stage, filename
-    try:
-        job["total_files"] = len(files)
-        for name, data in files:
+MAX_PARALLEL = 4  # 동시 처리 논문 수 — API 호출 한도·서버 사양(1GB) 보호
+
+
+def _run_parallel(job: dict, files: list[tuple[str, bytes]], options: dict,
+                  on_done=None):
+    """여러 논문을 MAX_PARALLEL 편씩 동시 처리. 결과는 입력 순서대로 job['results']에."""
+    from concurrent.futures import ThreadPoolExecutor
+    job["total_files"] = len(files)
+    job["results"] = [None] * len(files)
+    job["files"] = [{"name": n, "status": "대기", "stage": ""} for n, _ in files]
+
+    def work(i: int, name: str, data: bytes):
+        st = job["files"][i]
+        st["status"] = "처리 중"
+
+        def progress(stage, filename):
+            st["stage"] = stage
+            done = sum(1 for r in job["results"] if r is not None)
+            running = sum(1 for f in job["files"] if f["status"] == "처리 중")
+            job["stage"] = f"{done}/{job['total_files']} 완료 · 동시 처리 {running}건"
+            job["current_file"] = filename
+
+        try:
             res = process_file(name, data, options, progress)
-            job["results"].append(res)
-            job["done_files"] += 1
+        except Exception as ex:
+            res = {"filename": name, "error": f"처리 중 오류: {ex}",
+                   "warnings": [], "items": [], "summary": {}}
+        job["results"][i] = res
+        st["status"] = "오류" if res.get("error") else "완료"
+        st["stage"] = ""
+        if res.get("history_id"):  # 원본 파일 보관(이력에 연결)
+            try:
+                history_mod.attach_file(res["history_id"], name, data)
+            except Exception:
+                pass
+        if on_done:
+            try:
+                on_done(i, name, res)
+            except Exception:
+                pass
+        job["done_files"] = sum(1 for r in job["results"] if r is not None)
+
+    with ThreadPoolExecutor(max_workers=MAX_PARALLEL) as pool:
+        futures = [pool.submit(work, i, n, d) for i, (n, d) in enumerate(files)]
+        for f in futures:
+            f.result()
+
+
+def _run_upload_job(job: dict, files: list[tuple[str, bytes]], options: dict):
+    try:
+        _run_parallel(job, files, options)
         job["status"] = "done"
         job["stage"] = "완료"
         _record_job_usage(job, options)
@@ -720,8 +768,6 @@ def _run_upload_job(job: dict, files: list[tuple[str, bytes]], options: dict):
 
 
 def _run_folder_job(job: dict, folder: Path, options: dict):
-    def progress(stage, filename):
-        job["stage"], job["current_file"] = stage, filename
     try:
         targets = [p for p in sorted(folder.iterdir())
                    if p.is_file() and p.suffix.lower() in parsing.SUPPORTED_EXTS
@@ -733,15 +779,15 @@ def _run_folder_job(job: dict, folder: Path, options: dict):
         out_dir = folder / "참고문헌_정리결과"
         out_dir.mkdir(exist_ok=True)
         job["output_dir"] = str(out_dir)
-        job["total_files"] = len(targets)
-        for p in targets:
-            res = process_file(p.name, p.read_bytes(), options, progress)
-            job["results"].append(res)
+
+        def save_docx(i, name, res):
             if not res.get("error"):
-                docx_bytes = report.build_result_docx(res)
-                (out_dir / f"{p.stem}_참고문헌정리.docx").write_bytes(docx_bytes)
-            job["done_files"] += 1
-        summary = report.build_batch_report_docx(job["results"], str(folder))
+                (out_dir / f"{Path(name).stem}_참고문헌정리.docx").write_bytes(
+                    report.build_result_docx(res))
+
+        _run_parallel(job, [(p.name, p.read_bytes()) for p in targets], options,
+                      on_done=save_docx)
+        summary = report.build_batch_report_docx([r for r in job["results"] if r], str(folder))
         (out_dir / "종합리포트.docx").write_bytes(summary)
         job["status"] = "done"
         job["stage"] = "완료"
@@ -841,6 +887,11 @@ def _run_compare_job(job: dict, hid: str, filename: str, data: bytes):
             p["draft"] = drafts.get(p["pair_id"]) or compare_mod.fallback_draft(p)
             p["draft"]["evidence"] = (f"발행본 비교: {rec.get('filename', '')} ↔ {filename} "
                                       f"({time.strftime('%Y-%m-%d')})")
+        # 발행본 파일 보관 + 비교 결과 저장(CSV 재다운로드용)
+        history_mod.attach_published(hid, filename, data)
+        history_mod.save_compare(hid, {"published_filename": filename,
+                                       "time": time.strftime("%Y-%m-%d %H:%M"),
+                                       **cmp})
         job["results"].append({
             "filename": filename, "error": "",
             "history": {k: rec.get(k, "") for k in ("id", "time", "filename", "user", "org")},
@@ -1017,10 +1068,11 @@ async def process_upload(request: Request, files: list[UploadFile] = File(...),
     a_org = access_org(request)
     if a_org:  # 학회별 접근 코드로 인증된 경우 — 코드가 식별한 학회를 우선(통계 신뢰성)
         options["org"] = a_org
-    eta, eta_basis = _estimate_secs(len(payload), options)
+    eta, eta_first, eta_basis = _estimate_secs(len(payload), options)
     job = _new_job("upload")
     threading.Thread(target=_run_upload_job, args=(job, payload, options), daemon=True).start()
-    return {"job_id": job["id"], "eta_secs": eta, "eta_basis": eta_basis}
+    return {"job_id": job["id"], "eta_secs": eta, "eta_first": eta_first,
+            "eta_basis": eta_basis, "n_files": len(payload)}
 
 
 @app.post("/api/process_folder")
@@ -1042,10 +1094,11 @@ def process_folder(request: Request, path: str = Form(...), style_id: str = Form
                        and not p.name.startswith("~$")])
     except OSError:
         n_files = 1
-    eta, eta_basis = _estimate_secs(n_files, options)
+    eta, eta_first, eta_basis = _estimate_secs(n_files, options)
     job = _new_job("folder")
     threading.Thread(target=_run_folder_job, args=(job, folder, options), daemon=True).start()
-    return {"job_id": job["id"], "eta_secs": eta, "eta_basis": eta_basis}
+    return {"job_id": job["id"], "eta_secs": eta, "eta_first": eta_first,
+            "eta_basis": eta_basis, "n_files": n_files}
 
 
 @app.get("/api/jobs/{job_id}")
@@ -1061,8 +1114,8 @@ def _get_result(job_id: str, index: int) -> dict:
     job = JOBS.get(job_id)
     if not job:
         raise HTTPException(404, "작업을 찾을 수 없습니다.")
-    if index < 0 or index >= len(job["results"]):
-        raise HTTPException(404, "결과를 찾을 수 없습니다.")
+    if index < 0 or index >= len(job["results"]) or job["results"][index] is None:
+        raise HTTPException(404, "결과를 찾을 수 없습니다(아직 처리 중일 수 있습니다).")
     return job["results"][index]
 
 
@@ -1103,7 +1156,7 @@ def download_zip(job_id: str, request: Request):
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for res in job["results"]:
-            if res.get("error"):
+            if not res or res.get("error"):
                 continue
             stem = Path(res.get("filename", "결과")).stem
             zf.writestr(f"{stem}_참고문헌정리.docx", report.build_result_docx(res))
@@ -1112,7 +1165,8 @@ def download_zip(job_id: str, request: Request):
             zf.writestr(f"{stem}.bib", report.build_bibtex(res).encode("utf-8"))
         if len(job["results"]) > 1:
             zf.writestr("종합리포트.docx",
-                        report.build_batch_report_docx(job["results"], "업로드 일괄 처리"))
+                        report.build_batch_report_docx([r for r in job["results"] if r],
+                                                       "업로드 일괄 처리"))
     return Response(buf.getvalue(), media_type="application/zip",
                     headers={"Content-Disposition":
                              "attachment; filename*=UTF-8''%s" % _quote("참고문헌_정리결과.zip")})
@@ -1291,6 +1345,70 @@ async def admin_compare(request: Request, history_id: str = Form(...),
     threading.Thread(target=_run_compare_job,
                      args=(job, history_id, file.filename, data), daemon=True).start()
     return {"job_id": job["id"]}
+
+
+# ================================================================ 원고 관리 (관리자)
+
+@app.get("/api/admin/history/{hid}/file")
+def admin_history_file(hid: str, request: Request, kind: str = "orig"):
+    """보관된 원고 원본(orig) 또는 발행본(published) 다운로드."""
+    require_admin(request)
+    found = history_mod.file_path(hid, "published" if kind == "published" else "orig")
+    if not found:
+        raise HTTPException(404, "보관된 파일이 없습니다.")
+    p, name = found
+    return Response(p.read_bytes(), media_type="application/octet-stream",
+                    headers={"Content-Disposition": f"attachment; filename*=UTF-8''{_quote(name)}"})
+
+
+@app.delete("/api/admin/history/{hid}")
+def admin_delete_history(hid: str, request: Request):
+    """처리 이력과 보관 파일(원본·발행본) 삭제."""
+    require_admin(request)
+    return {"ok": history_mod.delete_history(hid)}
+
+
+def _csv_response(rows: list[list], filename: str) -> Response:
+    import csv
+    buf = io.StringIO()
+    csv.writer(buf).writerows(rows)
+    return Response(buf.getvalue().encode("utf-8-sig"),  # BOM — 엑셀 한글 호환
+                    media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": f"attachment; filename*=UTF-8''{_quote(filename)}"})
+
+
+@app.get("/api/admin/history_csv")
+def admin_history_csv(request: Request):
+    """업로드·처리 이력 목록 CSV(엑셀용)."""
+    require_admin(request)
+    rows = [["처리일시", "파일명", "이용자", "학회", "적용 기준", "문헌 수",
+             "원본 보관", "발행본 보관", "비교일시"]]
+    for h in history_mod.list_history():
+        rows.append([h.get("time", ""), h.get("filename", ""), h.get("user", ""),
+                     h.get("org", ""), h.get("style_name", ""), h.get("total", ""),
+                     "O" if h.get("has_file") else "", "O" if h.get("has_published") else "",
+                     h.get("compared", "")])
+    return _csv_response(rows, f"원고처리이력_{time.strftime('%Y%m%d')}.csv")
+
+
+@app.get("/api/admin/history/{hid}/compare_csv")
+def admin_compare_csv(hid: str, request: Request):
+    """투고 원고 → Agent → 발행본 3단 비교 결과 CSV(엑셀용)."""
+    require_admin(request)
+    rec = history_mod.get_history(hid)
+    if not rec or not rec.get("last_compare"):
+        raise HTTPException(404, "저장된 비교 결과가 없습니다. 먼저 발행본 비교를 실행해 주세요.")
+    c = rec["last_compare"]
+    rows = [["구분", "일치 여부", "투고 원고(편집 단계)", "Agent 결과", "최종 발행본"]]
+    for p in c.get("pairs", []):
+        rows.append(["짝지음", "일치" if p.get("same") else "차이",
+                     p.get("raw", ""), p.get("agent", ""), p.get("published", "")])
+    for a in c.get("agent_only", []):
+        rows.append(["발행본에 없음", "", a.get("raw", ""), a.get("agent", ""), ""])
+    for pub in c.get("published_only", []):
+        rows.append(["발행본에만 있음", "", "", "", pub])
+    stem = Path(rec.get("filename", "결과")).stem
+    return _csv_response(rows, f"{stem}_3단비교_{time.strftime('%Y%m%d')}.csv")
 
 
 @app.post("/api/admin/compare/adopt")

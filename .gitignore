@@ -4,6 +4,7 @@
 app/config.json
 
 # ── 런타임 데이터 (서비스 사용 기록·관리자 축적 데이터)
+app/uploads/
 app/usage_log.json
 app/feedback_log.json
 app/style_directives.json

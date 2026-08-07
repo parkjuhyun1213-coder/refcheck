@@ -97,6 +97,7 @@ def align(agent_items: list[dict], published: list[str]) -> dict:
                 "pair_id": len(pairs),
                 "index": i,
                 "type": it.get("type", ""),
+                "raw": _collapse_ws(it.get("raw", "")),  # 편집(투고) 단계 원문
                 "agent": formatted,
                 "published": pub_str,
                 "same": same,
@@ -104,7 +105,9 @@ def align(agent_items: list[dict], published: list[str]) -> dict:
                 "diff": [] if same else _diff_segments(formatted, pub_str),
             })
         else:
-            agent_only.append({"index": i, "agent": formatted, "type": it.get("type", "")})
+            agent_only.append({"index": i, "agent": formatted,
+                               "raw": _collapse_ws(it.get("raw", "")),
+                               "type": it.get("type", "")})
 
     published_only = [_collapse_ws(p) for j, p in enumerate(published) if j not in used]
     n_same = sum(1 for p in pairs if p["same"])
