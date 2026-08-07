@@ -759,12 +759,19 @@ function setRunning(on){
 }
 
 // ---------- 진행 상황
+function setBar(pct){
+  // 진행 막대는 뒤로 돌아가지 않음 — 파일 완료 기준과 예상 시간 기준 중 앞선 쪽 유지
+  pct=Math.min(97,Math.max(pct,window._barPct||0));
+  window._barPct=pct;
+  $('barFill').style.width=pct+'%';
+}
 function startPolling(jobId,etaSecs,etaBasis,etaFirst,nFiles){
   currentJob=jobId;
   window._tabsBuilt=false; window._openTab=0; window._renderedTab=-1;
+  window._barPct=0;
   // 'block' 명시 필수 — ''로 지우면 CSS의 .progress{display:none}이 다시 적용되어 영역이 안 보임
   $('progress').style.display='block'; $('resultCard').style.display='none';
-  $('barFill').style.width='4%'; $('stageText').textContent='작업 시작…';
+  setBar(4); $('stageText').textContent='작업 시작…';
   if(etaTimer) clearInterval(etaTimer);
   // 5편 이상이면 '처음 4편'과 '전체' 예상 시간을 구분해 둘 다 카운트다운
   window._eta=etaSecs?{total:etaSecs,start:Date.now(),basis:etaBasis||'',
@@ -783,6 +790,7 @@ function updateEta(){
   if(!e){ el.textContent=''; return; }
   const elapsed=(Date.now()-e.start)/1000;
   const remTotal=e.total-elapsed;
+  setBar(Math.round(elapsed/e.total*100));  // 예상 시간 경과에 맞춰 막대도 전진
   const parts=[];
   if(e.first){
     const remFirst=e.first-elapsed;
@@ -800,14 +808,15 @@ function stopEta(){
 async function poll(){
   const j=await (await fetch('/api/jobs/'+currentJob)).json();
   window._lastJob=j;
-  const frac=j.total_files? (j.done_files+0.5)/j.total_files : 0.1;
-  $('barFill').style.width=Math.min(97,Math.round(frac*100))+'%';
+  const frac=j.total_files? j.done_files/j.total_files : 0.05;
+  setBar(Math.round(frac*100));
   $('stageText').textContent=`${j.current_file||''} — ${j.stage} (${j.done_files}/${j.total_files} 파일 완료)`;
   // 여러 편 동시 처리: 탭을 즉시 만들고 완료된 논문부터 열람 가능
   if(j.files&&j.results&&j.results.length>1){ ensureTabs(j); updateTabs(j); }
   if(j.status==='done'||j.status==='error'){
     clearInterval(pollTimer);
     stopEta();
+    window._barPct=100;
     $('barFill').style.width='100%';
     $('stageText').textContent=j.status==='done'?'완료':'오류: '+j.error;
     setRunning(false);
@@ -1132,6 +1141,7 @@ function resetAll(){
   $('fileInput').value='';
   $('folderPath').value='';
   $('progress').style.display='none';
+  window._barPct=0;
   $('barFill').style.width='0'; $('stageText').textContent='';
   $('results').innerHTML=''; $('resultCard').style.display='none';
   $('outDirNote').textContent='';
