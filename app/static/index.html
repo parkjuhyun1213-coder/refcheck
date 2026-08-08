@@ -111,6 +111,8 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
   <button onclick="resetAll()" title="처리 결과와 선택 파일을 지우고 처음 화면으로 돌아갑니다">🗒 새 논문</button>
   <button onclick="openPast()" title="이전에 처리한 결과를 다시 보고 내려받습니다">📂 지난 결과</button>
   <span id="aiBadge" class="badge">엔진 확인 중…</span>
+  <span id="roleBadge" class="badge" style="display:none"></span>
+  <button id="codeBtn" onclick="openAccessDlg()" title="학회 접근 코드를 입력하거나 다른 코드로 바꿉니다">🎫 학회 코드</button>
   <button id="kbBtn" onclick="openKb()" style="display:none">📋 기준·제안 관리</button>
   <button id="fbBtn" onclick="openFbAdmin()" style="display:none">📝 편집 요구</button>
   <button id="statsBtn" onclick="openStats()" style="display:none">📊 사용 통계</button>
@@ -252,10 +254,10 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
     </div>
     <div class="field" style="margin-top:14px">
       <label>이용자 접근 코드 (외부 운영)</label>
-      <div class="hint" style="margin-bottom:4px">학회별 코드를 설정하면 이용자가 코드를 입력하는 것만으로
-        소속 학회가 자동 식별되어 통계에 기록됩니다. 각 학회 편집위원회에 해당 코드만 안내하세요.
-        공통 코드는 학회 구분 없이 입장하는 예비 코드입니다. 모두 비우면 접근 제한이 없습니다.
-        코드를 바꾸면 기존 이용자는 새 코드를 다시 입력해야 합니다.</div>
+      <div class="hint" style="margin-bottom:4px">학회·역할별로 코드를 나누어 안내하세요. 코드만으로 소속 학회와
+        역할이 확인됩니다. <b>이용자</b>는 원고 처리·자기 학회 결과 열람, <b>편집위원</b>은 여기에 더해
+        학회 통계·원고 관리·발행본 비교, <b>편집위원장</b>은 자료 삭제까지 가능합니다.
+        모든 코드는 서로 달라야 하며, 코드를 바꾸면 기존 이용자는 새 코드를 다시 입력해야 합니다.</div>
       <div id="orgCodeRows"></div>
       <div class="row" style="margin-top:6px">
         <label style="width:150px;color:var(--sub)">공통 코드 (예비)</label>
@@ -349,12 +351,14 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
 
 <!-- 접근 코드 대화상자 (외부 운영) -->
 <dialog id="dlgAccess">
-  <div class="dhead">접근 코드 입력</div>
+  <div class="dhead">학회 접근 코드</div>
   <div class="dbody">
     <div class="hint" style="margin-bottom:10px">
-      이 서비스는 승인된 이용자(학회지 편집위원회 등)를 위해 운영됩니다.
-      안내받은 접근 코드를 입력해 주세요. 코드가 없다면 관리자에게 문의해 주세요.
+      학회에서 안내받은 코드를 입력하면 소속 학회가 자동으로 확인되고, 학회 관련 기능이 열립니다.
+      <b>편집위원·편집위원장</b> 코드로 입장하면 학회 통계·원고 관리·발행본 비교를 이용할 수 있습니다.
+      코드가 없다면 소속 학회 편집위원회 또는 관리자에게 문의해 주세요.
     </div>
+    <div id="accessCurrent" class="hint" style="display:none;background:var(--accent-soft);border-radius:8px;padding:7px 11px;margin-bottom:10px"></div>
     <div class="field">
       <label>접근 코드</label>
       <input type="password" id="accessCode" onkeydown="if(event.key==='Enter')submitAccess()">
@@ -362,6 +366,8 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
     <div class="msg" id="accessMsg"></div>
   </div>
   <div class="dfoot">
+    <button class="btn ghost" id="accessCancelBtn" onclick="dlgAccess.close()" style="display:none">취소</button>
+    <button class="btn ghost" id="accessLeaveBtn" onclick="leaveAccess()" style="display:none">코드 해제</button>
     <button class="btn ghost" onclick="dlgLogin.showModal()">관리자 로그인</button>
     <button class="btn" onclick="submitAccess()">확인</button>
   </div>
@@ -391,9 +397,9 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
 
 <!-- 기준·제안 관리 대화상자 (관리자) -->
 <dialog id="dlgKb" style="max-width:940px">
-  <div class="dhead">기준·제안 관리 (관리자)</div>
+  <div class="dhead" id="kbHead">기준·제안 관리 (관리자)</div>
   <div class="dbody" style="max-height:76vh;overflow-y:auto">
-    <div class="hint" style="margin-bottom:4px">
+    <div class="hint" id="kbIntro" style="margin-bottom:4px">
       적용 우선순위: ① <b>문편협 공통 기준</b>(항상 일순위) → ② <b>관리자 추가 기준</b>(변환에 반영,
       문편협과 충돌 시 문편협 우선·공백만 보완) → ③ <b>논문 사례를 통한 제안</b> · ④ <b>박주현 교수의 추가 제안</b>
       (변환 결과를 바꾸지 않고 이용자에게 참고용으로 표시).
@@ -533,18 +539,40 @@ async function init(){
 }
 function checkAccess(){
   const s=window._status;
-  if(s&&s.access_required&&!s.access_ok&&!dlgAccess.open){
-    $('accessMsg').textContent='';
-    dlgAccess.showModal();
-    setTimeout(()=>$('accessCode').focus(),50);
-  }
+  if(s&&s.access_required&&!s.access_ok&&!dlgAccess.open) openAccessDlg();
+}
+// 코드 입력·변경 대화상자 (첫 입장이면 취소 불가, 이미 입장했으면 변경/해제 가능)
+function openAccessDlg(){
+  const s=window._status||{};
+  $('accessMsg').textContent=''; $('accessCode').value='';
+  const entered=!!s.access_ok;
+  $('accessCancelBtn').style.display=entered?'':'none';
+  $('accessLeaveBtn').style.display=entered?'':'none';
+  const cur=$('accessCurrent');
+  if(entered&&s.access_org){
+    cur.style.display=''; cur.innerHTML=`현재 <b>${esc(s.access_org)} · ${esc(s.role_label||'이용자')}</b>(으)로 이용 중입니다. 다른 코드를 입력하면 그 코드로 바뀝니다.`;
+  } else if(entered){
+    cur.style.display=''; cur.textContent='현재 공통 코드로 이용 중입니다. 학회 코드를 입력하면 소속 학회가 확인됩니다.';
+  } else cur.style.display='none';
+  if(!dlgAccess.open) dlgAccess.showModal();
+  setTimeout(()=>$('accessCode').focus(),50);
 }
 async function submitAccess(){
   const fd=new FormData(); fd.append('code',$('accessCode').value);
   const r=await fetch('/api/access',{method:'POST',body:fd});
   const d=await r.json();
-  if(d.ok){ dlgAccess.close(); await refreshStatus(); }
+  if(d.ok){
+    dlgAccess.close();
+    await refreshStatus();
+    if(d.org) alert(`${d.org} · ${d.role_label||'이용자'}(으)로 확인되었습니다.`);
+  }
   else { $('accessMsg').textContent=d.message||'코드가 올바르지 않습니다.'; $('accessMsg').className='msg bad'; }
+}
+async function leaveAccess(){
+  if(!confirm('현재 코드를 해제할까요? 계속 사용하려면 코드를 다시 입력해야 합니다.')) return;
+  await fetch('/api/access/logout',{method:'POST'});
+  await refreshStatus();
+  openAccessDlg();
 }
 async function initOrgs(){
   const d=await (await fetch('/api/orgs')).json();
@@ -593,9 +621,20 @@ async function refreshStatus(){
   else { b.textContent='규칙 기반 모드'; b.className='badge'; }
   if(s.admin) b.textContent+=' · 관리자';
   $('settingsBtn').style.display=s.admin?'':'none';
-  $('statsBtn').style.display=s.admin?'':'none';
   $('fbBtn').style.display=s.admin?'':'none';
-  $('kbBtn').style.display=s.admin?'':'none';
+  // 통계·학회 관리는 편집위원(위원장 포함)에게도 열림 — 자기 학회 범위
+  $('statsBtn').style.display=s.is_editor?'':'none';
+  $('kbBtn').style.display=s.is_editor?'':'none';
+  $('kbBtn').textContent=s.admin?'📋 기준·제안 관리':'🏛 학회 관리';
+  // 역할 배지
+  const rb=$('roleBadge');
+  if(s.admin){ rb.style.display='none'; }
+  else if(s.role&&s.access_org){ rb.style.display=''; rb.textContent=`${s.access_org} · ${s.role_label}`;
+    rb.className='badge'+(s.is_editor?' on':''); }
+  else if(s.role==='user'){ rb.style.display=''; rb.textContent='공통 코드 이용자'; rb.className='badge'; }
+  else { rb.style.display='none'; }
+  $('codeBtn').style.display=(s.access_required&&!s.admin)?'':'none';
+  $('codeBtn').textContent=s.access_ok?'🎫 코드 변경':'🎫 학회 코드';
   $('addStyleBtn').style.display=s.admin?'':'none';
   $('adminBtn').textContent=s.admin?'로그아웃':'🔐 관리자';
   // 관리자 대시보드
@@ -632,7 +671,9 @@ async function loadDashboard(){
     const sy=d.system||{}, kr=sy.kr_apis||{};
     h+='<h3 style="margin:12px 0 6px">⚙ 시스템 상태</h3><div class="chips">';
     h+=`<span class="chip ${sy.ai?'ok':'warn'}">AI ${sy.ai?('켜짐 · '+esc(sy.model||'')):'꺼짐(규칙 기반)'}</span>`;
-    h+=`<span class="chip ${sy.org_codes?'ok':'amber'}">학회별 접근 코드 ${sy.org_codes||0}개</span>`;
+    h+=`<span class="chip ${sy.org_codes?'ok':'amber'}">이용자 코드 ${sy.org_codes||0}개</span>`;
+    h+=`<span class="chip ${sy.editor_codes?'ok':'amber'}">편집위원 코드 ${sy.editor_codes||0}개</span>`;
+    h+=`<span class="chip ${sy.chair_codes?'ok':'amber'}">위원장 코드 ${sy.chair_codes||0}개</span>`;
     h+=`<span class="chip ${sy.common_code?'ok':''}">공통 코드 ${sy.common_code?'설정됨':'없음'}</span>`;
     h+=`<span class="chip ${kr.kci?'ok':'amber'}">KCI ${kr.kci?'연결':'미설정'}</span>`;
     h+=`<span class="chip ${kr.nlk?'ok':'amber'}">국중 ${kr.nlk?'연결':'미설정'}</span>`;
@@ -1346,16 +1387,19 @@ async function openStats(){
   dlgStats.showModal();
   $('statsBody').textContent='불러오는 중…';
   const r=await fetch('/api/admin/stats');
-  if(!r.ok){ $('statsBody').innerHTML='<div class="errbox">통계를 불러올 수 없습니다(관리자 로그인이 필요합니다).</div>'; return; }
+  if(!r.ok){ $('statsBody').innerHTML='<div class="errbox">통계를 볼 권한이 없습니다(학회 편집위원 코드 또는 관리자 로그인이 필요합니다).</div>'; return; }
   const d=await r.json();
-  let h=`<div class="chips"><span class="chip">총 사용 ${d.total_uses}회</span>`+
+  let h=d.scope_org?`<div class="hint" style="margin-bottom:6px">${esc(d.scope_org)}의 사용 통계입니다.</div>`:'';
+  h+=`<div class="chips"><span class="chip">총 사용 ${d.total_uses}회</span>`+
         `<span class="chip">처리 파일 ${d.total_files}건</span>`+
         `<span class="chip">처리 문헌 ${d.total_refs}건</span></div>`;
-  h+='<h3 style="margin:10px 0 4px;color:var(--accent)">기관(학회)별 통계</h3>';
-  h+='<div style="overflow-x:auto"><table class="cmp"><tr><th>기관(학회)</th><th>사용 횟수</th><th>사용자 수</th><th>파일</th><th>문헌</th></tr>';
-  for(const o of d.by_org)
-    h+=`<tr><td>${esc(o.org)}</td><td>${o.uses}</td><td>${o.users}</td><td>${o.files}</td><td>${o.refs}</td></tr>`;
-  h+='</table></div>';
+  if(!d.scope_org){
+    h+='<h3 style="margin:10px 0 4px;color:var(--accent)">기관(학회)별 통계</h3>';
+    h+='<div style="overflow-x:auto"><table class="cmp"><tr><th>기관(학회)</th><th>사용 횟수</th><th>사용자 수</th><th>파일</th><th>문헌</th></tr>';
+    for(const o of d.by_org)
+      h+=`<tr><td>${esc(o.org)}</td><td>${o.uses}</td><td>${o.users}</td><td>${o.files}</td><td>${o.refs}</td></tr>`;
+    h+='</table></div>';
+  }
   if(d.by_month&&d.by_month.length){
     h+='<h3 style="margin:12px 0 4px;color:var(--accent)">월별 통계</h3>';
     h+='<div style="overflow-x:auto"><table class="cmp"><tr><th>월</th><th>사용 횟수</th><th>사용자 수</th><th>파일</th><th>문헌</th></tr>';
@@ -1386,14 +1430,21 @@ async function openSettings(){
   sel.value=s.model;
   $('setKey').value='';
   $('setAccessCode').value=s.access_code||'';
-  // 학회별 접근 코드 입력칸 구성 (기본 4개 학회 + 코드가 등록된 기타 학회)
+  // 학회×역할 접근 코드 입력칸 (기본 4개 학회 + 코드가 등록된 기타 학회)
+  const orgCodes=s.access_codes||{}, edCodes=s.editor_codes||{}, chCodes=s.chair_codes||{};
   const orgList=[...(s.default_orgs||[])];
-  const orgCodes=s.access_codes||{};
-  for(const k of Object.keys(orgCodes)) if(!orgList.includes(k)) orgList.push(k);
-  $('orgCodeRows').innerHTML=orgList.map(o=>`<div class="row" style="margin-top:6px">
-    <label style="width:150px">${esc(o)}</label>
-    <input type="text" class="orgCodeInput" data-org="${esc(o)}" value="${esc(orgCodes[o]||'')}" placeholder="미설정" style="flex:1">
-  </div>`).join('');
+  for(const src of [orgCodes,edCodes,chCodes])
+    for(const k of Object.keys(src)) if(!orgList.includes(k)) orgList.push(k);
+  $('orgCodeRows').innerHTML=
+    `<div class="row" style="margin-top:6px;font-weight:600;color:var(--sub);font-size:12px">
+      <span style="width:150px">학회</span><span style="flex:1">이용자 코드</span>
+      <span style="flex:1">편집위원 코드</span><span style="flex:1">편집위원장 코드</span></div>`
+    +orgList.map(o=>`<div class="row" style="margin-top:5px">
+      <label style="width:150px">${esc(o)}</label>
+      <input type="text" class="orgCodeInput" data-org="${esc(o)}" value="${esc(orgCodes[o]||'')}" placeholder="미설정" style="flex:1">
+      <input type="text" class="edCodeInput" data-org="${esc(o)}" value="${esc(edCodes[o]||'')}" placeholder="미설정" style="flex:1">
+      <input type="text" class="chCodeInput" data-org="${esc(o)}" value="${esc(chCodes[o]||'')}" placeholder="미설정" style="flex:1">
+    </div>`).join('');
   $('keyHint').textContent=s.key_hint?`현재 저장된 키: ${s.key_hint} (변경하려면 새 키 입력)`:'console.anthropic.com에서 발급. 키는 이 컴퓨터의 app/config.json에만 저장됩니다.';
   const kr=s.kr_apis||{};
   const lbl=(ok)=>ok?'<span class="vbadge v-ok">설정됨</span>':'<span class="vbadge v-skip">미설정</span>';
@@ -1410,11 +1461,14 @@ async function testKey(){
 async function saveSettings(){
   const fd=new FormData(); fd.append('api_key',$('setKey').value); fd.append('model',$('setModel').value);
   fd.append('access_code',$('setAccessCode').value);
-  const codes={};
-  document.querySelectorAll('.orgCodeInput').forEach(inp=>{
-    if(inp.value.trim()) codes[inp.dataset.org]=inp.value.trim();
-  });
-  fd.append('access_codes',JSON.stringify(codes));
+  const collect=cls=>{
+    const o={};
+    document.querySelectorAll('.'+cls).forEach(inp=>{ if(inp.value.trim()) o[inp.dataset.org]=inp.value.trim(); });
+    return JSON.stringify(o);
+  };
+  fd.append('access_codes',collect('orgCodeInput'));
+  fd.append('editor_codes',collect('edCodeInput'));
+  fd.append('chair_codes',collect('chCodeInput'));
   const r=await fetch('/api/settings',{method:'POST',body:fd});
   const d=await r.json();
   if(!d.ok){ $('setMsg').textContent=d.message||'저장 실패'; $('setMsg').className='msg bad'; return; }
@@ -1465,7 +1519,14 @@ async function openKb(){
   if(!dlgKb.open) dlgKb.showModal();
   if(!_kbInit){ initKbStatic(); _kbInit=true; }
   $('kbMsg').textContent='';
-  await renderKb();
+  const s=window._status||{};
+  const admin=!!s.admin;
+  // 기준·제안 관리(사례·교수 제안·추가 기준)는 관리자 전용, 학회 업무 탭은 편집위원도 이용
+  for(const k of ['C','P','S']) $('kbTab'+k).style.display=admin?'':'none';
+  $('kbHead').textContent=admin?'기준·제안 관리 (관리자)':`학회 관리 — ${s.access_org||''} · ${s.role_label||''}`;
+  $('kbIntro').style.display=admin?'':'none';
+  kbTab(admin?'c':'m');
+  if(admin) await renderKb();
   await loadCmpHistory();
 }
 function initKbStatic(){
@@ -1602,8 +1663,9 @@ async function runCaseAnalysis(){
 // ---------- 발행본 비교
 async function loadCmpHistory(){
   const r=await fetch('/api/admin/history');
-  if(!r.ok) return;
+  if(!r.ok){ $('kbListF').innerHTML='<div class="errbox">목록을 불러올 권한이 없습니다.</div>'; return; }
   const d=await r.json();
+  window._histScope=d;
   const sel=$('cmpHistory'); sel.innerHTML='';
   if(!d.history.length){
     const o=document.createElement('option'); o.value=''; o.textContent='처리 이력이 없습니다 — 먼저 원고를 처리해 주세요'; sel.appendChild(o);
@@ -1613,18 +1675,20 @@ async function loadCmpHistory(){
     o.textContent=`${h.time} · ${h.filename} · ${h.user||'익명'}(${h.org||'-'}) · ${h.total}건`;
     sel.appendChild(o);
   }
-  renderFileManage(d.history);
+  renderFileManage(d.history,d.can_delete);
 }
 // 원고 관리 표
-function renderFileManage(list){
+function renderFileManage(list,canDelete){
   if(!list||!list.length){ $('kbListF').innerHTML='<div class="hint">아직 처리 이력이 없습니다.</div>'; return; }
-  let h='<table class="cmp"><tr><th>처리일시</th><th>파일명</th><th>이용자(학회)</th><th>문헌</th><th>원본</th><th>발행본</th><th>3단 비교</th><th></th></tr>';
+  let h='<table class="cmp"><tr><th>처리일시</th><th>파일명</th><th>이용자(학회)</th><th>문헌</th><th>원본</th><th>발행본</th><th>3단 비교</th>'
+    +(canDelete?'<th></th>':'')+'</tr>';
   for(const r of list){
     h+=`<tr><td>${esc(r.time)}</td><td>${esc(r.filename)}</td><td>${esc(r.user||'익명')} (${esc(r.org||'-')})</td><td>${r.total||0}</td>
       <td>${r.has_file?`<button class="btn ghost small" onclick="location='/api/admin/history/${r.id}/file?kind=orig'">받기</button>`:'<span class="hint">없음</span>'}</td>
       <td>${r.has_published?`<button class="btn ghost small" onclick="location='/api/admin/history/${r.id}/file?kind=published'">받기</button>`:'<span class="hint">-</span>'}</td>
-      <td>${r.has_compare?`<button class="btn ghost small" onclick="location='/api/admin/history/${r.id}/compare_csv'">CSV</button>`:'<span class="hint">-</span>'}</td>
-      <td><span class="fbbtn" title="이력·보관 파일 삭제" onclick="delHistory('${r.id}')">✕</span></td></tr>`;
+      <td>${r.has_compare?`<button class="btn ghost small" onclick="location='/api/admin/history/${r.id}/compare_csv'">CSV</button>`:'<span class="hint">-</span>'}</td>`
+      +(canDelete?`<td><span class="fbbtn" title="이력·보관 파일 삭제" onclick="delHistory('${r.id}')">✕</span></td>`:'')
+      +'</tr>';
   }
   $('kbListF').innerHTML=h+'</table>';
 }

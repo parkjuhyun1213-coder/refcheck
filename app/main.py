@@ -83,8 +83,12 @@ def _access_code() -> str:
     return (aiengine.load_config().get("access_code") or aiengine.env_get("ACCESS_CODE")).strip()
 
 
+ROLE_LABEL = {"user": "이용자", "editor": "편집위원", "chair": "편집위원장"}
+ROLE_RANK = {"": 0, "user": 1, "editor": 2, "chair": 3}
+
+
 def _org_access_codes() -> dict[str, str]:
-    """학회별 접근 코드 {학회명: 코드}."""
+    """학회별 이용자 코드 {학회명: 코드}."""
     raw = aiengine.load_config().get("access_codes") or {}
     out = {}
     if isinstance(raw, dict):
@@ -95,23 +99,59 @@ def _org_access_codes() -> dict[str, str]:
     return out
 
 
+def _role_codes() -> dict[str, dict[str, str]]:
+    """역할별 코드 {"editor": {학회명: 코드}, "chair": {학회명: 코드}}."""
+    cfg = aiengine.load_config()
+    out: dict[str, dict[str, str]] = {}
+    for role in ("editor", "chair"):
+        raw = cfg.get(f"{role}_codes") or {}
+        codes = {}
+        if isinstance(raw, dict):
+            for org, code in raw.items():
+                org, code = str(org).strip(), str(code).strip()
+                if org and code:
+                    codes[org] = code
+        out[role] = codes
+    return out
+
+
 def access_required() -> bool:
-    return bool(_access_code() or _org_access_codes())
+    rc = _role_codes()
+    return bool(_access_code() or _org_access_codes() or rc["editor"] or rc["chair"])
 
 
 def _access_hash(code: str) -> str:
     return hashlib.sha256(("refstd-access:" + code).encode("utf-8")).hexdigest()
 
 
-def _valid_hashes() -> dict[str, str]:
-    """{쿠키 해시: 학회명} — 공통 코드는 학회명 ''. 코드가 바뀌면 기존 쿠키는 자동 무효."""
-    out = {}
+def _valid_hashes() -> dict[str, tuple[str, str]]:
+    """{쿠키 해시: (학회명, 역할)} — 공통 코드는 ('', 'user'). 코드가 바뀌면 기존 쿠키 자동 무효.
+
+    같은 코드가 여러 역할에 중복 등록된 경우 더 높은 역할이 우선한다.
+    """
+    out: dict[str, tuple[str, str]] = {}
+
+    def put(code: str, org: str, role: str):
+        h = _access_hash(code)
+        prev = out.get(h)
+        if not prev or ROLE_RANK[role] > ROLE_RANK[prev[1]]:
+            out[h] = (org, role)
+
     common = _access_code()
     if common:
-        out[_access_hash(common)] = ""
+        put(common, "", "user")
     for org, code in _org_access_codes().items():
-        out[_access_hash(code)] = org
+        put(code, org, "user")
+    rc = _role_codes()
+    for role in ("editor", "chair"):
+        for org, code in rc[role].items():
+            put(code, org, role)
     return out
+
+
+def _access_info(request: Request) -> tuple[str, str]:
+    """(학회명, 역할) — 미인증이면 ('', '')."""
+    return _valid_hashes().get(request.cookies.get("access_token", ""), ("", ""))
 
 
 def has_access(request: Request) -> bool:
@@ -122,7 +162,32 @@ def has_access(request: Request) -> bool:
 
 def access_org(request: Request) -> str:
     """접근 코드로 식별된 학회명(공통 코드·미인증·관리자는 '')."""
-    return _valid_hashes().get(request.cookies.get("access_token", ""), "")
+    return _access_info(request)[0]
+
+
+def access_role(request: Request) -> str:
+    """역할: admin | chair | editor | user | '' (미인증)."""
+    if is_admin(request):
+        return "admin"
+    return _access_info(request)[1]
+
+
+def is_editor(request: Request) -> bool:
+    """자기 학회 관리 권한(편집위원 이상)."""
+    return access_role(request) in ("editor", "chair", "admin")
+
+
+def require_editor(request: Request) -> tuple[str, str]:
+    """편집위원 이상 확인 후 (학회명, 역할) 반환. 관리자는 학회명 ''(전체)."""
+    role = access_role(request)
+    if role == "admin":
+        return "", "admin"
+    if role not in ("editor", "chair"):
+        raise HTTPException(403, "편집위원 전용 기능입니다. 학회 편집위원 코드로 입장해 주세요.")
+    org = access_org(request)
+    if not org:
+        raise HTTPException(403, "소속 학회를 확인할 수 없습니다.")
+    return org, role
 
 
 def require_access(request: Request):
@@ -135,23 +200,25 @@ def enter_access(code: str = Form("")):
     if not access_required():
         return {"ok": True, "org": ""}
     code = code.strip()
-    matched: str | None = None
-    org_name = ""
-    if _access_code() and secrets.compare_digest(code.encode("utf-8"),
-                                                 _access_code().encode("utf-8")):
-        matched = _access_code()
-    else:
-        for org, oc in _org_access_codes().items():
-            if secrets.compare_digest(code.encode("utf-8"), oc.encode("utf-8")):
-                matched, org_name = oc, org
-                break
-    if matched is not None:
-        resp = JSONResponse({"ok": True, "org": org_name})
-        resp.set_cookie("access_token", _access_hash(matched), httponly=True,
+    h = _access_hash(code)
+    info = _valid_hashes().get(h)
+    if info:
+        org_name, role = info
+        resp = JSONResponse({"ok": True, "org": org_name, "role": role,
+                             "role_label": ROLE_LABEL.get(role, "이용자")})
+        resp.set_cookie("access_token", h, httponly=True,
                         samesite="lax", max_age=30 * 24 * 3600, secure=_cookie_secure())
         return resp
     time.sleep(0.8)  # 무차별 대입 지연
     return JSONResponse({"ok": False, "message": "접근 코드가 올바르지 않습니다."}, status_code=401)
+
+
+@app.post("/api/access/logout")
+def leave_access():
+    """접근 코드 해제 — 다른 코드로 다시 입장할 때 사용."""
+    resp = JSONResponse({"ok": True})
+    resp.delete_cookie("access_token")
+    return resp
 
 
 def require_admin(request: Request):
@@ -665,8 +732,11 @@ def _agg_by_period(data: list[dict], width: int) -> list[dict]:
 
 @app.get("/api/admin/stats")
 def admin_stats(request: Request):
-    require_admin(request)
+    """사용 통계 — 관리자는 전체, 편집위원·위원장은 자기 학회분만."""
+    scope_org, _role = require_editor(request)
     data = _load_usage()
+    if scope_org:
+        data = [r for r in data if r.get("org") == scope_org]
     by_org: dict[str, dict] = {}
     for r in data:
         org = r.get("org") or "(미입력)"
@@ -680,7 +750,7 @@ def admin_stats(request: Request):
     for agg in sorted(by_org.values(), key=lambda a: -a["uses"]):
         org_rows.append({"org": agg["org"], "uses": agg["uses"], "files": agg["files"],
                          "refs": agg["refs"], "users": len(agg["users"])})
-    return {"total_uses": len(data),
+    return {"scope_org": scope_org, "total_uses": len(data),
             "total_files": sum(r.get("files", 0) for r in data),
             "total_refs": sum(r.get("refs", 0) for r in data),
             "by_org": org_rows,
@@ -933,12 +1003,18 @@ def status(request: Request):
            "models": aiengine.ALLOWED_MODELS,
            "admin": admin, "admin_configured": admin_configured(),
            "access_required": access_required(), "access_ok": has_access(request),
-           "access_org": access_org(request)}
+           "access_org": access_org(request),
+           "role": access_role(request),
+           "role_label": ROLE_LABEL.get(access_role(request), ""),
+           "is_editor": is_editor(request)}
     if admin:  # 키 관련 정보는 관리자에게만 노출
         out["key_source"] = cfg.get("key_source", "user" if cfg.get("api_key") else "")
         out["key_hint"] = cfg.get("api_key", "")[:10] + "…" if cfg.get("api_key") else ""
         out["access_code"] = _access_code()
         out["access_codes"] = _org_access_codes()
+        rc = _role_codes()
+        out["editor_codes"] = rc["editor"]
+        out["chair_codes"] = rc["chair"]
         out["default_orgs"] = DEFAULT_ORGS
         import verify_kr
         out["kr_apis"] = verify_kr.kr_api_status()
@@ -948,7 +1024,9 @@ def status(request: Request):
 @app.post("/api/settings")
 def save_settings(request: Request, api_key: str = Form(""), model: str = Form(aiengine.DEFAULT_MODEL),
                   clear: str = Form("0"), access_code: str | None = Form(None),
-                  access_codes: str | None = Form(None)):
+                  access_codes: str | None = Form(None),
+                  editor_codes: str | None = Form(None),
+                  chair_codes: str | None = Form(None)):
     require_admin(request)
     cfg = aiengine.load_config()
     if clear == "1":
@@ -960,28 +1038,36 @@ def save_settings(request: Request, api_key: str = Form(""), model: str = Form(a
     cfg["model"] = model if model in aiengine.ALLOWED_MODELS else aiengine.DEFAULT_MODEL
     if access_code is not None:  # 필드가 전송된 경우에만 변경(빈 값 = 공통 코드 해제)
         cfg["access_code"] = access_code.strip()[:60]
-    if access_codes is not None:  # 학회별 코드 {학회명: 코드} JSON
-        import json
+    # 학회별·역할별 코드 {학회명: 코드} JSON — 전송된 필드만 갱신
+    import json
+    for key, raw in (("access_codes", access_codes),
+                     ("editor_codes", editor_codes),
+                     ("chair_codes", chair_codes)):
+        if raw is None:
+            continue
         try:
-            data = json.loads(access_codes)
+            data = json.loads(raw)
             if not isinstance(data, dict):
                 raise ValueError
         except (json.JSONDecodeError, ValueError):
-            return JSONResponse({"ok": False, "message": "학회별 코드 형식이 올바르지 않습니다."},
+            return JSONResponse({"ok": False, "message": "코드 형식이 올바르지 않습니다."},
                                 status_code=400)
         cleaned = {}
         for org, code in data.items():
             org, code = str(org).strip()[:60], str(code).strip()[:60]
             if org and code:
                 cleaned[org] = code
-        all_codes = list(cleaned.values())
-        if cfg.get("access_code", "").strip():
-            all_codes.append(cfg["access_code"].strip())
-        if len(set(all_codes)) != len(all_codes):
-            return JSONResponse(
-                {"ok": False, "message": "겹치는 코드가 있습니다. 학회별 코드(공통 코드 포함)는 서로 달라야 합니다."},
-                status_code=400)
-        cfg["access_codes"] = cleaned
+        cfg[key] = cleaned
+    # 전체 코드 중복 검사 — 같은 코드가 두 역할·두 학회에 쓰이면 소속·권한이 모호해짐
+    all_codes = []
+    if cfg.get("access_code", "").strip():
+        all_codes.append(cfg["access_code"].strip())
+    for key in ("access_codes", "editor_codes", "chair_codes"):
+        all_codes += [c for c in (cfg.get(key) or {}).values() if c]
+    if len(set(all_codes)) != len(all_codes):
+        return JSONResponse(
+            {"ok": False, "message": "겹치는 코드가 있습니다. 모든 접근 코드(학회별·역할별·공통)는 서로 달라야 합니다."},
+            status_code=400)
     aiengine.save_config(cfg)
     return {"ok": True, "ai": aiengine.is_configured(), "model": aiengine.get_model(),
             "access_required": access_required()}
@@ -1339,6 +1425,8 @@ def admin_dashboard(request: Request):
                   "by_org": sorted(by_org.items(), key=lambda kv: -kv[1])},
         "system": {"ai": aiengine.is_configured(), "model": aiengine.get_model(),
                    "org_codes": len(_org_access_codes()), "common_code": bool(_access_code()),
+                   "editor_codes": len(_role_codes()["editor"]),
+                   "chair_codes": len(_role_codes()["chair"]),
                    "kr_apis": verify_kr.kr_api_status()},
         "history_total": len(hist),
     }
@@ -1407,8 +1495,13 @@ def admin_delete_standard(aid: str, request: Request):
 
 @app.get("/api/admin/history")
 def admin_history(request: Request):
-    require_admin(request)
-    return {"history": history_mod.list_history()}
+    """원고·처리 이력 목록 — 관리자는 전체, 편집위원은 자기 학회분만."""
+    scope_org, role = require_editor(request)
+    rows = history_mod.list_history()
+    if scope_org:
+        rows = [h for h in rows if h.get("org") == scope_org]
+    return {"history": rows, "scope_org": scope_org, "role": role,
+            "can_delete": role in ("admin", "chair")}
 
 
 @app.post("/api/admin/cases")
@@ -1437,8 +1530,8 @@ async def admin_add_cases(request: Request, journal: str = Form(...),
 @app.post("/api/admin/compare")
 async def admin_compare(request: Request, history_id: str = Form(...),
                         file: UploadFile = File(...)):
-    """발행본 비교 — 처리 이력과 학회지 발행본의 참고문헌 차이 분석."""
-    require_admin(request)
+    """발행본 비교 — 처리 이력과 학회지 발행본의 참고문헌 차이 분석(편집위원 이상)."""
+    _require_org_record(history_id, request)
     data = await file.read()
     if len(data) > 50 * 1024 * 1024:
         raise HTTPException(400, "파일이 너무 큽니다(50MB 이하).")
@@ -1450,10 +1543,21 @@ async def admin_compare(request: Request, history_id: str = Form(...),
 
 # ================================================================ 원고 관리 (관리자)
 
+def _require_org_record(hid: str, request: Request) -> tuple[dict, str]:
+    """편집위원 이상 + 자기 학회 자료인지 확인. (레코드, 역할) 반환."""
+    scope_org, role = require_editor(request)
+    rec = history_mod.get_history(hid)
+    if not rec:
+        raise HTTPException(404, "해당 자료를 찾을 수 없습니다.")
+    if scope_org and rec.get("org") != scope_org:
+        raise HTTPException(403, "다른 학회의 자료입니다.")
+    return rec, role
+
+
 @app.get("/api/admin/history/{hid}/file")
 def admin_history_file(hid: str, request: Request, kind: str = "orig"):
     """보관된 원고 원본(orig) 또는 발행본(published) 다운로드."""
-    require_admin(request)
+    _require_org_record(hid, request)
     found = history_mod.file_path(hid, "published" if kind == "published" else "orig")
     if not found:
         raise HTTPException(404, "보관된 파일이 없습니다.")
@@ -1464,8 +1568,10 @@ def admin_history_file(hid: str, request: Request, kind: str = "orig"):
 
 @app.delete("/api/admin/history/{hid}")
 def admin_delete_history(hid: str, request: Request):
-    """처리 이력과 보관 파일(원본·발행본) 삭제."""
-    require_admin(request)
+    """처리 이력과 보관 파일(원본·발행본) 삭제 — 관리자·편집위원장만."""
+    _rec, role = _require_org_record(hid, request)
+    if role not in ("admin", "chair"):
+        raise HTTPException(403, "삭제는 편집위원장 또는 관리자만 할 수 있습니다.")
     return {"ok": history_mod.delete_history(hid)}
 
 
@@ -1480,11 +1586,14 @@ def _csv_response(rows: list[list], filename: str) -> Response:
 
 @app.get("/api/admin/history_csv")
 def admin_history_csv(request: Request):
-    """업로드·처리 이력 목록 CSV(엑셀용)."""
-    require_admin(request)
+    """업로드·처리 이력 목록 CSV(엑셀용) — 편집위원은 자기 학회분만."""
+    scope_org, _role = require_editor(request)
+    hist = history_mod.list_history()
+    if scope_org:
+        hist = [h for h in hist if h.get("org") == scope_org]
     rows = [["처리일시", "파일명", "이용자", "학회", "적용 기준", "문헌 수",
              "원본 보관", "발행본 보관", "비교일시"]]
-    for h in history_mod.list_history():
+    for h in hist:
         rows.append([h.get("time", ""), h.get("filename", ""), h.get("user", ""),
                      h.get("org", ""), h.get("style_name", ""), h.get("total", ""),
                      "O" if h.get("has_file") else "", "O" if h.get("has_published") else "",
@@ -1507,9 +1616,8 @@ def admin_history_archive(request: Request):
 @app.get("/api/admin/history/{hid}/compare_csv")
 def admin_compare_csv(hid: str, request: Request):
     """투고 원고 → Agent → 발행본 3단 비교 결과 CSV(엑셀용)."""
-    require_admin(request)
-    rec = history_mod.get_history(hid)
-    if not rec or not rec.get("last_compare"):
+    rec, _role = _require_org_record(hid, request)
+    if not rec.get("last_compare"):
         raise HTTPException(404, "저장된 비교 결과가 없습니다. 먼저 발행본 비교를 실행해 주세요.")
     c = rec["last_compare"]
     rows = [["구분", "일치 여부", "투고 원고(편집 단계)", "Agent 결과", "최종 발행본"]]
