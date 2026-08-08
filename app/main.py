@@ -36,7 +36,7 @@ app = FastAPI(title="파일 기반 참고문헌 표준화·검증 에이전트")
 # 화면(index.html)과 프로그램의 버전이 어긋난 채 배포되면 새 기능이 조용히 무시된다.
 # 두 파일에 같은 값을 두고 /api/status에서 대조해 관리자 화면에 경고를 띄운다.
 # 기능을 추가·변경할 때 main.py와 index.html의 APP_VERSION을 함께 올릴 것.
-APP_VERSION = "2026.08.08-4"
+APP_VERSION = "2026.08.08-5"
 
 APP_DIR = Path(__file__).parent
 JOBS: dict[str, dict] = {}
@@ -1118,6 +1118,34 @@ def test_settings(request: Request, api_key: str = Form(""), model: str = Form(a
 @app.get("/api/styles")
 def get_styles():
     return {"styles": styles_mod.list_styles()}
+
+
+@app.get("/api/sources")
+def get_sources():
+    """검증에 사용하는 정보원(국내·해외) 목록과 현재 연결 상태 — 이용자에게 공개."""
+    import verify_kr
+    kr = verify_kr.kr_api_status()
+    return {
+        "domestic": [
+            {"name": "KCI (한국학술지인용색인)", "role": "국내 학술지 논문 실존·서지 대조, 학술지 등재 여부",
+             "state": "on" if kr.get("kci") else "off"},
+            {"name": "국립중앙도서관 서지정보(SEOJI)", "role": "국내 단행본 ISBN·서지 대조",
+             "state": "on" if kr.get("nlk") else "off"},
+            {"name": "국회도서관 국가학술정보", "role": "학위논문 등 국내 자료 대조",
+             "state": "on" if kr.get("nanet") else "off"},
+        ],
+        "overseas": [
+            {"name": "Crossref", "role": "DOI 조회·서지 대조, 철회(Retraction)·정정 정보", "state": "on"},
+            {"name": "OpenAlex", "role": "Crossref 미등록 문헌 보조 대조", "state": "on"},
+            {"name": "Semantic Scholar", "role": "제목·저자 기반 논문 매칭", "state": "on"},
+            {"name": "DataCite", "role": "데이터셋·보고서 등 비학술지 DOI 대조", "state": "on"},
+            {"name": "DOAJ", "role": "오픈액세스 학술지 등재 여부(학술지 신뢰성)", "state": "on"},
+            {"name": "URL 접속 확인", "role": "웹 자원 링크 유효성 점검", "state": "on"},
+        ],
+        "note": ("국내 문헌은 KCI·국립중앙도서관·국회도서관에서, 해외 문헌은 Crossref를 시작으로 "
+                 "OpenAlex·Semantic Scholar·DataCite 순서로 대조합니다. "
+                 "국내 문헌이라도 DOI가 있으면 해외 정보원에서도 함께 확인합니다."),
+    }
 
 
 @app.get("/api/rules")

@@ -158,6 +158,11 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
       </div>
       <div id="extraRulesList" style="display:none;margin-top:7px"></div>
     </div>
+    <div class="row" style="margin-top:10px">
+      <button class="btn ghost small" id="srcBtn" onclick="toggleSources('Card')">🔎 검증 정보원 보기</button>
+      <span class="hint">어떤 데이터베이스에서 참고문헌을 대조하는지 확인할 수 있습니다.</span>
+    </div>
+    <div id="srcBoxCard" style="display:none;margin-top:8px"></div>
     <div class="checks">
       <label><input type="checkbox" id="optVerify" checked> 실존·윤리 검증 <span class="hint">(Crossref·OpenAlex·국내DB·철회검사·URL)</span></label>
       <label><input type="checkbox" id="optAutofix"> 서지 자동 교정 <span class="hint">(공식 서지로 연도·권·호·면수 자동 수정)</span></label>
@@ -561,7 +566,7 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
 
 <script>
 // main.py의 APP_VERSION과 같아야 함 — 다르면 배포가 반쪽만 된 상태이므로 경고를 띄운다
-const UI_VERSION='2026.08.08-4';
+const UI_VERSION='2026.08.08-5';
 const $=id=>document.getElementById(id);
 let pickedFiles=[], styles=[], currentJob=null, pollTimer=null, etaTimer=null;
 
@@ -1010,8 +1015,9 @@ function fileBodyHtml(job,idx,viewHid){
         <button class="btn ghost small" onclick="location='/api/results/${viewHid}/download?fmt=ris'">RIS (EndNote·Zotero)</button>
         <button class="btn ghost small" onclick="location='/api/results/${viewHid}/download?fmt=bib'">BibTeX</button>
         <button class="btn ghost small" onclick="copyView()">최종 목록 복사</button>
-        <button class="btn ghost small" onclick="toggleLegend('v')" title="결과에 붙는 표시들의 의미">❓ 표시 안내</button></div>`
-        +legendHtml('v');
+        <button class="btn ghost small" onclick="toggleLegend('v')" title="결과에 붙는 표시들의 의미">❓ 표시 안내</button>
+        <button class="btn ghost small" onclick="toggleSources('Rv')" title="어떤 데이터베이스에서 대조했는지">🔎 검증 정보원</button></div>`
+        +legendHtml('v')+`<div id="srcBoxRv" style="display:none;margin-bottom:10px"></div>`;
     } else if(job.mode==='upload'){
       h+=`<div class="row" style="margin-bottom:10px">
         <button class="btn small" onclick="location='/api/jobs/${job.id}/download/${idx}?fmt=docx'">결과 DOCX</button>
@@ -1019,15 +1025,17 @@ function fileBodyHtml(job,idx,viewHid){
         <button class="btn ghost small" onclick="location='/api/jobs/${job.id}/download/${idx}?fmt=ris'">RIS (EndNote·Zotero)</button>
         <button class="btn ghost small" onclick="location='/api/jobs/${job.id}/download/${idx}?fmt=bib'">BibTeX</button>
         <button class="btn ghost small" onclick="copyList(${idx})">최종 목록 복사</button>
-        <button class="btn ghost small" onclick="toggleLegend(${idx})" title="결과에 붙는 표시들의 의미">❓ 표시 안내</button></div>`
-        +legendHtml(idx);
+        <button class="btn ghost small" onclick="toggleLegend(${idx})" title="결과에 붙는 표시들의 의미">❓ 표시 안내</button>
+        <button class="btn ghost small" onclick="toggleSources('R${idx}')" title="어떤 데이터베이스에서 대조했는지">🔎 검증 정보원</button></div>`
+        +legendHtml(idx)+`<div id="srcBoxR${idx}" style="display:none;margin-bottom:10px"></div>`;
     } else {
       h+=`<div class="row" style="margin-bottom:10px">
         <button class="btn ghost small" onclick="location='/api/jobs/${job.id}/download/${idx}?fmt=ris'">RIS</button>
         <button class="btn ghost small" onclick="location='/api/jobs/${job.id}/download/${idx}?fmt=bib'">BibTeX</button>
         <button class="btn ghost small" onclick="copyList(${idx})">최종 목록 복사</button>
-        <button class="btn ghost small" onclick="toggleLegend(${idx})" title="결과에 붙는 표시들의 의미">❓ 표시 안내</button></div>`
-        +legendHtml(idx);
+        <button class="btn ghost small" onclick="toggleLegend(${idx})" title="결과에 붙는 표시들의 의미">❓ 표시 안내</button>
+        <button class="btn ghost small" onclick="toggleSources('R${idx}')" title="어떤 데이터베이스에서 대조했는지">🔎 검증 정보원</button></div>`
+        +legendHtml(idx)+`<div id="srcBoxR${idx}" style="display:none;margin-bottom:10px"></div>`;
     }
     // 철회·실존의심 경고 배너
     if(s.retracted) h+=`<div class="errbox" style="margin-bottom:8px"><b>⚠ 철회(Retraction)된 문헌을 인용하고 있습니다 (${s.retracted}건).</b> 아래 목록의 붉은 표시 항목을 확인하고 인용 유지 여부를 재검토하세요.</div>`;
@@ -1197,6 +1205,36 @@ function openFileTab(i){
   window._openTab=i; window._renderedTab=-1;
   if(window._lastJob) updateTabs(window._lastJob);
 }
+// ---------- 검증 정보원 안내 (국내·해외 정보원과 연결 상태)
+async function loadSources(){
+  if(window._sources) return window._sources;
+  try{
+    const r=await fetch('/api/sources');
+    if(!r.ok) return null;
+    window._sources=await r.json();
+    return window._sources;
+  }catch(e){ return null; }
+}
+function sourcesHtml(d){
+  if(!d) return '<div class="hint">정보원 정보를 불러오지 못했습니다.</div>';
+  const row=s=>`<div class="dirline"><span style="flex:1"><b>${esc(s.name)}</b> — ${esc(s.role)}</span>`
+    +(s.state==='on'?'<span class="vbadge v-ok">연결됨</span>'
+      :'<span class="vbadge v-skip">미연결 · 해당 유형은 대조 생략</span>')+'</div>';
+  return `<div style="border:1px solid var(--line);border-radius:10px;padding:10px 13px;font-size:12.5px">
+    <b>국내 문헌</b>${d.domestic.map(row).join('')}
+    <b style="display:block;margin-top:8px">해외 문헌</b>${d.overseas.map(row).join('')}
+    <div class="hint" style="margin-top:8px">${esc(d.note||'')}</div>
+  </div>`;
+}
+async function toggleSources(suffix){
+  const el=$('srcBox'+suffix);
+  if(!el) return;
+  if(el.style.display!=='none'){ el.style.display='none'; return; }
+  el.innerHTML='<div class="hint">불러오는 중…</div>';
+  el.style.display='';
+  el.innerHTML=sourcesHtml(await loadSources());
+}
+
 // 결과 표시(배지·아이콘) 안내 상자
 function legendHtml(idx){
   return `<div id="legend_${idx}" style="display:none;border:1px solid var(--line);border-radius:10px;padding:10px 14px;margin-bottom:10px;font-size:12.5px;line-height:2">
