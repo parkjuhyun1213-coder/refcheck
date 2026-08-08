@@ -37,7 +37,7 @@ app = FastAPI(title="파일 기반 참고문헌 표준화·검증 에이전트")
 # 화면(index.html)과 프로그램의 버전이 어긋난 채 배포되면 새 기능이 조용히 무시된다.
 # 두 파일에 같은 값을 두고 /api/status에서 대조해 관리자 화면에 경고를 띄운다.
 # 기능을 추가·변경할 때 main.py와 index.html의 APP_VERSION을 함께 올릴 것.
-APP_VERSION = "2026.08.08-6"
+APP_VERSION = "2026.08.08-7"
 
 APP_DIR = Path(__file__).parent
 JOBS: dict[str, dict] = {}
@@ -976,8 +976,12 @@ def _run_case_job(job: dict, journal: str, files: list[tuple[str, bytes]]):
         job["error"] = f"사례 분석 중 오류: {ex}"
 
 
-def _run_compare_job(job: dict, hid: str, filename: str, data: bytes):
-    """발행본 비교: 처리 이력의 에이전트 결과와 발행본 참고문헌을 짝지어 차이를 찾는다."""
+def _run_compare_job(job: dict, hid: str, filename: str, data: bytes,
+                     kci_refs: list[str] | None = None):
+    """발행본 비교: 처리 이력의 에이전트 결과와 발행본 참고문헌을 짝지어 차이를 찾는다.
+
+    kci_refs가 주어지면 파일 대신 KCI에서 가져온 참고문헌 목록을 발행본으로 사용한다.
+    """
     def progress(stage, fn):
         job["stage"], job["current_file"] = stage, fn
     try:
@@ -987,15 +991,19 @@ def _run_compare_job(job: dict, hid: str, filename: str, data: bytes):
             job["status"] = "error"
             job["error"] = "선택한 처리 이력을 찾을 수 없습니다."
             return
-        progress("발행본 참고문헌 추출", filename)
         use_ai = aiengine.is_configured()
-        try:
-            raws = compare_mod.extract_published_refs(
-                filename, data, split_ai=aiengine.split_entries_ai if use_ai else None)
-        except (parsing.ParseError, ValueError) as ex:
-            job["status"] = "error"
-            job["error"] = str(ex)
-            return
+        if kci_refs is not None:
+            progress("KCI 발행본 참고문헌 사용", filename)
+            raws = kci_refs
+        else:
+            progress("발행본 참고문헌 추출", filename)
+            try:
+                raws = compare_mod.extract_published_refs(
+                    filename, data, split_ai=aiengine.split_entries_ai if use_ai else None)
+            except (parsing.ParseError, ValueError) as ex:
+                job["status"] = "error"
+                job["error"] = str(ex)
+                return
         progress(f"항목 대조 (에이전트 {len(rec['items'])}건 ↔ 발행본 {len(raws)}건)", filename)
         cmp = compare_mod.align(rec["items"], raws)
         diffs = [p for p in cmp["pairs"] if not p["same"]]
@@ -1011,7 +1019,8 @@ def _run_compare_job(job: dict, hid: str, filename: str, data: bytes):
             p["draft"]["evidence"] = (f"발행본 비교: {rec.get('filename', '')} ↔ {filename} "
                                       f"({time.strftime('%Y-%m-%d')})")
         # 발행본 파일 보관 + 비교 결과 저장(CSV 재다운로드용)
-        history_mod.attach_published(hid, filename, data)
+        if data:
+            history_mod.attach_published(hid, filename, data)
         history_mod.save_compare(hid, {"published_filename": filename,
                                        "time": time.strftime("%Y-%m-%d %H:%M"),
                                        **cmp})
@@ -1156,7 +1165,8 @@ def get_sources():
     kr = verify_kr.kr_api_status()
     return {
         "domestic": [
-            {"name": "KCI (한국학술지인용색인)", "role": "국내 학술지 논문 실존·서지 대조, 학술지 등재 여부",
+            {"name": "KCI (한국학술지인용색인)",
+             "role": "국내 학술지 논문 실존·서지 대조, 학술지 등재 여부, 발행본 참고문헌 조회",
              "state": "on" if kr.get("kci") else "off"},
             {"name": "국립중앙도서관 서지정보(SEOJI)", "role": "국내 단행본 ISBN·서지 대조",
              "state": "on" if kr.get("nlk") else "off"},
@@ -1824,6 +1834,44 @@ def org_delete_request(rid: str, request: Request):
     if scope_org and target.get("org") != scope_org:
         raise HTTPException(403, "다른 학회의 요청입니다.")
     return {"ok": suggestions_mod.delete_request(rid)}
+
+
+@app.get("/api/admin/kci/references")
+def admin_kci_references(request: Request, title: str = "", author: str = "", year: str = ""):
+    """KCI referenceSearch — 논문명으로 발행본 참고문헌 목록 조회(편집위원 이상)."""
+    require_editor(request)
+    import verify_kr
+    if not verify_kr.kr_api_status().get("kci"):
+        raise HTTPException(400, "KCI 인증키가 설정되지 않았습니다. 서버 .env의 KCI_API_KEY를 설정해 주세요.")
+    if len(title.strip()) < 4:
+        raise HTTPException(400, "논문명을 4자 이상 입력해 주세요.")
+    import httpx
+    with httpx.Client(headers={"User-Agent": "refstd-agent"}) as client:
+        refs = verify_kr.kci_reference_search(client, title.strip(), author.strip(), year.strip())
+    if not refs:
+        raise HTTPException(404, "KCI에서 이 논문의 참고문헌을 찾지 못했습니다. "
+                                 "논문명을 정확히 입력했는지 확인하거나 발행본 파일을 올려 주세요.")
+    return {"title": title.strip(), "count": len(refs), "references": refs}
+
+
+@app.post("/api/admin/compare_kci")
+def admin_compare_kci(request: Request, history_id: str = Form(...), title: str = Form(...),
+                      author: str = Form(""), year: str = Form("")):
+    """KCI에서 발행본 참고문헌을 가져와 3단 비교(발행본 파일 업로드 대체)."""
+    _require_org_record(history_id, request)
+    import verify_kr
+    if not verify_kr.kr_api_status().get("kci"):
+        raise HTTPException(400, "KCI 인증키가 설정되지 않았습니다. 서버 .env의 KCI_API_KEY를 설정해 주세요.")
+    import httpx
+    with httpx.Client(headers={"User-Agent": "refstd-agent"}) as client:
+        refs = verify_kr.kci_reference_search(client, title.strip(), author.strip(), year.strip())
+    if not refs:
+        raise HTTPException(404, "KCI에서 이 논문의 참고문헌을 찾지 못했습니다.")
+    job = _new_job("compare")
+    threading.Thread(target=_run_compare_job,
+                     args=(job, history_id, f"KCI: {title.strip()}", b"", refs),
+                     daemon=True).start()
+    return {"job_id": job["id"], "count": len(refs)}
 
 
 @app.post("/api/admin/compare/adopt")

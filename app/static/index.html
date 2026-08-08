@@ -110,7 +110,7 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
   <span class="hspace"></span>
   <button onclick="resetAll()" title="처리 결과와 선택 파일을 지우고 처음 화면으로 돌아갑니다">🗒 새 논문</button>
   <button onclick="openPast()" title="이전에 처리한 결과를 다시 보고 내려받습니다">📂 지난 결과</button>
-  <span id="aiBadge" class="badge">엔진 확인 중…</span>
+  <span id="aiBadge" class="badge" onclick="openModels()" style="cursor:pointer" title="사용 중인 AI 엔진과 선택 가능한 모드를 봅니다">엔진 확인 중…</span>
   <span id="roleBadge" class="badge" style="display:none"></span>
   <button id="kbBtn" onclick="openKb()" style="display:none">📋 기준·제안 관리</button>
   <button id="fbBtn" onclick="openFbAdmin()" style="display:none">📝 편집 요구</button>
@@ -357,6 +357,19 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
   </div>
 </dialog>
 
+<!-- AI 엔진 모드 안내 -->
+<dialog id="dlgModels">
+  <div class="dhead">AI 엔진 모드</div>
+  <div class="dbody">
+    <div class="hint" style="margin-bottom:10px">현재 서비스가 사용 중인 모드입니다.
+      모드는 정확도와 비용이 다르며, 변경은 관리자만 할 수 있습니다.</div>
+    <div id="modelList"></div>
+  </div>
+  <div class="dfoot">
+    <button class="btn ghost" onclick="dlgModels.close()">닫기</button>
+  </div>
+</dialog>
+
 <!-- API 비용 상세 대화상자 (관리자) -->
 <dialog id="dlgCosts" style="max-width:880px">
   <div class="dhead">API 사용 비용 (관리자)</div>
@@ -530,9 +543,17 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
         차이 항목을 검토해 체크하면 '박주현 교수의 추가 제안'으로 등록되어 이후 처리 결과에 표시됩니다.</div>
       <div class="row" style="margin:8px 0">
         <select id="cmpHistory" style="flex:1.5;min-width:280px"></select>
-        <input type="file" id="cmpFile" accept=".hwpx,.docx,.pdf,.txt" style="flex:1;min-width:200px">
-        <button class="btn small" id="cmpRunBtn" onclick="runCompare()">비교 시작</button>
       </div>
+      <div class="row" style="margin:6px 0">
+        <input type="file" id="cmpFile" accept=".hwpx,.docx,.pdf,.txt" style="flex:1;min-width:200px">
+        <button class="btn small" id="cmpRunBtn" onclick="runCompare()">파일로 비교 시작</button>
+      </div>
+      <div class="row" style="margin:6px 0">
+        <input type="text" id="cmpKciTitle" placeholder="또는 KCI에서 가져오기 — 발행된 논문명 입력" style="flex:1;min-width:220px">
+        <input type="text" id="cmpKciYear" placeholder="발행연도(선택)" style="max-width:130px">
+        <button class="btn ghost small" id="cmpKciBtn" onclick="runCompareKci()">KCI로 비교 시작</button>
+      </div>
+      <div class="hint">KCI 인증키가 설정되어 있으면 발행본 파일 없이도 KCI에 등재된 참고문헌을 바로 가져와 비교할 수 있습니다.</div>
       <div class="msg" id="cmpMsg"></div>
       <div id="cmpResult"></div>
     </div>
@@ -589,7 +610,7 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
 
 <script>
 // main.py의 APP_VERSION과 같아야 함 — 다르면 배포가 반쪽만 된 상태이므로 경고를 띄운다
-const UI_VERSION='2026.08.08-6';
+const UI_VERSION='2026.08.08-7';
 const $=id=>document.getElementById(id);
 let pickedFiles=[], styles=[], currentJob=null, pollTimer=null, etaTimer=null;
 
@@ -1403,7 +1424,7 @@ function resetAll(){
 const dlgSettings=$('dlgSettings'), dlgStyle=$('dlgStyle'), dlgLogin=$('dlgLogin'),
       dlgStats=$('dlgStats'), dlgFeedback=$('dlgFeedback'), dlgFbAdmin=$('dlgFbAdmin'),
       dlgKb=$('dlgKb'), dlgAccess=$('dlgAccess'), dlgPast=$('dlgPast'),
-      dlgCosts=$('dlgCosts');
+      dlgCosts=$('dlgCosts'), dlgModels=$('dlgModels');
 dlgAccess.addEventListener('cancel',e=>e.preventDefault()); // Esc로 우회 방지
 
 // ---------- 편집 요구 (이용자)
@@ -1513,6 +1534,45 @@ async function delDirective(sid,i){
   if(!confirm('이 편집 지침을 삭제할까요?')) return;
   await fetch(`/api/admin/directives/${sid}/${i}`,{method:'DELETE'});
   await renderFbAdmin();
+}
+
+// ---------- AI 엔진 모드 안내 (엔진 배지 클릭)
+const MODEL_INFO={
+  'claude-opus-5':{name:'Opus 모드',desc:'정확도 최우선 — 비용이 가장 높습니다',
+    lock:'opus 모드 선택은 관리자와 협의가 필요합니다.'},
+  'claude-sonnet-5':{name:'Sonnet 모드',desc:'정확도와 비용의 균형 (권장)'},
+  'claude-haiku-4-5':{name:'Haiku 모드',desc:'가장 빠르고 저렴 — 복잡한 원고에는 정확도가 낮습니다'},
+};
+function openModels(){
+  const s=window._status||{};
+  if(!s.ai){
+    $('modelList').innerHTML='<div class="warnbox">현재 <b>규칙 기반 모드</b>로 동작 중입니다. '
+      +'AI 모드를 쓰려면 관리자가 ⚙ 설정에서 Claude API 키를 등록해야 합니다.</div>';
+    dlgModels.showModal(); return;
+  }
+  const models=s.models||Object.keys(MODEL_INFO);
+  let h='';
+  for(const m of models){
+    const info=MODEL_INFO[m]||{name:m,desc:''};
+    const active=(m===s.model);
+    const locked=!active&&!!info.lock;
+    const tip=active?'현재 사용 중인 모드입니다':(info.lock||'변경은 관리자만 할 수 있습니다');
+    h+=`<div class="kbcard${active?'':' off'}" title="${esc(tip)}" style="${locked?'cursor:not-allowed':''}">
+      <div class="row" style="margin-bottom:2px">
+        <b>${esc(info.name)}</b> <span class="hint">${esc(m)}</span>
+        <span style="flex:1"></span>
+        ${active?'<span class="vbadge v-ok">사용 중</span>'
+          :`<span class="vbadge v-skip">${locked?'🔒 협의 필요':'비활성'}</span>`}
+      </div>
+      <div class="hint">${esc(info.desc)}</div>
+      ${locked?`<div class="hint" style="color:var(--amber);margin-top:2px">🔒 ${esc(info.lock)}</div>`:''}
+    </div>`;
+  }
+  h+=s.admin
+    ? '<div class="hint" style="margin-top:6px">관리자는 ⚙ 설정에서 모드를 변경할 수 있습니다.</div>'
+    : '<div class="hint" style="margin-top:6px">모드 변경이 필요하면 관리자에게 문의해 주세요.</div>';
+  $('modelList').innerHTML=h;
+  dlgModels.showModal();
 }
 
 // ---------- API 비용 상세(관리자)
@@ -1985,6 +2045,35 @@ async function runCompare(){
       if(j.status==='error'){ $('cmpMsg').textContent='오류: '+j.error; $('cmpMsg').className='msg bad'; return; }
       $('cmpMsg').textContent='';
       renderCompare(j.results[0]);
+    }
+  },1200);
+}
+// KCI에서 발행본 참고문헌을 가져와 비교
+async function runCompareKci(){
+  const hid=$('cmpHistory').value, title=$('cmpKciTitle').value.trim();
+  if(!hid){ $('cmpMsg').textContent='비교할 처리 이력을 선택해 주세요.'; $('cmpMsg').className='msg bad'; return; }
+  if(title.length<4){ $('cmpMsg').textContent='발행된 논문명을 4자 이상 입력해 주세요.'; $('cmpMsg').className='msg bad'; return; }
+  const fd=new FormData();
+  fd.append('history_id',hid); fd.append('title',title); fd.append('year',$('cmpKciYear').value.trim());
+  $('cmpKciBtn').disabled=true; $('cmpResult').innerHTML='';
+  $('cmpMsg').textContent='KCI에서 참고문헌을 가져오는 중…'; $('cmpMsg').className='msg';
+  let r;
+  try{ r=await fetch('/api/admin/compare_kci',{method:'POST',body:fd}); }
+  catch(e){ $('cmpMsg').textContent='요청 실패: '+e.message; $('cmpMsg').className='msg bad'; $('cmpKciBtn').disabled=false; return; }
+  if(!r.ok){
+    const d=await r.json().catch(()=>({}));
+    $('cmpMsg').textContent=d.detail||'KCI 조회 실패'; $('cmpMsg').className='msg bad';
+    $('cmpKciBtn').disabled=false; return;
+  }
+  const d=await r.json();
+  $('cmpMsg').textContent=`KCI에서 참고문헌 ${d.count}건을 가져왔습니다. 비교 중…`;
+  kbCmpTimer=setInterval(async()=>{
+    const j=await (await fetch('/api/jobs/'+d.job_id)).json();
+    $('cmpMsg').textContent=j.stage||'비교 중…';
+    if(j.status==='done'||j.status==='error'){
+      clearInterval(kbCmpTimer); $('cmpKciBtn').disabled=false;
+      if(j.status==='error'){ $('cmpMsg').textContent='오류: '+j.error; $('cmpMsg').className='msg bad'; return; }
+      $('cmpMsg').textContent=''; renderCompare(j.results[0]);
     }
   },1200);
 }

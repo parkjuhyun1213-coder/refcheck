@@ -110,6 +110,58 @@ def kci_article_search(client: httpx.Client, title: str, author: str = "") -> di
     return None
 
 
+def kci_reference_search(client: httpx.Client, title: str, author: str = "",
+                         year: str = "") -> list[str] | None:
+    """KCI referenceSearch — 해당 논문에 실린 참고문헌 목록을 문자열로 반환.
+
+    발행본 PDF 없이도 KCI에 등재된 논문의 참고문헌을 가져와 3단 비교에 쓸 수 있다.
+    응답 XML의 태그 구성이 문서에 명시돼 있지 않아, 참고문헌 성격의 요소를 폭넓게 수집한다.
+    """
+    key = env_get("KCI_API_KEY")
+    if not key or not title or len(title) < 4:
+        return None
+    params = {"apiCode": "referenceSearch", "key": key, "title": title[:80]}
+    if author:
+        params["author"] = author[:40]
+    if year and re.fullmatch(r"\d{4}", str(year)):
+        params["pubiYr"] = str(year)
+    try:
+        r = client.get("https://open.kci.go.kr/po/openapi/openApiSearch.kci",
+                       params=params, timeout=_TIMEOUT)
+        if r.status_code != 200:
+            return None
+        root = _xml_root(r.text)
+        if root is None:
+            return None
+    except httpx.HTTPError:
+        return None
+
+    refs: list[str] = []
+    for el in root.iter():
+        tag = el.tag.lower()
+        # 참고문헌 원문이 한 요소에 통째로 담긴 경우
+        if tag.endswith(("reference", "reference-text", "referencetext",
+                         "citation", "org-reference")) and (el.text or "").strip():
+            refs.append(re.sub(r"\s+", " ", el.text).strip())
+    if not refs:
+        # 서지요소가 나뉘어 온 경우 — 하위 필드를 조합해 한 건씩 만든다
+        for rec in root.iter():
+            if not rec.tag.lower().endswith(("reference", "record")):
+                continue
+            parts = [re.sub(r"\s+", " ", (c.text or "").strip())
+                     for c in rec if (c.text or "").strip()]
+            line = " ".join(parts).strip()
+            if len(line) >= 15:
+                refs.append(line)
+    # 중복 제거(순서 유지)
+    seen, out = set(), []
+    for x in refs:
+        if len(x) >= 15 and x not in seen:
+            seen.add(x)
+            out.append(x)
+    return out or None
+
+
 _KCI_JOURNAL_CACHE: dict[str, str] = {}
 
 
