@@ -79,9 +79,12 @@ def _env_set(name: str, value: str | None) -> bool:
         out.append(f"{name}={value}")
     try:
         ENV_PATH.write_text("\n".join(out).rstrip("\n") + "\n", encoding="utf-8")
-        os.chmod(ENV_PATH, 0o600)  # 소유자만 읽기 — 윈도우에서는 효과가 없으나 무해
     except OSError:
         return False
+    try:  # 소유자만 읽기 — 파일 소유자가 아니면 실패하지만 저장 자체는 성공한 것이다
+        os.chmod(ENV_PATH, 0o600)
+    except OSError:
+        pass
     return True
 
 
