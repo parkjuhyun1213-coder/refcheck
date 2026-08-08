@@ -112,7 +112,6 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
   <button onclick="openPast()" title="이전에 처리한 결과를 다시 보고 내려받습니다">📂 지난 결과</button>
   <span id="aiBadge" class="badge">엔진 확인 중…</span>
   <span id="roleBadge" class="badge" style="display:none"></span>
-  <button id="codeBtn" onclick="openAccessDlg()" title="학회 접근 코드를 입력하거나 다른 코드로 바꿉니다">🎫 학회 코드</button>
   <button id="kbBtn" onclick="openKb()" style="display:none">📋 기준·제안 관리</button>
   <button id="fbBtn" onclick="openFbAdmin()" style="display:none">📝 편집 요구</button>
   <button id="statsBtn" onclick="openStats()" style="display:none">📊 사용 통계</button>
@@ -138,6 +137,8 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
     <div class="row" style="margin-bottom:12px">
       <h2 style="margin:0">1. 참고문헌 작성 기준 선택</h2>
       <span id="orgHere" class="chip" style="display:none"></span>
+      <button class="btn ghost small" id="codeBtn" onclick="openAccessDlg()"
+              title="학회 접근 코드를 입력하거나 다른 코드로 바꿉니다">🎫 코드 변경</button>
     </div>
     <div class="row">
       <select id="styleSel" style="flex:1;min-width:240px"></select>
@@ -557,7 +558,7 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
 
 <script>
 // main.py의 APP_VERSION과 같아야 함 — 다르면 배포가 반쪽만 된 상태이므로 경고를 띄운다
-const UI_VERSION='2026.08.08-2';
+const UI_VERSION='2026.08.08-3';
 const $=id=>document.getElementById(id);
 let pickedFiles=[], styles=[], currentJob=null, pollTimer=null, etaTimer=null;
 
@@ -672,7 +673,7 @@ async function refreshStatus(){
   } else if(s.admin){ oh.style.display=''; oh.textContent='🔐 관리자 (전체 학회)'; oh.className='chip'; }
   else oh.style.display='none';
   $('codeBtn').style.display=(s.access_required&&!s.admin)?'':'none';
-  $('codeBtn').textContent=s.access_ok?'🎫 코드 변경':'🎫 학회 코드';
+  $('codeBtn').textContent=s.access_ok?'🎫 코드 변경':'🎫 학회 코드 입력';
   $('addStyleBtn').style.display=s.admin?'':'none';
   $('adminBtn').textContent=s.admin?'로그아웃':'🔐 관리자';
   // 배포 불일치 경고 — 화면만 새로 올리고 프로그램 재시작을 빠뜨린 경우 등
