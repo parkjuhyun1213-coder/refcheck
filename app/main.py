@@ -542,9 +542,9 @@ def process_file(filename: str, data: bytes, options: dict, progress) -> dict:
                 f"관리자 추가 기준 {len(admin_standards)}건·편집 지침 {len(directives)}건이 있으나 "
                 "AI 모드에서만 적용됩니다.")
 
-    # 6-2) 작성 제안 매칭 — '논문 사례를 통한 제안' · '박주현 교수의 추가 제안' (표시 전용)
+    # 6-2) 작성 제안 매칭 — 사례·교수 제안 + 해당 학회의 '학회 제안' (표시 전용)
     if builtin:
-        sugg_pool = suggestions_mod.enabled_suggestions()
+        sugg_pool = suggestions_mod.enabled_suggestions(options.get("org", ""))
         if sugg_pool:
             by_id = {s["id"]: s for s in sugg_pool}
             tips_by_idx: dict[int, list[str]] = {}
@@ -1404,6 +1404,7 @@ def admin_dashboard(request: Request):
     pending_fb = sum(1 for f in feedback_mod.list_feedback() if f.get("status") == "접수")
     sugg = suggestions_mod.all_suggestions()
     draft_sugg = sum(1 for s in sugg["case"] + sugg["prof"] if not s.get("enabled"))
+    pending_req = sum(1 for r in suggestions_mod.list_requests() if r.get("status") == "대기")
     hist = history_mod.list_history()
     not_compared = sum(1 for h in hist if h.get("has_file") and not h.get("has_published"))
 
@@ -1418,7 +1419,7 @@ def admin_dashboard(request: Request):
     return {
         "month": month,
         "todo": {"feedback": pending_fb, "draft_suggestions": draft_sugg,
-                 "not_compared": not_compared},
+                 "not_compared": not_compared, "org_requests": pending_req},
         "usage": {"uses": len(usage),
                   "files": sum(r.get("files", 0) for r in usage),
                   "refs": sum(r.get("refs", 0) for r in usage),
@@ -1436,11 +1437,12 @@ def admin_dashboard(request: Request):
 
 @app.get("/api/admin/knowledge")
 def admin_knowledge(request: Request):
-    """작성 제안(case/prof)·관리자 추가 기준·사례 등록 기록 일괄 조회."""
+    """작성 제안(case/prof/org)·관리자 추가 기준·사례 등록 기록 일괄 조회."""
     require_admin(request)
     data = suggestions_mod.all_suggestions()
     return {"case": list(reversed(data["case"])),
             "prof": list(reversed(data["prof"])),
+            "org": list(reversed(data["org"])),
             "standards": list(reversed(suggestions_mod.list_standards())),
             "corpus": list(reversed(suggestions_mod.list_corpus()))[:50],
             "labels": suggestions_mod.SOURCE_LABEL}
@@ -1630,6 +1632,79 @@ def admin_compare_csv(hid: str, request: Request):
         rows.append(["발행본에만 있음", "", "", "", pub])
     stem = Path(rec.get("filename", "결과")).stem
     return _csv_response(rows, f"{stem}_3단비교_{time.strftime('%Y%m%d')}.csv")
+
+
+# ================================================================ 학회 채택 요청 (2단계)
+# 편집위원이 발행본 비교에서 찾은 차이를 '채택 요청' → 편집위원장(또는 관리자)이 승인하면
+# 그 학회의 '○○학회 제안'으로 등록되어 해당 학회 이용자에게 표시된다.
+
+@app.get("/api/org/requests")
+def org_requests(request: Request):
+    """채택 요청 목록 — 편집위원은 자기 학회, 관리자는 전체."""
+    scope_org, role = require_editor(request)
+    return {"requests": suggestions_mod.list_requests(scope_org),
+            "scope_org": scope_org, "role": role,
+            "can_resolve": role in ("chair", "admin")}
+
+
+@app.post("/api/org/requests")
+async def org_add_request(request: Request):
+    """편집위원 이상이 규칙 채택을 요청(여러 건 일괄 가능)."""
+    scope_org, role = require_editor(request)
+    try:
+        payload = await request.json()
+    except Exception:
+        raise HTTPException(400, "요청 형식이 올바르지 않습니다.")
+    org = scope_org or (payload.get("org") or "").strip()  # 관리자는 대상 학회 지정
+    if not org:
+        raise HTTPException(400, "대상 학회를 지정해 주세요.")
+    requester = (payload.get("requester") or "").strip() or suggestions_mod.SOURCE_LABEL.get("org", "")
+    added, skipped = 0, 0
+    for it in (payload.get("items") or [])[:50]:
+        try:
+            suggestions_mod.add_request(
+                org, requester or ROLE_LABEL.get(role, ""), it.get("topic", ""),
+                [t for t in (it.get("types") or []) if isinstance(t, str)],
+                it.get("rule", ""), it.get("example", ""), it.get("evidence", ""))
+            added += 1
+        except ValueError:
+            skipped += 1
+    return {"ok": True, "added": added, "skipped": skipped}
+
+
+@app.post("/api/org/requests/{rid}/resolve")
+def org_resolve_request(rid: str, request: Request, action: str = Form(...),
+                        note: str = Form(""), resolver: str = Form("")):
+    """편집위원장(자기 학회) 또는 관리자가 요청을 승인·반려."""
+    scope_org, role = require_editor(request)
+    if role not in ("chair", "admin"):
+        raise HTTPException(403, "승인·반려는 편집위원장 또는 관리자만 할 수 있습니다.")
+    if action not in ("승인", "반려"):
+        raise HTTPException(400, "action은 '승인' 또는 '반려'여야 합니다.")
+    target = next((r for r in suggestions_mod.list_requests() if r["id"] == rid), None)
+    if not target:
+        raise HTTPException(404, "요청을 찾을 수 없습니다.")
+    if scope_org and target.get("org") != scope_org:
+        raise HTTPException(403, "다른 학회의 요청입니다.")
+    rec = suggestions_mod.resolve_request(
+        rid, action, resolver.strip() or ROLE_LABEL.get(role, ""), note)
+    if not rec:
+        return JSONResponse({"ok": False, "message": "이미 처리된 요청입니다."}, status_code=400)
+    return {"ok": True, "status": rec["status"], "suggestion_id": rec.get("suggestion_id", "")}
+
+
+@app.delete("/api/org/requests/{rid}")
+def org_delete_request(rid: str, request: Request):
+    """요청 삭제 — 편집위원장(자기 학회) 또는 관리자."""
+    scope_org, role = require_editor(request)
+    if role not in ("chair", "admin"):
+        raise HTTPException(403, "삭제는 편집위원장 또는 관리자만 할 수 있습니다.")
+    target = next((r for r in suggestions_mod.list_requests() if r["id"] == rid), None)
+    if not target:
+        raise HTTPException(404, "요청을 찾을 수 없습니다.")
+    if scope_org and target.get("org") != scope_org:
+        raise HTTPException(403, "다른 학회의 요청입니다.")
+    return {"ok": suggestions_mod.delete_request(rid)}
 
 
 @app.post("/api/admin/compare/adopt")

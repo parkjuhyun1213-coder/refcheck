@@ -31,7 +31,8 @@ done
 
 # 데이터 파일 복사 (비밀 파일 config.json은 제외)
 for f in suggestions.json admin_standards.json style_directives.json \
-         usage_log.json feedback_log.json case_corpus.json history_archive.csv; do
+         usage_log.json feedback_log.json case_corpus.json org_requests.json \
+         history_archive.csv; do
   if [ -f "$SRC/$f" ]; then
     cp -f "$SRC/$f" "$DST/data/$f"
   fi

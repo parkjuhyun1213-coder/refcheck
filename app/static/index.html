@@ -408,8 +408,10 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
       <button id="kbTabC" class="active" onclick="kbTab('c')">논문 사례를 통한 제안</button>
       <button id="kbTabP" onclick="kbTab('p')">박주현 교수의 추가 제안</button>
       <button id="kbTabS" onclick="kbTab('s')">관리자 추가 기준</button>
+      <button id="kbTabO" onclick="kbTab('o')">학회 제안</button>
       <button id="kbTabM" onclick="kbTab('m')">발행본 비교</button>
       <button id="kbTabF" onclick="kbTab('f')">원고 관리</button>
+      <button id="kbTabR" onclick="kbTab('r')">채택 요청</button>
     </div>
 
     <div id="kbPaneC">
@@ -464,6 +466,18 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
         <input type="text" id="stdExample" placeholder="예시 (선택)" style="flex:1">
         <button class="btn small" onclick="addStd()">기준 추가</button>
       </div>
+    </div>
+
+    <div id="kbPaneO" style="display:none">
+      <div class="hint">학회 편집위원의 채택 요청을 편집위원장(또는 관리자)이 승인해 등록된 제안입니다.
+        해당 학회 이용자의 처리 결과에만 <b>'○○학회 제안'</b>으로 표시되며, 관리자는 언제든 끄거나 삭제할 수 있습니다.</div>
+      <h3>제안 목록</h3>
+      <div id="kbListO">불러오는 중…</div>
+    </div>
+
+    <div id="kbPaneR" style="display:none">
+      <div class="hint" id="reqIntro"></div>
+      <div id="reqList" style="margin-top:8px">불러오는 중…</div>
     </div>
 
     <div id="kbPaneM" style="display:none">
@@ -662,6 +676,7 @@ async function loadDashboard(){
     h+=`<span class="chip ${t.feedback?'warn':'ok'}" style="cursor:pointer" onclick="openFbAdmin()">미검토 편집 요구 ${t.feedback||0}건</span>`;
     h+=`<span class="chip ${t.draft_suggestions?'amber':'ok'}" style="cursor:pointer" onclick="openKb();kbTab('c')">검토 대기 제안 초안 ${t.draft_suggestions||0}건</span>`;
     h+=`<span class="chip ${t.not_compared?'amber':'ok'}" style="cursor:pointer" onclick="openKb();kbTab('m')">발행본 비교 대기 ${t.not_compared||0}건</span>`;
+    h+=`<span class="chip ${t.org_requests?'warn':'ok'}" style="cursor:pointer" onclick="openKb();kbTab('r')">학회 채택 요청 ${t.org_requests||0}건</span>`;
     h+='</div>';
     const u=d.usage||{};
     h+='<h3 style="margin:12px 0 6px">📊 이번 달 사용 현황</h3><div class="chips">';
@@ -1522,12 +1537,67 @@ async function openKb(){
   const s=window._status||{};
   const admin=!!s.admin;
   // 기준·제안 관리(사례·교수 제안·추가 기준)는 관리자 전용, 학회 업무 탭은 편집위원도 이용
-  for(const k of ['C','P','S']) $('kbTab'+k).style.display=admin?'':'none';
+  for(const k of ['C','P','S','O']) $('kbTab'+k).style.display=admin?'':'none';
   $('kbHead').textContent=admin?'기준·제안 관리 (관리자)':`학회 관리 — ${s.access_org||''} · ${s.role_label||''}`;
   $('kbIntro').style.display=admin?'':'none';
   kbTab(admin?'c':'m');
   if(admin) await renderKb();
   await loadCmpHistory();
+  await loadRequests();
+}
+// ---------- 채택 요청 (편집위원 → 위원장·관리자 승인)
+async function loadRequests(){
+  const r=await fetch('/api/org/requests');
+  if(!r.ok){ $('reqList').innerHTML='<div class="errbox">요청 목록을 볼 권한이 없습니다.</div>'; return; }
+  const d=await r.json();
+  window._reqScope=d;
+  $('reqIntro').innerHTML=d.can_resolve
+    ?`편집위원이 올린 채택 요청입니다. <b>승인</b>하면 ${d.scope_org?esc(d.scope_org)+' ':''}학회 제안으로 등록되어 해당 학회 이용자에게 표시됩니다.`
+    :'발행본 비교에서 [채택 요청]한 내용입니다. 편집위원장 승인 후 학회 제안으로 등록됩니다.';
+  const list=d.requests||[];
+  if(!list.length){ $('reqList').innerHTML='<div class="hint">아직 채택 요청이 없습니다.</div>'; return; }
+  let h='';
+  for(const q of list){
+    const st=q.status==='대기'?'st-접수':(q.status==='승인'?'st-반영':'st-보류');
+    h+=`<div class="fbcard">
+      <div class="row" style="margin-bottom:4px">
+        <span class="st ${st}">${esc(q.status)}</span>
+        <b>${esc(q.topic||'제안')}</b>
+        <span class="hint">${esc(q.org||'')} · ${esc(q.requester||'')} · ${esc(q.time||'')}</span>
+      </div>
+      <div style="margin:4px 0">${esc(q.rule)}</div>
+      ${q.example?`<div class="hint">예: ${esc(q.example)}</div>`:''}
+      ${q.evidence?`<div class="hint">근거: ${esc(q.evidence)}</div>`:''}`;
+    if(q.status==='대기'&&d.can_resolve){
+      h+=`<div class="row" style="margin-top:6px">
+        <input type="text" id="rqnote_${q.id}" placeholder="메모(선택) — 반려 사유 등" style="flex:1">
+        <button class="btn small" onclick="resolveReq('${q.id}','승인')">승인</button>
+        <button class="btn ghost small" onclick="resolveReq('${q.id}','반려')">반려</button>
+      </div>`;
+    } else if(q.status!=='대기'){
+      h+=`<div class="hint" style="color:${q.status==='승인'?'var(--ok)':'var(--sub)'}">${esc(q.status)} · ${esc(q.resolved_by||'')} ${esc(q.resolved_time||'')}${q.note?' — '+esc(q.note):''}</div>`;
+      if(d.can_resolve) h+=`<div class="row" style="margin-top:4px"><span class="fbbtn" onclick="delReq('${q.id}')" title="요청 기록 삭제">✕</span></div>`;
+    }
+    h+='</div>';
+  }
+  $('reqList').innerHTML=h;
+}
+async function resolveReq(rid,action){
+  const note=($('rqnote_'+rid)||{}).value||'';
+  const fd=new FormData(); fd.append('action',action); fd.append('note',note);
+  fd.append('resolver',localStorage.getItem('refstd_user')||'');
+  const r=await fetch(`/api/org/requests/${rid}/resolve`,{method:'POST',body:fd});
+  const d=await r.json();
+  if(!d.ok){ $('kbMsg').textContent=d.message||'처리 실패'; $('kbMsg').className='msg bad'; return; }
+  $('kbMsg').textContent=action==='승인'?'승인되어 학회 제안으로 등록되었습니다. 이후 처리부터 표시됩니다.':'반려 처리되었습니다.';
+  $('kbMsg').className='msg ok';
+  await loadRequests();
+  if((window._status||{}).admin) await renderKb();
+}
+async function delReq(rid){
+  if(!confirm('이 요청 기록을 삭제할까요?')) return;
+  await fetch('/api/org/requests/'+rid,{method:'DELETE'});
+  await loadRequests();
 }
 function initKbStatic(){
   const jsel=$('caseJournal'); jsel.innerHTML='';
@@ -1544,7 +1614,7 @@ function initKbStatic(){
 }
 function caseJournalChanged(){ $('caseJournalEtc').style.display=$('caseJournal').value==='기타'?'':'none'; }
 function kbTab(t){
-  for(const k of ['C','P','S','M','F']){
+  for(const k of ['C','P','S','O','M','F','R']){
     $('kbTab'+k).className=t===k.toLowerCase()?'active':'';
     $('kbPane'+k).style.display=t===k.toLowerCase()?'':'none';
   }
@@ -1555,20 +1625,22 @@ async function renderKb(){
   const d=await r.json(); window._kb=d;
   $('kbListC').innerHTML=sugListHtml(d.case)||'<div class="hint">아직 등록된 제안이 없습니다. 사례 논문을 등록하거나 직접 추가하세요.</div>';
   $('kbListP').innerHTML=sugListHtml(d.prof)||'<div class="hint">아직 등록된 제안이 없습니다. 발행본 비교에서 채택하거나 직접 추가하세요.</div>';
+  $('kbListO').innerHTML=sugListHtml(d.org,true)||'<div class="hint">아직 승인된 학회 제안이 없습니다. 편집위원의 채택 요청을 위원장이 승인하면 여기에 등록됩니다.</div>';
   $('kbListS').innerHTML=stdListHtml(d.standards)||'<div class="hint">아직 등록된 추가 기준이 없습니다.</div>';
 }
 function typeChips(types){
   if(!types||!types.length) return '<span class="hint">전체 유형</span>';
   return types.map(t=>`<span class="hint">${esc(TYPE_LABEL[t]||t)}</span>`).join(' · ');
 }
-function sugListHtml(list){
+function sugListHtml(list,showOrg){
   let h='';
   for(const s of list||[]){
     h+=`<div class="kbcard${s.enabled?'':' off'}">
       <div class="row" style="margin-bottom:3px">
+        ${showOrg&&s.journal?`<span class="topic" style="background:#e7f4e8;color:var(--ok)">${esc(s.journal)}</span> `:''}
         <span class="topic">${esc(s.topic||'일반')}</span> ${typeChips(s.types)}
         <span style="flex:1"></span>
-        <span class="hint">${esc(s.time||'')}${s.origin==='seed'?' · 초기 시드':s.origin==='case_upload'?' · 사례 분석':s.origin==='compare'?' · 발행본 비교':''}</span>
+        <span class="hint">${esc(s.time||'')}${s.origin==='seed'?' · 초기 시드':s.origin==='case_upload'?' · 사례 분석':s.origin==='compare'?' · 발행본 비교':s.origin==='org_request'?' · 학회 승인':''}</span>
         <button class="btn ghost small" onclick="toggleSug('${s.id}')">${s.enabled?'사용 중 ✓':'미사용'}</button>
         <span class="fbbtn" onclick="delSug('${s.id}')" title="삭제">✕</span>
       </div>
@@ -1774,9 +1846,12 @@ function renderCompare(res){
         <input type="hidden" id="ev_${p.pair_id}" value="${esc(d.evidence||'')}">
       </div>`;
     }
+    const isAdmin=(window._status||{}).admin;
     h+=`<div class="row" style="margin:10px 0">
-      <button class="btn" onclick="adoptChecked()">체크한 항목을 '박주현 교수의 추가 제안'으로 등록</button>
-      <span class="hint">'[서지 차이]'로 표시된 초안은 형식 규칙이 아닌 데이터 차이이므로 등록하지 않는 것이 좋습니다.</span>
+      ${isAdmin
+        ?`<button class="btn" onclick="adoptChecked()">체크한 항목을 '박주현 교수의 추가 제안'으로 등록</button>`
+        :`<button class="btn" onclick="requestChecked()">체크한 항목을 '채택 요청'으로 올리기</button>`}
+      <span class="hint">${isAdmin?'':'편집위원장 승인 후 학회 제안으로 등록됩니다. '}'[서지 차이]'로 표시된 초안은 형식 규칙이 아닌 데이터 차이이므로 등록하지 않는 것이 좋습니다.</span>
     </div>`;
   } else {
     h+='<div class="chip ok" style="display:inline-block;margin:8px 0">에이전트 결과와 발행본 표기가 모두 일치합니다.</div>';
@@ -1793,8 +1868,8 @@ function renderCompare(res){
   }
   $('cmpResult').innerHTML=h;
 }
-async function adoptChecked(){
-  const c=window._cmp&&window._cmp.compare; if(!c) return;
+function checkedItems(){
+  const c=window._cmp&&window._cmp.compare; if(!c) return [];
   const items=[];
   for(const p of c.pairs.filter(x=>!x.same)){
     const ck=$('ck_'+p.pair_id);
@@ -1803,6 +1878,23 @@ async function adoptChecked(){
       example:$('ex_'+p.pair_id).value, evidence:$('ev_'+p.pair_id).value,
       types:p.type?[p.type]:[]});
   }
+  return items;
+}
+// 편집위원·위원장: 채택 '요청'으로 올림 (승인 후 학회 제안 등록)
+async function requestChecked(){
+  const items=checkedItems();
+  if(!items.length){ $('cmpMsg').textContent='요청할 항목을 체크해 주세요.'; $('cmpMsg').className='msg bad'; return; }
+  const r=await fetch('/api/org/requests',{method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({items,requester:localStorage.getItem('refstd_user')||''})});
+  if(!r.ok){ $('cmpMsg').textContent='요청 실패(권한을 확인해 주세요).'; $('cmpMsg').className='msg bad'; return; }
+  const d=await r.json();
+  $('cmpMsg').textContent=`${d.added}건을 채택 요청했습니다. '채택 요청' 탭에서 진행 상황을 확인할 수 있습니다.`;
+  $('cmpMsg').className='msg ok';
+  await loadRequests();
+}
+async function adoptChecked(){
+  const items=checkedItems();
   if(!items.length){ $('cmpMsg').textContent='채택할 항목을 체크해 주세요.'; $('cmpMsg').className='msg bad'; return; }
   const r=await fetch('/api/admin/compare/adopt',{method:'POST',
     headers:{'Content-Type':'application/json'}, body:JSON.stringify({items})});
