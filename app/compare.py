@@ -7,12 +7,91 @@
 축적되어 이후 처리 결과에 제안으로 표시된다.
 """
 import difflib
+import json
 import re
+import threading
+import time
+from pathlib import Path
 
 import extract
 import parsing
 
 _MATCH_THRESHOLD = 0.45  # 이 미만이면 같은 문헌으로 보지 않음
+
+# 3단 비교 원자료의 영구 보관소 — 절대 지우거나 덮어쓰지 않는다.
+# 처리 이력(history)은 300건을 넘으면 오래된 것부터 정리되고 같은 원고를 다시 비교하면
+# 덮어써지지만, '편집부가 실제로 무엇을 고쳤는가'는 소급 생성이 불가능한 자료다.
+CORPUS_PATH = Path(__file__).parent / "compare_corpus.jsonl"
+_CORPUS_LOCK = threading.Lock()
+
+
+def append_corpus(rec: dict, published_filename: str, cmp_result: dict) -> int:
+    """비교 결과를 한 건씩 JSONL로 덧붙이고 기록한 줄 수를 반환.
+
+    한 줄 = 참고문헌 한 건. 나중에 학회별·연도별로 집계하거나 실측 정확도를
+    산출할 수 있도록 부모 정보(학회·원고·발행본)를 각 줄에 함께 담는다.
+    """
+    stamp = time.strftime("%Y-%m-%d %H:%M")
+    base = {
+        "t": stamp,
+        "hid": rec.get("id", ""),
+        "org": rec.get("org", ""),
+        "user": rec.get("user", ""),
+        "style": rec.get("style_name", ""),
+        "src": rec.get("filename", ""),
+        "pub": published_filename,
+    }
+    lines = []
+    for p in cmp_result.get("pairs", []):
+        lines.append({**base, "kind": "pair", "same": bool(p.get("same")),
+                      "raw": p.get("raw", ""), "agent": p.get("agent", ""),
+                      "published": p.get("published", "")})
+    for a in cmp_result.get("agent_only", []):
+        lines.append({**base, "kind": "agent_only", "same": False,
+                      "raw": a.get("raw", ""), "agent": a.get("agent", ""), "published": ""})
+    for pub in cmp_result.get("published_only", []):
+        lines.append({**base, "kind": "published_only", "same": False,
+                      "raw": "", "agent": "", "published": pub})
+    if not lines:
+        return 0
+    try:
+        with _CORPUS_LOCK:
+            with CORPUS_PATH.open("a", encoding="utf-8") as f:
+                for row in lines:
+                    f.write(json.dumps(row, ensure_ascii=False) + "\n")
+    except OSError:
+        return 0  # 보관 실패가 비교 자체를 막지는 않는다
+    return len(lines)
+
+
+def corpus_stats() -> dict:
+    """누적 코퍼스 요약 — 기록 건수, 비교한 논문 수, 일치율."""
+    total = same = 0
+    papers = set()
+    orgs: dict[str, int] = {}
+    if not CORPUS_PATH.exists():
+        return {"rows": 0, "papers": 0, "same": 0, "match_rate": None, "orgs": {}}
+    try:
+        with CORPUS_PATH.open(encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                total += 1
+                if row.get("kind") == "pair" and row.get("same"):
+                    same += 1
+                if row.get("hid"):
+                    papers.add((row.get("hid"), row.get("pub", "")))
+                org = row.get("org") or "미지정"
+                orgs[org] = orgs.get(org, 0) + 1
+    except OSError:
+        return {"rows": 0, "papers": 0, "same": 0, "match_rate": None, "orgs": {}}
+    return {"rows": total, "papers": len(papers), "same": same,
+            "match_rate": round(same / total, 4) if total else None, "orgs": orgs}
 
 
 def _norm(s: str) -> str:

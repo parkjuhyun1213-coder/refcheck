@@ -18,10 +18,23 @@ from urllib.parse import unquote
 
 import httpx
 
+import http_util
 from aiengine import env_get
+from http_util import LookupUnavailable
 
 _TIMEOUT = 12
 _CACHE_LOCK = threading.Lock()
+
+
+def _get(client: httpx.Client, url: str, params: dict) -> httpx.Response | None:
+    """국내 DB GET — 재시도 포함.
+
+    반환 None은 '질의에 맞는 자료가 없음'(4xx 등), LookupUnavailable 예외는
+    '확인하지 못함'(네트워크·429·5xx)이다. 이 둘을 섞으면 실제로 존재하는
+    국내 논문이 '미발견'으로 표시되므로 반드시 구분한다.
+    """
+    r = http_util.get_with_retry(client, url, params=params, timeout=_TIMEOUT)
+    return r if r.status_code == 200 else None
 
 
 def _service_key(name: str) -> str:
@@ -65,18 +78,13 @@ def kci_article_search(client: httpx.Client, title: str, author: str = "") -> di
     key = env_get("KCI_API_KEY")
     if not key or not title or len(title) < 4:
         return None
-    try:
-        r = client.get(
-            "https://open.kci.go.kr/po/openapi/openApiSearch.kci",
-            params={"apiCode": "articleSearch", "key": key,
-                    "title": title[:80], "displayCount": 10},
-            timeout=_TIMEOUT)
-        if r.status_code != 200:
-            return None
-        root = _xml_root(r.text)
-        if root is None:
-            return None
-    except httpx.HTTPError:
+    r = _get(client, "https://open.kci.go.kr/po/openapi/openApiSearch.kci",
+             {"apiCode": "articleSearch", "key": key,
+              "title": title[:80], "displayCount": 10})
+    if r is None:
+        return None
+    root = _xml_root(r.text)
+    if root is None:
         return None
 
     best, best_sim = None, 0.0
@@ -125,15 +133,11 @@ def kci_reference_search(client: httpx.Client, title: str, author: str = "",
         params["author"] = author[:40]
     if year and re.fullmatch(r"\d{4}", str(year)):
         params["pubiYr"] = str(year)
-    try:
-        r = client.get("https://open.kci.go.kr/po/openapi/openApiSearch.kci",
-                       params=params, timeout=_TIMEOUT)
-        if r.status_code != 200:
-            return None
-        root = _xml_root(r.text)
-        if root is None:
-            return None
-    except httpx.HTTPError:
+    r = _get(client, "https://open.kci.go.kr/po/openapi/openApiSearch.kci", params)
+    if r is None:
+        return None
+    root = _xml_root(r.text)
+    if root is None:
         return None
 
     refs: list[str] = []
@@ -176,11 +180,10 @@ def kci_journal_status(client: httpx.Client, journal_name: str) -> str:
             return _KCI_JOURNAL_CACHE[jn]
     result = ""
     try:
-        r = client.get(
-            "https://open.kci.go.kr/po/openapi/openApiSearch.kci",
-            params={"apiCode": "journalSearch", "key": key, "journalName": jn[:60]},
-            timeout=_TIMEOUT)
-        if r.status_code == 200:
+        # 학술지 신뢰도는 부가 정보이므로, 조회 실패는 예외로 올리지 않고 ''(조회 불가)로 둔다
+        r = _get(client, "https://open.kci.go.kr/po/openapi/openApiSearch.kci",
+                 {"apiCode": "journalSearch", "key": key, "journalName": jn[:60]})
+        if r is not None:
             root = _xml_root(r.text)
             if root is not None:
                 names = [el.text.strip() for el in root.iter() if el.tag.lower().endswith("journalname")
@@ -188,7 +191,7 @@ def kci_journal_status(client: httpx.Client, journal_name: str) -> str:
                 if not names:
                     names = [el.text.strip() for el in root.iter("journal-name") if el.text]
                 result = "listed" if any(_sim(jn, n) >= 0.85 for n in names) else "unlisted"
-    except httpx.HTTPError:
+    except LookupUnavailable:
         result = ""
     if result:  # 조회 실패('')는 캐시하지 않음 — 다음 기회에 재시도
         with _CACHE_LOCK:
@@ -202,16 +205,14 @@ def nlk_book_search(client: httpx.Client, title: str, author: str = "") -> dict 
     key = env_get("NLK_CERT_KEY")
     if not key or not title or len(title) < 3:
         return None
+    r = _get(client, "https://www.nl.go.kr/seoji/SearchApi.do",
+             {"cert_key": key, "result_style": "json", "page_no": 1,
+              "page_size": 10, "title": title[:60]})
+    if r is None:
+        return None
     try:
-        r = client.get(
-            "https://www.nl.go.kr/seoji/SearchApi.do",
-            params={"cert_key": key, "result_style": "json", "page_no": 1,
-                    "page_size": 10, "title": title[:60]},
-            timeout=_TIMEOUT)
-        if r.status_code != 200:
-            return None
         docs = (r.json() or {}).get("docs") or []
-    except (httpx.HTTPError, ValueError):
+    except ValueError:  # 응답이 JSON이 아님 — 질의 결과 없음으로 처리
         return None
     best, best_sim = None, 0.0
     for d in docs:
@@ -239,18 +240,13 @@ def nanet_search(client: httpx.Client, title: str) -> dict | None:
         return None
     # 검색식이 '필드,검색어' 형식이므로 제목의 콤마는 공백으로 치환
     q_title = title[:60].replace(",", " ").strip()
-    try:
-        r = client.get(
-            "http://apis.data.go.kr/9720000/searchservice/basic",
-            params={"serviceKey": key, "pageno": 1, "displaylines": 10,
-                    "search": f"전체,{q_title}"},
-            timeout=_TIMEOUT)
-        if r.status_code != 200:
-            return None
-        root = _xml_root(r.text)
-        if root is None:
-            return None
-    except httpx.HTTPError:
+    r = _get(client, "http://apis.data.go.kr/9720000/searchservice/basic",
+             {"serviceKey": key, "pageno": 1, "displaylines": 10,
+              "search": f"전체,{q_title}"})
+    if r is None:
+        return None
+    root = _xml_root(r.text)
+    if root is None:
         return None
     best, best_sim = None, 0.0
     for rec in root.iter("recode"):  # 국회도서관 API의 실제 태그명(recode)

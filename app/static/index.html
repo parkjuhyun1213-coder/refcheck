@@ -204,6 +204,7 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
     <h2>3. 원고 입력</h2>
     <div class="tabs">
       <button id="tabUp" class="active" onclick="switchTab('up')">파일 업로드</button>
+      <button id="tabPa" onclick="switchTab('pa')">참고문헌 붙여넣기</button>
       <button id="tabFo" onclick="switchTab('fo')">폴더 일괄 처리</button>
     </div>
 
@@ -217,6 +218,21 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
       <div class="filelist" id="fileList"></div>
       <div class="row" style="margin-top:14px">
         <button class="btn" id="runUpBtn" onclick="runUpload()" disabled>참고문헌 정리 시작</button>
+      </div>
+    </div>
+
+    <div id="panePa" style="display:none">
+      <div class="field">
+        <label>참고문헌 목록 (한 줄에 한 건, 번호는 있어도 됩니다)</label>
+        <textarea id="pasteText" rows="9" placeholder="홍길동 (2020). 도서관 다문화서비스 연구. 한국문헌정보학회지, 54(2), 5-27.&#10;Wilson, T. D. (2000). Recent trends in user studies. Information Research, 5(3)."
+          style="width:100%;font:inherit;font-size:13px;line-height:1.7;padding:10px 12px;border:1px solid var(--line);border-radius:9px;resize:vertical"
+          oninput="pasteChanged()"></textarea>
+        <div class="hint">원고 파일을 만들지 않고 몇 건만 빠르게 확인할 때 쓰세요.
+          <b>서버에 원고 파일이 보관되지 않습니다.</b> 본문이 없으므로 ‘본문 인용 ↔ 목록 대조’는 자동으로 제외됩니다.</div>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <button class="btn" id="runPaBtn" onclick="runPaste()" disabled>참고문헌 정리 시작</button>
+        <span class="hint" id="pasteCount"></span>
       </div>
     </div>
 
@@ -572,8 +588,9 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
       <div class="row" style="margin:8px 0">
         <button class="btn ghost small" onclick="location='/api/admin/history_csv'">📥 목록 CSV 내려받기 (엑셀용)</button>
         <button class="btn ghost small" onclick="downloadArchive()">📦 아카이브 CSV (300건 초과 보존분)</button>
-        <span class="hint">논문별 3단 비교 CSV는 발행본 비교를 실행한 뒤 아래 표 또는 비교 화면에서 받을 수 있습니다.</span>
+        <button class="btn ghost small" onclick="location='/api/admin/compare_corpus_csv'">🧾 3단 비교 누적 코퍼스 CSV</button>
       </div>
+      <div class="hint" id="corpusNote" style="margin:-2px 0 8px">누적 비교 자료를 확인하는 중…</div>
       <div id="kbListF" style="overflow-x:auto">불러오는 중…</div>
     </div>
 
@@ -618,7 +635,7 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
 
 <script>
 // main.py의 APP_VERSION과 같아야 함 — 다르면 배포가 반쪽만 된 상태이므로 경고를 띄운다
-const UI_VERSION='2026.08.08-13';
+const UI_VERSION='2026.08.08-14';
 const $=id=>document.getElementById(id);
 let pickedFiles=[], styles=[], currentJob=null, pollTimer=null, etaTimer=null;
 
@@ -884,8 +901,45 @@ async function deleteStyle(){
 
 // ---------- 탭
 function switchTab(t){
-  $('tabUp').className=t==='up'?'active':''; $('tabFo').className=t==='fo'?'active':'';
-  $('paneUp').style.display=t==='up'?'':'none'; $('paneFo').style.display=t==='fo'?'':'none';
+  for(const [k,tab,pane] of [['up','tabUp','paneUp'],['pa','tabPa','panePa'],['fo','tabFo','paneFo']]){
+    $(tab).className=t===k?'active':'';
+    $(pane).style.display=t===k?'':'none';
+  }
+}
+// ---------- 참고문헌 붙여넣기
+function pasteLines(){
+  return $('pasteText').value.split(/\r?\n/)
+    .map(s=>s.replace(/^\s*(?:\[\d+\]|\(\d+\)|\d+[.)])\s*/,'').trim())  // 항목 번호 제거
+    .filter(s=>s.length>=15);
+}
+function pasteChanged(){
+  const n=pasteLines().length;
+  $('runPaBtn').disabled=n===0;
+  $('pasteCount').textContent=n?`${n}건 인식됨`:'한 줄에 한 건씩 붙여넣어 주세요 (15자 이상)';
+}
+async function runPaste(){
+  const lines=pasteLines();
+  if(!lines.length){ alert('참고문헌을 붙여넣어 주세요.'); return; }
+  const ui=userInfo(); if(!ui) return;
+  const st=styles.find(s=>s.id===$('styleSel').value);
+  if(st&&!st.builtin&&!window._status.ai){
+    alert('사용자 추가 기준은 AI 모드가 필요합니다. 관리자에게 문의해 주세요.'); return;
+  }
+  // 목록만 담긴 텍스트 파일로 만들어 기존 업로드 경로를 그대로 탄다(서버 수정 불필요)
+  const body='참고문헌\n'+lines.join('\n')+'\n';
+  const file=new File([new Blob([body],{type:'text/plain;charset=utf-8'})],
+                      `붙여넣기_${lines.length}건.txt`,{type:'text/plain'});
+  const fd=new FormData();
+  fd.append('files',file);
+  opts(fd,ui);
+  fd.set('crosscheck','0');  // 본문이 없으므로 본문 대조는 의미가 없다
+  setRunning(true);
+  try{
+    const r=await fetch('/api/process',{method:'POST',body:fd});
+    if(!r.ok){ throw new Error((await r.json()).detail||'요청 실패'); }
+    const d=await r.json();
+    startPolling(d.job_id,d.eta_secs,d.eta_basis,d.eta_first,d.n_files);
+  }catch(e){ alert('오류: '+e.message); setRunning(false); }
 }
 
 // ---------- 파일 선택
@@ -967,16 +1021,17 @@ async function runFolder(){
 
 // 처리 중/대기 상태에 따른 시작 버튼 표시
 function setRunning(on){
-  const up=$('runUpBtn'), fo=$('runFoBtn');
+  const up=$('runUpBtn'), fo=$('runFoBtn'), pa=$('runPaBtn');
   if(on){
-    up.disabled=true; fo.disabled=true;
-    up.textContent='⏳ 참고문헌 정리 중…';
-    fo.textContent='⏳ 참고문헌 정리 중…';
+    up.disabled=fo.disabled=pa.disabled=true;
+    up.textContent=fo.textContent=pa.textContent='⏳ 참고문헌 정리 중…';
   } else {
     up.textContent='참고문헌 정리 시작';
     fo.textContent='폴더 일괄 처리 시작';
+    pa.textContent='참고문헌 정리 시작';
     up.disabled=pickedFiles.length===0;
     fo.disabled=false;
+    pa.disabled=pasteLines().length===0;
   }
 }
 
@@ -1519,6 +1574,7 @@ function resetAll(silent){
   setRunning(false);
   $('fileInput').value='';
   $('folderPath').value='';
+  $('pasteText').value=''; $('pasteCount').textContent='';
   $('progress').style.display='none';
   window._barPct=0;
   $('barFill').style.width='0'; $('stageText').textContent='';
@@ -2140,6 +2196,23 @@ async function loadCmpHistory(){
     sel.appendChild(o);
   }
   renderFileManage(d.history,d.can_delete);
+  loadCorpusNote();
+}
+// 누적 3단 비교 코퍼스 요약 — 이 도구의 장기 자산이 얼마나 쌓였는지 보여준다
+async function loadCorpusNote(){
+  const el=$('corpusNote'); if(!el) return;
+  try{
+    const r=await fetch('/api/admin/compare_corpus_stats');
+    if(!r.ok){ el.textContent=''; return; }
+    const s=await r.json();
+    if(!s.rows){
+      el.innerHTML='누적 비교 자료 <b>0건</b> — 발행본 비교를 실행하면 그 결과가 여기에 영구 보존됩니다. '
+        +'이력이 정리되거나 다시 비교해도 이 자료는 지워지지 않습니다.';
+      return;
+    }
+    const rate=s.match_rate!=null?` · Agent 결과가 발행본과 그대로 일치한 비율 <b>${(s.match_rate*100).toFixed(1)}%</b>`:'';
+    el.innerHTML=`누적 비교 자료 <b>${s.rows.toLocaleString()}건</b> (논문 ${s.papers}편)${rate}`;
+  }catch(e){ el.textContent=''; }
 }
 // 원고 관리 표 — 여러 건을 체크해 한 번에 삭제
 function renderFileManage(list,canDelete){

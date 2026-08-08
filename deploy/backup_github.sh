@@ -3,7 +3,8 @@
 # 서비스 데이터 자동 백업 → GitHub 비공개 저장소
 #
 # 백업 대상: 처리 이력(history/), 원고·발행본 파일(uploads/),
-#           사용자 기준(styles/), 제안·기준·통계 JSON, 이력 아카이브 CSV
+#           사용자 기준(styles/), 제안·기준·통계 JSON, 이력 아카이브 CSV,
+#           3단 비교 누적 코퍼스(compare_corpus.jsonl — 소급 생성 불가, 최우선 보존)
 # 제외 대상: .env, config.json (API 키·비밀번호 — 보안상 GitHub에 올리지 않음)
 #
 # 최초 설치 방법은 배포가이드.md의 '자동 백업' 절 참조.
@@ -32,7 +33,7 @@ done
 # 데이터 파일 복사 (비밀 파일 config.json은 제외)
 for f in suggestions.json admin_standards.json style_directives.json \
          usage_log.json feedback_log.json case_corpus.json org_requests.json \
-         history_archive.csv; do
+         history_archive.csv compare_corpus.jsonl api_cost_log.json; do
   if [ -f "$SRC/$f" ]; then
     cp -f "$SRC/$f" "$DST/data/$f"
   fi

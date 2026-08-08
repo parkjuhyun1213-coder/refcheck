@@ -15,6 +15,7 @@ app/org_requests.json
 app/history/
 app/styles/
 app/api_cost_log.json
+app/compare_corpus.jsonl
 
 # ── 결과물·캐시
 __pycache__/

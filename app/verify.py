@@ -19,46 +19,24 @@
 import difflib
 import re
 import threading
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import quote
 
 import httpx
 
+import http_util
 import verify_kr
+from http_util import LookupUnavailable  # 재수출 — 기존 verify.LookupUnavailable 참조 유지
 
 _HEADERS = {"User-Agent": "RefStd-Agent/2.0 (mailto:park51566@jnu.ac.kr)"}
 _TIMEOUT = 12
 _CACHE_LOCK = threading.Lock()
 
 
-class LookupUnavailable(Exception):
-    """외부 DB 일시 오류(429·5xx·네트워크) — '미발견'과 구분하기 위한 예외."""
-
-
 def _get_with_retry(client: httpx.Client, url: str, *, params=None) -> httpx.Response:
-    """GET + 429/5xx 1회 재시도. 최종 실패 시 LookupUnavailable."""
-    last_exc = None
-    for attempt in (0, 1):
-        try:
-            r = client.get(url, params=params, headers=_HEADERS, timeout=_TIMEOUT)
-        except httpx.HTTPError as ex:
-            last_exc = ex
-            if attempt == 0:
-                time.sleep(1.0)
-                continue
-            raise LookupUnavailable(str(ex))
-        if r.status_code == 429 or r.status_code >= 500:
-            if attempt == 0:
-                try:
-                    wait = min(float(r.headers.get("retry-after", "1.5")), 3.0)
-                except ValueError:
-                    wait = 1.5
-                time.sleep(wait)
-                continue
-            raise LookupUnavailable(f"HTTP {r.status_code}")
-        return r
-    raise LookupUnavailable(str(last_exc))
+    """GET + 429/5xx 재시도. 최종 실패 시 LookupUnavailable. (공통 규약은 http_util 참조)"""
+    return http_util.get_with_retry(client, url, params=params,
+                                    headers=_HEADERS, timeout=_TIMEOUT)
 
 _PREPRINT_DOI_PREFIX = {
     "10.48550": "arXiv", "10.2139": "SSRN", "10.1101": "bioRxiv/medRxiv",
@@ -528,13 +506,21 @@ def verify_entry(client: httpx.Client, entry: dict) -> dict:
         kr = None
         title = entry.get("title", "")
         authors = entry.get("authors") or []
+        # 국내 DB도 해외와 같은 규약 — 일시 오류는 '미발견'이 아니라 '확인 못 함'으로 모은다
         if etype == "journal":
-            kr = verify_kr.kci_article_search(client, title, authors[0] if authors else "")
+            kr, e_k = _safe(verify_kr.kci_article_search, client, title,
+                            authors[0] if authors else "")
+            lookup_err |= e_k
         elif etype == "thesis":
-            kr = verify_kr.nanet_search(client, title)
+            kr, e_k = _safe(verify_kr.nanet_search, client, title)
+            lookup_err |= e_k
         elif etype in ("book", "report"):
-            kr = verify_kr.nlk_book_search(client, title, authors[0] if authors else "") \
-                 or verify_kr.nanet_search(client, title)
+            kr, e_k = _safe(verify_kr.nlk_book_search, client, title,
+                            authors[0] if authors else "")
+            lookup_err |= e_k
+            if not kr:
+                kr, e_k2 = _safe(verify_kr.nanet_search, client, title)
+                lookup_err |= e_k2
         if kr:
             result.update(status="verified", source=kr.get("source", "국내DB"),
                           detail=f"{kr.get('source')} 대조 성공(제목 일치 {kr.get('sim', 0):.0%})",
@@ -563,7 +549,10 @@ def verify_entry(client: httpx.Client, entry: dict) -> dict:
         st = verify_kr.kr_api_status()
         used = {"journal": st["kci"], "thesis": st["nanet"], "book": st["nlk"] or st["nanet"],
                 "report": st["nlk"] or st["nanet"]}.get(etype, False)
-        if used:
+        if used and lookup_err:
+            # 조회 자체가 실패한 경우 — '없는 문헌'으로 오해하게 두지 않는다
+            _mark_lookup_failed(result)
+        elif used:
             result.update(status="not_found",
                           detail="국내 DB·Crossref에서 일치 문헌을 찾지 못함 — 서지사항 확인 필요")
         else:

@@ -37,7 +37,7 @@ app = FastAPI(title="파일 기반 참고문헌 표준화·검증 에이전트")
 # 화면(index.html)과 프로그램의 버전이 어긋난 채 배포되면 새 기능이 조용히 무시된다.
 # 두 파일에 같은 값을 두고 /api/status에서 대조해 관리자 화면에 경고를 띄운다.
 # 기능을 추가·변경할 때 main.py와 index.html의 APP_VERSION을 함께 올릴 것.
-APP_VERSION = "2026.08.08-13"
+APP_VERSION = "2026.08.08-14"
 
 APP_DIR = Path(__file__).parent
 JOBS: dict[str, dict] = {}
@@ -1035,6 +1035,11 @@ def _run_compare_job(job: dict, hid: str, filename: str, data: bytes,
         history_mod.save_compare(hid, {"published_filename": filename,
                                        "time": time.strftime("%Y-%m-%d %H:%M"),
                                        **cmp})
+        # 영구 코퍼스에 덧붙이기 — 이력이 정리·덮어쓰기 되어도 원자료는 남는다
+        try:
+            compare_mod.append_corpus(rec, filename, cmp)
+        except Exception:
+            pass  # 보관 실패가 비교 결과 표시를 막지 않도록
         job["results"].append({
             "filename": filename, "error": "",
             "history": {k: rec.get(k, "") for k in ("id", "time", "filename", "user", "org")},
@@ -1778,6 +1783,39 @@ def admin_history_csv(request: Request):
                      "O" if h.get("has_file") else "", "O" if h.get("has_published") else "",
                      h.get("compared", "")])
     return _csv_response(rows, f"원고처리이력_{time.strftime('%Y%m%d')}.csv")
+
+
+@app.get("/api/admin/compare_corpus_csv")
+def admin_compare_corpus_csv(request: Request):
+    """누적 3단 비교 코퍼스 전체를 CSV로 — 실측 정확도 산출·연구 분석용."""
+    require_admin(request)
+    import json as _json
+    if not compare_mod.CORPUS_PATH.exists():
+        raise HTTPException(404, "아직 누적된 비교 자료가 없습니다. 발행본 비교를 먼저 실행해 주세요.")
+    rows = [["기록일시", "학회", "이용자", "적용 기준", "투고 원고", "발행본",
+             "구분", "일치 여부", "투고 원고(편집 단계)", "Agent 결과", "최종 발행본"]]
+    KIND = {"pair": "짝지음", "agent_only": "발행본에 없음", "published_only": "발행본에만 있음"}
+    with compare_mod.CORPUS_PATH.open(encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                r = _json.loads(line)
+            except ValueError:
+                continue
+            rows.append([r.get("t", ""), r.get("org", ""), r.get("user", ""), r.get("style", ""),
+                         r.get("src", ""), r.get("pub", ""), KIND.get(r.get("kind", ""), ""),
+                         "일치" if r.get("same") else "차이",
+                         r.get("raw", ""), r.get("agent", ""), r.get("published", "")])
+    return _csv_response(rows, f"3단비교_누적코퍼스_{time.strftime('%Y%m%d')}.csv")
+
+
+@app.get("/api/admin/compare_corpus_stats")
+def admin_compare_corpus_stats(request: Request):
+    """누적 코퍼스 요약(건수·논문 수·일치율)."""
+    require_editor(request)
+    return compare_mod.corpus_stats()
 
 
 @app.get("/api/admin/history_archive")
