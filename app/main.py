@@ -33,6 +33,11 @@ import verify as verify_mod
 
 app = FastAPI(title="파일 기반 참고문헌 표준화·검증 에이전트")
 
+# 화면(index.html)과 프로그램의 버전이 어긋난 채 배포되면 새 기능이 조용히 무시된다.
+# 두 파일에 같은 값을 두고 /api/status에서 대조해 관리자 화면에 경고를 띄운다.
+# 기능을 추가·변경할 때 main.py와 index.html의 APP_VERSION을 함께 올릴 것.
+APP_VERSION = "2026.08.08-2"
+
 APP_DIR = Path(__file__).parent
 JOBS: dict[str, dict] = {}
 _JOBS_LOCK = threading.Lock()
@@ -125,9 +130,11 @@ def _access_hash(code: str) -> str:
 
 
 def _valid_hashes() -> dict[str, tuple[str, str]]:
-    """{쿠키 해시: (학회명, 역할)} — 공통 코드는 ('', 'user'). 코드가 바뀌면 기존 쿠키 자동 무효.
+    """{쿠키 해시: (학회명, 역할)} — 코드가 바뀌면 기존 쿠키는 자동 무효.
 
-    같은 코드가 여러 역할에 중복 등록된 경우 더 높은 역할이 우선한다.
+    입장 방식은 두 가지를 모두 허용한다.
+    - 학회 코드 + 역할 코드(2칸): 편집위원·위원장은 자기 학회 코드에 역할 코드를 더해 입력
+    - 코드 하나: 역할 코드만으로도 학회·역할이 식별되므로 단독 입력도 받아들인다
     """
     out: dict[str, tuple[str, str]] = {}
 
@@ -140,13 +147,36 @@ def _valid_hashes() -> dict[str, tuple[str, str]]:
     common = _access_code()
     if common:
         put(common, "", "user")
-    for org, code in _org_access_codes().items():
+    org_codes = _org_access_codes()
+    for org, code in org_codes.items():
         put(code, org, "user")
     rc = _role_codes()
     for role in ("editor", "chair"):
         for org, code in rc[role].items():
-            put(code, org, role)
+            base = org_codes.get(org)
+            if base:
+                # 역할 코드는 자기 학회 코드와 짝을 이룰 때만 유효
+                # (다른 학회 코드 + 남의 역할 코드 조합을 막는다)
+                put(f"{base}|{code}", org, role)
+            else:
+                # 그 학회에 이용자 코드가 없으면 역할 코드 단독 입장 허용(잠김 방지)
+                put(code, org, role)
     return out
+
+
+def _resolve_codes(code: str, role_code: str) -> tuple[str, tuple[str, str]] | None:
+    """입력한 코드(들)을 검증해 (쿠키값, (학회, 역할))을 반환. 실패 시 None."""
+    valid = _valid_hashes()
+    code, role_code = code.strip(), role_code.strip()
+    if role_code:
+        for candidate in (f"{code}|{role_code}",  # 학회 코드 + 역할 코드
+                          role_code):             # 이용자 코드가 없는 학회의 역할 코드 단독
+            h = _access_hash(candidate)
+            if h in valid:
+                return h, valid[h]
+        return None
+    h = _access_hash(code)
+    return (h, valid[h]) if h in valid else None
 
 
 def _access_info(request: Request) -> tuple[str, str]:
@@ -196,21 +226,22 @@ def require_access(request: Request):
 
 
 @app.post("/api/access")
-def enter_access(code: str = Form("")):
+def enter_access(code: str = Form(""), role_code: str = Form("")):
+    """학회 코드(+ 편집위원·위원장은 역할 코드)로 입장."""
     if not access_required():
-        return {"ok": True, "org": ""}
-    code = code.strip()
-    h = _access_hash(code)
-    info = _valid_hashes().get(h)
-    if info:
-        org_name, role = info
+        return {"ok": True, "org": "", "role": "", "role_label": ""}
+    found = _resolve_codes(code, role_code)
+    if found:
+        token, (org_name, role) = found
         resp = JSONResponse({"ok": True, "org": org_name, "role": role,
                              "role_label": ROLE_LABEL.get(role, "이용자")})
-        resp.set_cookie("access_token", h, httponly=True,
+        resp.set_cookie("access_token", token, httponly=True,
                         samesite="lax", max_age=30 * 24 * 3600, secure=_cookie_secure())
         return resp
     time.sleep(0.8)  # 무차별 대입 지연
-    return JSONResponse({"ok": False, "message": "접근 코드가 올바르지 않습니다."}, status_code=401)
+    msg = ("학회 코드와 역할 코드가 맞지 않습니다. 역할 코드는 소속 학회의 코드와 함께 입력해 주세요."
+           if role_code.strip() else "접근 코드가 올바르지 않습니다.")
+    return JSONResponse({"ok": False, "message": msg}, status_code=401)
 
 
 @app.post("/api/access/logout")
@@ -999,7 +1030,8 @@ def index():
 def status(request: Request):
     cfg = aiengine.load_config()
     admin = is_admin(request)
-    out = {"ai": aiengine.is_configured(), "model": aiengine.get_model(),
+    out = {"version": APP_VERSION,
+           "ai": aiengine.is_configured(), "model": aiengine.get_model(),
            "models": aiengine.ALLOWED_MODELS,
            "admin": admin, "admin_configured": admin_configured(),
            "access_required": access_required(), "access_ok": has_access(request),

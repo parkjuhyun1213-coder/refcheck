@@ -121,6 +121,8 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
 </header>
 
 <main>
+  <div class="errbox" id="verWarn" style="display:none;margin-bottom:14px"></div>
+
   <!-- 관리자 대시보드 (관리자 로그인 시에만 표시) -->
   <div class="card" id="adminDash" style="display:none">
     <div class="row">
@@ -133,7 +135,10 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
 
   <!-- 기준 & 옵션 -->
   <div class="card">
-    <h2>1. 참고문헌 작성 기준 선택</h2>
+    <div class="row" style="margin-bottom:12px">
+      <h2 style="margin:0">1. 참고문헌 작성 기준 선택</h2>
+      <span id="orgHere" class="chip" style="display:none"></span>
+    </div>
     <div class="row">
       <select id="styleSel" style="flex:1;min-width:240px"></select>
       <button class="btn ghost" id="addStyleBtn" onclick="openStyleDlg()" style="display:none">＋ 새 기준 추가</button>
@@ -254,9 +259,11 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
     </div>
     <div class="field" style="margin-top:14px">
       <label>이용자 접근 코드 (외부 운영)</label>
-      <div class="hint" style="margin-bottom:4px">학회·역할별로 코드를 나누어 안내하세요. 코드만으로 소속 학회와
-        역할이 확인됩니다. <b>이용자</b>는 원고 처리·자기 학회 결과 열람, <b>편집위원</b>은 여기에 더해
-        학회 통계·원고 관리·발행본 비교, <b>편집위원장</b>은 자료 삭제까지 가능합니다.
+      <div class="hint" style="margin-bottom:4px">이용자는 <b>학회 코드</b>만, 편집위원·편집위원장은
+        <b>학회 코드 + 역할 코드</b>를 함께 입력해 입장합니다(예: 학회 코드 <code>lis</code> +
+        편집위원장 코드 <code>lis-ch</code>). <b>이용자</b>는 원고 처리·자기 학회 결과 열람,
+        <b>편집위원</b>은 여기에 더해 학회 통계·원고 관리·발행본 비교·채택 요청,
+        <b>편집위원장</b>은 요청 승인과 자료 삭제까지 가능합니다.
         모든 코드는 서로 달라야 하며, 코드를 바꾸면 기존 이용자는 새 코드를 다시 입력해야 합니다.</div>
       <div id="orgCodeRows"></div>
       <div class="row" style="margin-top:6px">
@@ -360,8 +367,14 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
     </div>
     <div id="accessCurrent" class="hint" style="display:none;background:var(--accent-soft);border-radius:8px;padding:7px 11px;margin-bottom:10px"></div>
     <div class="field">
-      <label>접근 코드</label>
+      <label>학회 코드</label>
       <input type="password" id="accessCode" onkeydown="if(event.key==='Enter')submitAccess()">
+      <div class="hint">소속 학회에서 안내받은 코드입니다.</div>
+    </div>
+    <div class="field">
+      <label>역할 코드 <span class="hint" style="font-weight:400">— 편집위원·편집위원장만 입력 (없으면 비워 두세요)</span></label>
+      <input type="password" id="accessRoleCode" onkeydown="if(event.key==='Enter')submitAccess()">
+      <div class="hint">위 학회 코드와 함께 입력해야 해당 학회의 편집위원·편집위원장으로 확인됩니다.</div>
     </div>
     <div class="msg" id="accessMsg"></div>
   </div>
@@ -543,6 +556,8 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
 </dialog>
 
 <script>
+// main.py의 APP_VERSION과 같아야 함 — 다르면 배포가 반쪽만 된 상태이므로 경고를 띄운다
+const UI_VERSION='2026.08.08-2';
 const $=id=>document.getElementById(id);
 let pickedFiles=[], styles=[], currentJob=null, pollTimer=null, etaTimer=null;
 
@@ -558,7 +573,7 @@ function checkAccess(){
 // 코드 입력·변경 대화상자 (첫 입장이면 취소 불가, 이미 입장했으면 변경/해제 가능)
 function openAccessDlg(){
   const s=window._status||{};
-  $('accessMsg').textContent=''; $('accessCode').value='';
+  $('accessMsg').textContent=''; $('accessCode').value=''; $('accessRoleCode').value='';
   const entered=!!s.access_ok;
   $('accessCancelBtn').style.display=entered?'':'none';
   $('accessLeaveBtn').style.display=entered?'':'none';
@@ -572,7 +587,9 @@ function openAccessDlg(){
   setTimeout(()=>$('accessCode').focus(),50);
 }
 async function submitAccess(){
-  const fd=new FormData(); fd.append('code',$('accessCode').value);
+  const fd=new FormData();
+  fd.append('code',$('accessCode').value);
+  fd.append('role_code',$('accessRoleCode').value);
   const r=await fetch('/api/access',{method:'POST',body:fd});
   const d=await r.json();
   if(d.ok){
@@ -647,10 +664,24 @@ async function refreshStatus(){
     rb.className='badge'+(s.is_editor?' on':''); }
   else if(s.role==='user'){ rb.style.display=''; rb.textContent='공통 코드 이용자'; rb.className='badge'; }
   else { rb.style.display='none'; }
+  // 기준 선택 카드 옆 소속 표시
+  const oh=$('orgHere');
+  if(s.access_org){
+    oh.style.display=''; oh.textContent=`🏛 ${s.access_org} · ${s.role_label||'이용자'}`;
+    oh.className='chip'+(s.is_editor?' ok':'');
+  } else if(s.admin){ oh.style.display=''; oh.textContent='🔐 관리자 (전체 학회)'; oh.className='chip'; }
+  else oh.style.display='none';
   $('codeBtn').style.display=(s.access_required&&!s.admin)?'':'none';
   $('codeBtn').textContent=s.access_ok?'🎫 코드 변경':'🎫 학회 코드';
   $('addStyleBtn').style.display=s.admin?'':'none';
   $('adminBtn').textContent=s.admin?'로그아웃':'🔐 관리자';
+  // 배포 불일치 경고 — 화면만 새로 올리고 프로그램 재시작을 빠뜨린 경우 등
+  const mismatch=s.version!==UI_VERSION;
+  $('verWarn').style.display=(mismatch&&s.admin)?'':'none';
+  if(mismatch&&s.admin)
+    $('verWarn').innerHTML=`⚠ <b>배포가 완료되지 않았습니다.</b> 화면 버전(${esc(UI_VERSION)})과 `
+      +`프로그램 버전(${esc(s.version||'구버전')})이 다릅니다. 새로 추가된 기능이 저장되지 않을 수 있습니다.<br>`
+      +`서버 터미널에서 <code>bash /root/writing_reference/deploy/update.sh</code> 를 실행한 뒤 브라우저를 Ctrl+F5로 새로고침하세요.`;
   // 관리자 대시보드
   $('adminDash').style.display=s.admin?'':'none';
   if(s.admin) loadDashboard();
@@ -1487,7 +1518,17 @@ async function saveSettings(){
   const r=await fetch('/api/settings',{method:'POST',body:fd});
   const d=await r.json();
   if(!d.ok){ $('setMsg').textContent=d.message||'저장 실패'; $('setMsg').className='msg bad'; return; }
-  await refreshStatus(); dlgSettings.close();
+  await refreshStatus();
+  // 저장 직후 상태를 다시 읽어 실제로 반영됐는지 확인(구버전 서버는 새 항목을 무시함)
+  const s=window._status||{};
+  const sent=JSON.parse(collect('edCodeInput')), saved=s.editor_codes||{};
+  if(Object.keys(sent).length&&JSON.stringify(sent)!==JSON.stringify(saved)){
+    $('setMsg').innerHTML='⚠ 편집위원·위원장 코드가 저장되지 않았습니다. 서버 프로그램이 예전 버전입니다 — '
+      +'<code>bash /root/writing_reference/deploy/update.sh</code> 실행 후 다시 시도해 주세요.';
+    $('setMsg').className='msg bad';
+    return;
+  }
+  dlgSettings.close();
 }
 async function clearKey(){
   if(!confirm('저장된 API 키를 삭제하고 규칙 기반 엔진으로 전환할까요?')) return;
