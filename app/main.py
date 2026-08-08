@@ -19,6 +19,7 @@ from fastapi.responses import HTMLResponse, Response, JSONResponse
 
 import aiengine
 import compare as compare_mod
+import cost as cost_mod
 import crosscheck as cc_mod
 import extract
 import feedback as feedback_mod
@@ -36,7 +37,7 @@ app = FastAPI(title="파일 기반 참고문헌 표준화·검증 에이전트")
 # 화면(index.html)과 프로그램의 버전이 어긋난 채 배포되면 새 기능이 조용히 무시된다.
 # 두 파일에 같은 값을 두고 /api/status에서 대조해 관리자 화면에 경고를 띄운다.
 # 기능을 추가·변경할 때 main.py와 index.html의 APP_VERSION을 함께 올릴 것.
-APP_VERSION = "2026.08.08-5"
+APP_VERSION = "2026.08.08-6"
 
 APP_DIR = Path(__file__).parent
 JOBS: dict[str, dict] = {}
@@ -398,7 +399,25 @@ def _health_report(entries: list[dict], user_name: str) -> dict:
 
 
 def process_file(filename: str, data: bytes, options: dict, progress) -> dict:
-    """단일 원고 파일 처리. options: {style_id, verify, crosscheck, english}"""
+    """단일 원고 파일 처리 — API 비용을 건별로 집계하고 이력에 저장한다."""
+    cost_mod.start_job()
+    try:
+        result = _process_file(filename, data, options, progress)
+    finally:
+        spent = cost_mod.end_job()
+    if spent:
+        result["cost"] = spent
+    # 처리 이력 저장(발행본 비교·지난 결과 열람용) — 실패해도 처리 자체를 막지 않음
+    if result.get("items"):
+        try:
+            result["history_id"] = history_mod.save_result(result, options)
+        except Exception:
+            pass
+    return result
+
+
+def _process_file(filename: str, data: bytes, options: dict, progress) -> dict:
+    """실제 처리 파이프라인. options: {style_id, verify, crosscheck, english}"""
     result = {"filename": filename, "error": "", "warnings": [], "items": [],
               "summary": {}, "verify_enabled": bool(options.get("verify")),
               "crosscheck": None, "english_list": None}
@@ -647,12 +666,6 @@ def process_file(filename: str, data: bytes, options: dict, progress) -> dict:
                               len(result["crosscheck"]["listed_not_cited"])) if result.get("crosscheck") else 0,
     }
 
-    # 처리 이력 저장(발행본 비교용) — 실패해도 처리 자체를 막지 않음
-    if items:
-        try:
-            result["history_id"] = history_mod.save_result(result, options)
-        except Exception:
-            pass
     return result
 
 
@@ -1043,6 +1056,8 @@ def status(request: Request):
         out["key_source"] = cfg.get("key_source", "user" if cfg.get("api_key") else "")
         out["key_hint"] = cfg.get("api_key", "")[:10] + "…" if cfg.get("api_key") else ""
         out["access_code"] = _access_code()
+        out["monthly_budget_usd"] = cfg.get("monthly_budget_usd", "")
+        out["usd_krw"] = cfg.get("usd_krw", 1400)
         out["access_codes"] = _org_access_codes()
         rc = _role_codes()
         out["editor_codes"] = rc["editor"]
@@ -1058,7 +1073,9 @@ def save_settings(request: Request, api_key: str = Form(""), model: str = Form(a
                   clear: str = Form("0"), access_code: str | None = Form(None),
                   access_codes: str | None = Form(None),
                   editor_codes: str | None = Form(None),
-                  chair_codes: str | None = Form(None)):
+                  chair_codes: str | None = Form(None),
+                  monthly_budget_usd: str | None = Form(None),
+                  usd_krw: str | None = Form(None)):
     require_admin(request)
     cfg = aiengine.load_config()
     if clear == "1":
@@ -1070,6 +1087,18 @@ def save_settings(request: Request, api_key: str = Form(""), model: str = Form(a
     cfg["model"] = model if model in aiengine.ALLOWED_MODELS else aiengine.DEFAULT_MODEL
     if access_code is not None:  # 필드가 전송된 경우에만 변경(빈 값 = 공통 코드 해제)
         cfg["access_code"] = access_code.strip()[:60]
+    for field, raw in (("monthly_budget_usd", monthly_budget_usd), ("usd_krw", usd_krw)):
+        if raw is None:
+            continue
+        raw = raw.strip().replace(",", "")
+        if not raw:
+            cfg.pop(field, None)
+            continue
+        try:
+            cfg[field] = max(0.0, float(raw))
+        except ValueError:
+            return JSONResponse({"ok": False, "message": "예산·환율은 숫자로 입력해 주세요."},
+                                status_code=400)
     # 학회별·역할별 코드 {학회명: 코드} JSON — 전송된 필드만 갱신
     import json
     for key, raw in (("access_codes", access_codes),
@@ -1457,6 +1486,35 @@ def admin_remove_directive(style_id: str, index: int, request: Request):
 
 # ================================================================ 관리자 대시보드
 
+def _cost_summary() -> dict:
+    """월 예산·환율 설정을 반영한 비용 요약(관리자 전용)."""
+    cfg = aiengine.load_config()
+    try:
+        budget = float(cfg.get("monthly_budget_usd") or 0)
+    except (TypeError, ValueError):
+        budget = 0.0
+    try:
+        rate = float(cfg.get("usd_krw") or 1400)
+    except (TypeError, ValueError):
+        rate = 1400.0
+    return cost_mod.summary(budget, rate)
+
+
+@app.get("/api/admin/costs")
+def admin_costs(request: Request):
+    """API 사용 비용 상세 — 관리자 전용. 건별 내역은 처리 이력에서 가져온다."""
+    require_admin(request)
+    out = _cost_summary()
+    out["per_job"] = [
+        {k: h.get(k, "") for k in ("id", "time", "filename", "user", "org", "total", "cost_usd")}
+        for h in history_mod.list_history()[:100]
+    ]
+    priced = [j for j in out["per_job"] if j.get("cost_usd")]
+    out["avg_job_usd"] = round(sum(j["cost_usd"] for j in priced) / len(priced), 6) if priced else 0.0
+    out["prices"] = {m: {"input": p[0], "output": p[1]} for m, p in cost_mod.PRICES.items()}
+    return out
+
+
 @app.get("/api/admin/dashboard")
 def admin_dashboard(request: Request):
     """관리자 첫 화면 요약 — 확인할 일·이번 달 사용 현황·시스템 상태."""
@@ -1484,6 +1542,7 @@ def admin_dashboard(request: Request):
                   "files": sum(r.get("files", 0) for r in usage),
                   "refs": sum(r.get("refs", 0) for r in usage),
                   "by_org": sorted(by_org.items(), key=lambda kv: -kv[1])},
+        "cost": _cost_summary(),
         "system": {"ai": aiengine.is_configured(), "model": aiengine.get_model(),
                    "org_codes": len(_org_access_codes()), "common_code": bool(_access_code()),
                    "editor_codes": len(_role_codes()["editor"]),

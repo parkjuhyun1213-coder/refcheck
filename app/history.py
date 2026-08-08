@@ -90,6 +90,7 @@ def save_result(result: dict, options: dict) -> str:
         "style_name": result.get("style_name", ""),
         "engine_label": result.get("engine_label", ""),
         "total": len(result.get("items", [])),
+        "cost": result.get("cost") or {},  # 이 원고 처리에 든 API 비용(관리자만 열람)
         "items": result.get("items", []),
         "result_extra": {k: result.get(k) for k in
                          ("summary", "warnings", "crosscheck", "health",
@@ -177,6 +178,7 @@ def list_history() -> list[dict]:
             meta = {k: rec.get(k, "") for k in
                     ("id", "time", "filename", "user", "org", "style_name", "total",
                      "file_size", "compared")}
+            meta["cost_usd"] = round((rec.get("cost") or {}).get("usd", 0.0), 6)
             meta["has_file"] = bool(rec.get("file"))
             meta["has_published"] = bool(rec.get("published_file"))
             meta["has_compare"] = bool(rec.get("last_compare"))

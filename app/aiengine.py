@@ -122,6 +122,12 @@ def _call(system: str, user: str, schema: dict) -> dict:
     except anthropic.APIConnectionError:
         raise AIError("Claude API에 연결할 수 없습니다. 네트워크를 확인해 주세요.")
 
+    try:  # 토큰 사용량 기록(비용 집계) — 실패해도 처리 흐름을 막지 않음
+        import cost
+        cost.record(get_model(), getattr(resp, "usage", None))
+    except Exception:
+        pass
+
     if resp.stop_reason == "refusal":
         raise AIError("요청이 안전상 처리되지 않았습니다(규칙 엔진으로 대체 처리됩니다).")
     text = next((b.text for b in resp.content if b.type == "text"), "")

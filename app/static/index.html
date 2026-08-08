@@ -103,7 +103,7 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
 <body>
 <header>
   <div>
-    <h1>📚 참고문헌 표준화·검증 에이전트</h1>
+    <h1 onclick="resetAll()" style="cursor:pointer" title="첫 화면으로 돌아갑니다">📚 참고문헌 표준화·검증 에이전트</h1>
     <div class="sub">원고 파일에서 참고문헌을 추출해 선택한 학술지 기준으로 정리하고 검증합니다</div>
     <div class="credit">개발: 전남대학교 문헌정보학과 박주현 교수 (<a href="mailto:park51566@jnu.ac.kr" style="color:inherit">park51566@jnu.ac.kr</a>)</div>
   </div>
@@ -281,6 +281,20 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
       </div>
     </div>
     <div class="field" style="margin-top:14px">
+      <label>API 비용 관리 (월 예산)</label>
+      <div class="row">
+        <input type="text" id="setBudget" placeholder="예: 50" style="flex:1">
+        <span class="hint">달러/월 — 비우면 예산 경고 없음</span>
+      </div>
+      <div class="row" style="margin-top:6px">
+        <input type="text" id="setRate" placeholder="1400" style="max-width:120px">
+        <span class="hint">원/달러 환율 — 원화 환산 표시에만 사용</span>
+      </div>
+      <div class="hint" style="margin-top:4px">Anthropic API는 잔액 조회를 제공하지 않아, 실제 사용한
+        토큰을 모델 단가로 환산해 추정합니다. 정확한 청구액은
+        <a href="https://console.anthropic.com/settings/billing" target="_blank" rel="noopener">console.anthropic.com</a>에서 확인하세요.</div>
+    </div>
+    <div class="field" style="margin-top:14px">
       <label>국내 문헌 검증 API 상태</label>
       <div id="krApiStatus" class="hint"></div>
       <div class="hint">키는 서버 컴퓨터의 <code>.env</code>에 <code>KCI_API_KEY</code>(KCI 논문),
@@ -340,6 +354,15 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
   </div>
   <div class="dfoot">
     <button class="btn ghost" onclick="dlgFbAdmin.close()">닫기</button>
+  </div>
+</dialog>
+
+<!-- API 비용 상세 대화상자 (관리자) -->
+<dialog id="dlgCosts" style="max-width:880px">
+  <div class="dhead">API 사용 비용 (관리자)</div>
+  <div class="dbody" id="costBody" style="max-height:74vh;overflow-y:auto">불러오는 중…</div>
+  <div class="dfoot">
+    <button class="btn ghost" onclick="dlgCosts.close()">닫기</button>
   </div>
 </dialog>
 
@@ -566,7 +589,7 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
 
 <script>
 // main.py의 APP_VERSION과 같아야 함 — 다르면 배포가 반쪽만 된 상태이므로 경고를 띄운다
-const UI_VERSION='2026.08.08-5';
+const UI_VERSION='2026.08.08-6';
 const $=id=>document.getElementById(id);
 let pickedFiles=[], styles=[], currentJob=null, pollTimer=null, etaTimer=null;
 
@@ -727,6 +750,23 @@ async function loadDashboard(){
     h+=`<span class="chip">사용 ${u.uses||0}회</span><span class="chip">논문 ${u.files||0}편</span><span class="chip">문헌 ${u.refs||0}건</span></div>`;
     if(u.by_org&&u.by_org.length)
       h+='<div class="hint" style="margin-top:2px">'+u.by_org.map(x=>`${esc(x[0])} ${x[1]}회`).join(' · ')+'</div>';
+    // API 비용 (관리자만 열람)
+    const c=d.cost||{};
+    const won=u=>`₩${Math.round((u||0)*(c.rate_krw||1400)).toLocaleString()}`;
+    h+='<h3 style="margin:12px 0 6px">💳 API 사용 비용 <span class="hint">(토큰 사용량 기반 추정)</span></h3>';
+    if(c.level==='over')
+      h+=`<div class="errbox" style="margin-bottom:6px"><b>⚠ 이번 달 예산을 초과했습니다.</b> 사용 $${(c.month_usd||0).toFixed(2)} / 예산 $${(c.budget_usd||0).toFixed(2)} — 서비스는 계속 동작하며, 실제 차단은 Anthropic 콘솔의 월 한도가 담당합니다.</div>`;
+    else if(c.level==='warn')
+      h+=`<div class="warnbox" style="margin-bottom:6px">⚠ 이번 달 예산의 ${((c.used_ratio||0)*100).toFixed(0)}%를 사용했습니다 ($${(c.month_usd||0).toFixed(2)} / $${(c.budget_usd||0).toFixed(2)}).</div>`;
+    h+='<div class="chips">';
+    h+=`<span class="chip">오늘 $${(c.today_usd||0).toFixed(2)} <span class="hint">${won(c.today_usd)}</span></span>`;
+    h+=`<span class="chip ${c.level==='over'?'warn':c.level==='warn'?'amber':''}">이번 달 $${(c.month_usd||0).toFixed(2)} <span class="hint">${won(c.month_usd)}</span></span>`;
+    if(c.budget_usd>0)
+      h+=`<span class="chip ${c.level==='over'?'warn':'ok'}">남은 예산 $${(c.remain_usd||0).toFixed(2)} <span class="hint">${won(c.remain_usd)}</span></span>`;
+    h+=`<span class="chip">누적 $${(c.total_usd||0).toFixed(2)}</span>`;
+    h+=`<span class="chip" style="cursor:pointer" onclick="openCosts()">건별 상세 보기 ▸</span>`;
+    h+='</div>';
+    if(!(c.budget_usd>0)) h+='<div class="hint" style="margin-top:2px">⚙ 설정에서 월 예산을 입력하면 남은 예산과 초과 경고가 표시됩니다.</div>';
     const sy=d.system||{}, kr=sy.kr_apis||{};
     h+='<h3 style="margin:12px 0 6px">⚙ 시스템 상태</h3><div class="chips">';
     h+=`<span class="chip ${sy.ai?'ok':'warn'}">AI ${sy.ai?('켜짐 · '+esc(sy.model||'')):'꺼짐(규칙 기반)'}</span>`;
@@ -1362,7 +1402,8 @@ function resetAll(){
 // ---------- 설정
 const dlgSettings=$('dlgSettings'), dlgStyle=$('dlgStyle'), dlgLogin=$('dlgLogin'),
       dlgStats=$('dlgStats'), dlgFeedback=$('dlgFeedback'), dlgFbAdmin=$('dlgFbAdmin'),
-      dlgKb=$('dlgKb'), dlgAccess=$('dlgAccess'), dlgPast=$('dlgPast');
+      dlgKb=$('dlgKb'), dlgAccess=$('dlgAccess'), dlgPast=$('dlgPast'),
+      dlgCosts=$('dlgCosts');
 dlgAccess.addEventListener('cancel',e=>e.preventDefault()); // Esc로 우회 방지
 
 // ---------- 편집 요구 (이용자)
@@ -1474,6 +1515,57 @@ async function delDirective(sid,i){
   await renderFbAdmin();
 }
 
+// ---------- API 비용 상세(관리자)
+async function openCosts(){
+  dlgCosts.showModal();
+  $('costBody').textContent='불러오는 중…';
+  const r=await fetch('/api/admin/costs');
+  if(!r.ok){ $('costBody').innerHTML='<div class="errbox">비용 정보를 볼 권한이 없습니다.</div>'; return; }
+  const c=await r.json();
+  const rate=c.rate_krw||1400;
+  const won=u=>`₩${Math.round((u||0)*rate).toLocaleString()}`;
+  const usd=u=>`$${(u||0).toFixed(4)}`;
+  let h='<div class="hint" style="margin-bottom:8px">Anthropic API는 잔액 조회를 제공하지 않습니다. '
+    +'아래 금액은 실제 사용한 토큰을 모델 단가로 환산한 <b>추정치</b>이며, 정확한 청구액은 '
+    +'<a href="https://console.anthropic.com/settings/billing" target="_blank" rel="noopener">Anthropic 콘솔</a>에서 확인하세요. '
+    +`(원화 환산 환율 ${rate.toLocaleString()}원/달러 — ⚙ 설정에서 변경)</div>`;
+  h+='<div class="chips">';
+  h+=`<span class="chip">오늘 ${usd(c.today_usd)} · ${won(c.today_usd)}</span>`;
+  h+=`<span class="chip ${c.level==='over'?'warn':c.level==='warn'?'amber':''}">이번 달(${esc(c.month||'')}) ${usd(c.month_usd)} · ${won(c.month_usd)}</span>`;
+  if(c.budget_usd>0) h+=`<span class="chip ${c.level==='over'?'warn':'ok'}">예산 $${c.budget_usd.toFixed(2)} 중 남은 ${usd(c.remain_usd)}</span>`;
+  h+=`<span class="chip">누적 ${usd(c.total_usd)}</span>`;
+  if(c.avg_job_usd) h+=`<span class="chip">논문 1편 평균 ${usd(c.avg_job_usd)} · ${won(c.avg_job_usd)}</span>`;
+  h+='</div>';
+
+  h+='<h3 style="margin:12px 0 4px;color:var(--accent)">논문 건별 처리 비용 <span class="hint">(최근 100건)</span></h3>';
+  const jobs=(c.per_job||[]).filter(j=>j.cost_usd);
+  if(!jobs.length) h+='<div class="hint">아직 건별 비용 기록이 없습니다. 이 기능을 반영한 뒤 처리한 논문부터 기록됩니다.</div>';
+  else{
+    h+='<div style="overflow-x:auto"><table class="cmp"><tr><th>처리일시</th><th>파일명</th><th>이용자(학회)</th><th>문헌</th><th>비용(USD)</th><th>원화</th></tr>';
+    for(const j of jobs)
+      h+=`<tr><td>${esc(j.time)}</td><td>${esc(j.filename)}</td><td>${esc(j.user||'익명')} (${esc(j.org||'-')})</td>`
+        +`<td>${j.total||0}</td><td>${usd(j.cost_usd)}</td><td>${won(j.cost_usd)}</td></tr>`;
+    h+='</table></div>';
+  }
+
+  if(c.by_model&&c.by_model.length){
+    h+='<h3 style="margin:12px 0 4px;color:var(--accent)">이번 달 모델별 사용</h3>';
+    h+='<div style="overflow-x:auto"><table class="cmp"><tr><th>모델</th><th>호출</th><th>입력 토큰</th><th>출력 토큰</th><th>비용</th></tr>';
+    for(const m of c.by_model)
+      h+=`<tr><td>${esc(m.model)}</td><td>${m.calls}</td><td>${(m.input||0).toLocaleString()}</td>`
+        +`<td>${(m.output||0).toLocaleString()}</td><td>${usd(m.usd)}</td></tr>`;
+    h+='</table></div>';
+  }
+  if(c.recent_days&&c.recent_days.length){
+    h+='<h3 style="margin:12px 0 4px;color:var(--accent)">일자별 비용 <span class="hint">(최근 30일)</span></h3>';
+    h+='<div style="overflow-x:auto"><table class="cmp"><tr><th>날짜</th><th>비용(USD)</th><th>원화</th></tr>';
+    for(const d of c.recent_days)
+      h+=`<tr><td>${esc(d.date)}</td><td>${usd(d.usd)}</td><td>${won(d.usd)}</td></tr>`;
+    h+='</table></div>';
+  }
+  $('costBody').innerHTML=h;
+}
+
 // ---------- 사용 통계(관리자)
 async function openStats(){
   dlgStats.showModal();
@@ -1522,6 +1614,8 @@ async function openSettings(){
   sel.value=s.model;
   $('setKey').value='';
   $('setAccessCode').value=s.access_code||'';
+  $('setBudget').value=s.monthly_budget_usd||'';
+  $('setRate').value=s.usd_krw||1400;
   // 학회×역할 접근 코드 입력칸 (기본 4개 학회 + 코드가 등록된 기타 학회)
   const orgCodes=s.access_codes||{}, edCodes=s.editor_codes||{}, chCodes=s.chair_codes||{};
   const orgList=[...(s.default_orgs||[])];
@@ -1558,6 +1652,8 @@ async function saveSettings(){
     document.querySelectorAll('.'+cls).forEach(inp=>{ if(inp.value.trim()) o[inp.dataset.org]=inp.value.trim(); });
     return JSON.stringify(o);
   };
+  fd.append('monthly_budget_usd',$('setBudget').value);
+  fd.append('usd_krw',$('setRate').value);
   fd.append('access_codes',collect('orgCodeInput'));
   fd.append('editor_codes',collect('edCodeInput'));
   fd.append('chair_codes',collect('chCodeInput'));
