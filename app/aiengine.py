@@ -16,7 +16,10 @@ DEFAULT_MODEL = "claude-opus-5"
 ALLOWED_MODELS = ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"]
 
 BATCH_SIZE = 12
-MAX_TOKENS = 16000
+# 적응형 사고가 켜진 모델에서 max_tokens는 사고 토큰과 출력 토큰의 합산 상한이다.
+# 12건×20여 필드의 구조화 출력이 16,000에서 잘리는 사례가 있어 상향했다.
+MAX_TOKENS = 32000
+MAX_TOKENS_CEILING = 64000  # 절단 시 1회 확대 재시도 상한
 
 _ENV_KEY_NAMES = ("ANTHROPIC_API_KEY", "CLAUDE_API_KEY", "API_KEY")
 
@@ -53,6 +56,77 @@ def _key_from_env() -> str:
     return ""
 
 
+def _env_set(name: str, value: str | None) -> bool:
+    """.env의 변수 하나를 추가·수정하거나(value) 삭제한다(value=None)."""
+    name = name.upper()
+    lines: list[str] = []
+    if ENV_PATH.exists():
+        try:
+            lines = ENV_PATH.read_text(encoding="utf-8-sig").splitlines()
+        except OSError:
+            return False
+    out, done = [], False
+    for line in lines:
+        head = line.strip()
+        if head and not head.startswith("#") and "=" in head \
+                and head.partition("=")[0].strip().upper() == name:
+            done = True
+            if value is not None:
+                out.append(f"{name}={value}")
+            continue
+        out.append(line)
+    if not done and value is not None:
+        out.append(f"{name}={value}")
+    try:
+        ENV_PATH.write_text("\n".join(out).rstrip("\n") + "\n", encoding="utf-8")
+        os.chmod(ENV_PATH, 0o600)  # 소유자만 읽기 — 윈도우에서는 효과가 없으나 무해
+    except OSError:
+        return False
+    return True
+
+
+def set_api_key(key: str) -> bool:
+    """API 키는 .env에만 저장한다 — config.json에는 절대 기록하지 않는다."""
+    return _env_set("ANTHROPIC_API_KEY", key.strip())
+
+
+def clear_api_key() -> bool:
+    ok = True
+    for name in _ENV_KEY_NAMES:
+        if _env_all().get(name):
+            ok = _env_set(name, None) and ok
+    return ok
+
+
+def migrate_key_to_env() -> str:
+    """config.json에 평문으로 남은 API 키를 .env로 옮기고 파일에서 제거한다.
+
+    평문 키가 파일로 존재하는 것 자체가 유출 경로(서버 침해·화면 공유·파일 전달)이므로
+    로컬·서버 어디서 실행되든 기동 시 한 번 자동으로 정리한다.
+    """
+    if not CONFIG_PATH.exists():
+        return ""
+    try:
+        cfg = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return ""
+    if not (cfg.get("api_key") or "").strip():
+        return ""
+    moved = False
+    if not _key_from_env():  # .env에 키가 없을 때만 옮긴다(.env가 항상 우선)
+        if not set_api_key(cfg["api_key"].strip()):
+            return "config.json의 평문 API 키를 .env로 옮기지 못했습니다(.env 쓰기 실패)."
+        moved = True
+    cfg.pop("api_key", None)
+    cfg.pop("key_source", None)
+    try:
+        CONFIG_PATH.write_text(json.dumps(cfg, ensure_ascii=False, indent=1), encoding="utf-8")
+    except OSError:
+        return "config.json에서 평문 API 키를 제거하지 못했습니다(파일 쓰기 실패)."
+    return ("config.json의 평문 API 키를 .env로 옮기고 파일에서 제거했습니다."
+            if moved else "config.json에 남아 있던 평문 API 키를 제거했습니다(.env 키 사용).")
+
+
 def load_config() -> dict:
     cfg = {}
     if CONFIG_PATH.exists():
@@ -60,19 +134,21 @@ def load_config() -> dict:
             cfg = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
             cfg = {}
-    if not cfg.get("api_key"):
-        env_key = _key_from_env()
-        if env_key:
-            cfg["api_key"] = env_key
-            cfg.setdefault("key_source", "env")
+    env_key = _key_from_env()
+    if env_key:  # .env가 항상 우선
+        cfg["api_key"] = env_key
+        cfg["key_source"] = "env"
+    elif (cfg.get("api_key") or "").strip():
+        # 이관에 실패해 평문 키가 남은 상태 — 동작은 시키되 관리자 화면에서 경고한다
+        cfg["key_source"] = "file"
     return cfg
 
 
 def save_config(cfg: dict):
+    """설정 저장 — API 키는 어떤 경우에도 config.json에 기록하지 않는다."""
     cfg = dict(cfg)
-    if cfg.get("key_source") == "env":  # .env에서 읽은 키는 config.json에 복제 저장하지 않음
-        cfg.pop("api_key", None)
-        cfg.pop("key_source", None)
+    cfg.pop("api_key", None)
+    cfg.pop("key_source", None)
     CONFIG_PATH.write_text(json.dumps(cfg, ensure_ascii=False, indent=1), encoding="utf-8")
 
 
@@ -89,6 +165,10 @@ class AIError(Exception):
     pass
 
 
+class AITruncated(AIError):
+    """응답이 max_tokens에 걸려 잘린 경우 — 조용히 규칙 엔진으로 넘어가지 않도록 구분한다."""
+
+
 def _client():
     import anthropic
     key = load_config().get("api_key")
@@ -97,27 +177,44 @@ def _client():
     return anthropic.Anthropic(api_key=key)
 
 
-def _call(system: str, user: str, schema: dict) -> dict:
-    """구조화 출력(JSON 스키마)으로 Claude 호출. refusal 시 AIError."""
+def _once(system: str, user: str, schema: dict, max_tokens: int):
+    """Claude 1회 호출 — 응답 객체를 그대로 반환."""
     import anthropic
     client = _client()
     kwargs = dict(
         model=get_model(),
-        max_tokens=MAX_TOKENS,
+        max_tokens=max_tokens,
         system=system,
         messages=[{"role": "user", "content": user}],
         output_config={"format": {"type": "json_schema", "schema": schema}},
     )
+    # max_tokens가 크면 SDK가 스트리밍을 요구한다(비스트리밍 10분 제한). 항상 스트리밍으로 받는다.
     try:
-        # 안전 분류기 거절 시 권장 모델로 자동 재시도(서버측 fallback)
-        resp = client.beta.messages.create(
-            betas=["server-side-fallback-2026-07-01"], fallbacks="default", **kwargs)
-    except anthropic.BadRequestError:
-        # fallback 베타 미지원 계정 등 — 일반 경로로 재시도
-        resp = client.messages.create(**kwargs)
+        try:
+            # 안전 분류기 거절 시 권장 모델로 자동 재시도(서버측 fallback)
+            with client.beta.messages.stream(
+                    betas=["server-side-fallback-2026-07-01"],
+                    fallbacks="default", **kwargs) as stream:
+                resp = stream.get_final_message()
+        except (anthropic.BadRequestError, TypeError) as ex:
+            # 베타 미지원 계정 등에서만 일반 경로로 재시도한다.
+            # 잔액 부족 같은 '진짜 400'은 그대로 올려보내 원인을 정확히 알린다.
+            low = str(ex).lower()
+            if isinstance(ex, anthropic.BadRequestError) \
+                    and "beta" not in low and "fallback" not in low:
+                raise
+            with client.messages.stream(**kwargs) as stream:
+                resp = stream.get_final_message()
     except anthropic.AuthenticationError:
         raise AIError("API 키가 유효하지 않습니다. 설정에서 키를 확인해 주세요.")
+    except anthropic.RateLimitError:
+        raise AIError("Claude API 호출 한도에 도달했습니다. 잠시 후 다시 시도해 주세요.")
     except anthropic.APIStatusError as ex:
+        detail = f"{getattr(ex, 'message', '')} {ex}".lower()
+        if "credit balance" in detail or "insufficient" in detail:
+            raise AIError(
+                "Anthropic API 크레딧이 소진되어 AI 모드를 사용할 수 없습니다. "
+                "console.anthropic.com의 Plans & Billing에서 충전한 뒤 다시 시도해 주세요.")
         raise AIError(f"Claude API 오류({ex.status_code}): {ex.message}")
     except anthropic.APIConnectionError:
         raise AIError("Claude API에 연결할 수 없습니다. 네트워크를 확인해 주세요.")
@@ -127,17 +224,40 @@ def _call(system: str, user: str, schema: dict) -> dict:
         cost.record(get_model(), getattr(resp, "usage", None))
     except Exception:
         pass
+    return resp
 
-    if resp.stop_reason == "refusal":
-        raise AIError("요청이 안전상 처리되지 않았습니다(규칙 엔진으로 대체 처리됩니다).")
-    text = next((b.text for b in resp.content if b.type == "text"), "")
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        m = re.search(r"\{.*\}", text, re.S)
-        if m:
-            return json.loads(m.group(0))
-        raise AIError("AI 응답을 해석할 수 없습니다.")
+
+def _call(system: str, user: str, schema: dict) -> dict:
+    """구조화 출력(JSON 스키마)으로 Claude 호출.
+
+    응답이 길이 제한에 걸려 잘리면(stop_reason='max_tokens') 잘린 JSON이 파싱에 실패해
+    '해석 불가'로 뭉뚱그려지고 조용히 규칙 엔진 결과로 바뀐다. 절단을 별도로 감지해
+    한도를 늘려 1회 재시도하고, 그래도 잘리면 AITruncated로 구분해 알린다.
+    """
+    limit = MAX_TOKENS
+    for attempt in (1, 2):
+        resp = _once(system, user, schema, limit)
+        if resp.stop_reason == "refusal":
+            raise AIError("요청이 안전상 처리되지 않았습니다(규칙 엔진으로 대체 처리됩니다).")
+        if resp.stop_reason == "max_tokens":
+            if attempt == 1 and limit < MAX_TOKENS_CEILING:
+                limit = MAX_TOKENS_CEILING
+                continue
+            raise AITruncated(
+                f"AI 응답이 길이 제한({limit:,}토큰)에 걸려 잘렸습니다. "
+                "해당 묶음은 규칙 엔진으로 처리되었습니다.")
+        text = next((b.text for b in resp.content if b.type == "text"), "")
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            m = re.search(r"\{.*\}", text, re.S)
+            if m:
+                try:
+                    return json.loads(m.group(0))
+                except json.JSONDecodeError:
+                    pass
+            raise AIError("AI 응답을 해석할 수 없습니다.")
+    raise AIError("AI 응답을 받지 못했습니다.")
 
 
 def test_key(api_key: str, model: str) -> tuple[bool, str]:

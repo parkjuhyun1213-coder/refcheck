@@ -18,15 +18,29 @@ COST_LOG_PATH = APP_DIR / "api_cost_log.json"
 _LOCK = threading.Lock()
 _LOCAL = threading.local()
 
-# 100만 토큰당 미국 달러 (input, output) — 2026-08 기준 공개 단가
+# 100만 토큰당 미국 달러 (input, output) — 2026-08 기준 공개 정가
 PRICES = {
     "claude-opus-5": (5.0, 25.0),
     "claude-sonnet-5": (3.0, 15.0),
     "claude-haiku-4-5": (1.0, 5.0),
 }
+# 한시 도입가 — 기간 안에는 이 단가가 적용된다. (모델: (input, output, 종료일))
+INTRO_PRICES = {
+    "claude-sonnet-5": (2.0, 10.0, "2026-08-31"),
+}
 DEFAULT_PRICE = (5.0, 25.0)
 CACHE_READ_RATE = 0.1    # 캐시 읽기는 입력 단가의 0.1배
 CACHE_WRITE_RATE = 1.25  # 캐시 쓰기는 입력 단가의 1.25배
+
+
+def price_of(model: str, day: str = "") -> tuple[float, float]:
+    """해당 날짜(YYYY-MM-DD, 생략 시 오늘)에 적용되는 (입력, 출력) 단가."""
+    intro = INTRO_PRICES.get(model)
+    if intro:
+        today = day or time.strftime("%Y-%m-%d")
+        if today <= intro[2]:
+            return intro[0], intro[1]
+    return PRICES.get(model, DEFAULT_PRICE)
 
 
 def _usage_dict(usage) -> dict:
@@ -39,9 +53,9 @@ def _usage_dict(usage) -> dict:
             "cache_write": g("cache_creation_input_tokens")}
 
 
-def calc_usd(model: str, u: dict) -> float:
-    """토큰 사용량 → 달러."""
-    pin, pout = PRICES.get(model, DEFAULT_PRICE)
+def calc_usd(model: str, u: dict, day: str = "") -> float:
+    """토큰 사용량 → 달러(그 날짜에 적용되던 단가로 환산)."""
+    pin, pout = price_of(model, day)
     return ((u["input"] * pin
              + u["cache_read"] * pin * CACHE_READ_RATE
              + u["cache_write"] * pin * CACHE_WRITE_RATE

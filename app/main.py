@@ -37,11 +37,16 @@ app = FastAPI(title="파일 기반 참고문헌 표준화·검증 에이전트")
 # 화면(index.html)과 프로그램의 버전이 어긋난 채 배포되면 새 기능이 조용히 무시된다.
 # 두 파일에 같은 값을 두고 /api/status에서 대조해 관리자 화면에 경고를 띄운다.
 # 기능을 추가·변경할 때 main.py와 index.html의 APP_VERSION을 함께 올릴 것.
-APP_VERSION = "2026.08.08-10"
+APP_VERSION = "2026.08.08-11"
 
 APP_DIR = Path(__file__).parent
 JOBS: dict[str, dict] = {}
 _JOBS_LOCK = threading.Lock()
+
+# 기동 시 1회 — config.json에 평문으로 남은 API 키를 .env로 옮기고 파일에서 지운다.
+KEY_MIGRATION = aiengine.migrate_key_to_env()
+if KEY_MIGRATION:
+    print(f"[보안] {KEY_MIGRATION}")
 
 GROUP_LABEL = {"ko": "국내문헌", "west": "서양문헌", "east": "동양문헌"}
 
@@ -497,8 +502,12 @@ def _process_file(filename: str, data: bytes, options: dict, progress) -> dict:
     suggestions_by_idx: dict[int, list[dict]] = {}
     autofix_notes_by_idx: dict[int, list[str]] = {}
     if options.get("verify"):
+        # 가장 오래 걸리는 구간 — 몇 건째 조회 중인지 실시간으로 알린다
+        def _verify_progress(done: int, total: int):
+            progress(f"실존·윤리 검증 (Crossref·OpenAlex·국내DB, {done}/{total}건 조회)", filename)
+
         progress(f"실존·윤리 검증 (Crossref·OpenAlex·국내DB, {len(entries)}건)", filename)
-        verify_results = verify_mod.verify_entries(entries)
+        verify_results = verify_mod.verify_entries(entries, progress_cb=_verify_progress)
         for i, (e, v) in enumerate(zip(entries, verify_results)):
             if v.get("status") != "verified":
                 continue  # mismatch 등 불확실 매칭의 서지는 교정·DOI 반영에 사용하지 않음
@@ -841,7 +850,9 @@ def _run_parallel(job: dict, files: list[tuple[str, bytes]], options: dict,
             st["stage"] = stage
             done = sum(1 for r in job["results"] if r is not None)
             running = sum(1 for f in job["files"] if f["status"] == "처리 중")
-            job["stage"] = f"{done}/{job['total_files']} 완료 · 동시 처리 {running}건"
+            # 세부 단계를 함께 보여준다 — 이것이 없으면 1편 처리 시 화면이 멈춘 것처럼 보인다
+            job["stage"] = (stage if job["total_files"] == 1
+                            else f"{done}/{job['total_files']} 완료 · 동시 처리 {running}건 · {stage}")
             job["current_file"] = filename
 
         try:
@@ -1062,8 +1073,10 @@ def status(request: Request):
            "role_label": ROLE_LABEL.get(access_role(request), ""),
            "is_editor": is_editor(request)}
     if admin:  # 키 관련 정보는 관리자에게만 노출
-        out["key_source"] = cfg.get("key_source", "user" if cfg.get("api_key") else "")
-        out["key_hint"] = cfg.get("api_key", "")[:10] + "…" if cfg.get("api_key") else ""
+        key = cfg.get("api_key", "")
+        out["key_source"] = cfg.get("key_source", "")
+        # 앞자리는 키 식별에 쓰이므로 노출하지 않고 끝 4자리만 보여준다
+        out["key_hint"] = ("…" + key[-4:]) if key else ""
         out["access_code"] = _access_code()
         out["monthly_budget_usd"] = cfg.get("monthly_budget_usd", "")
         out["usd_krw"] = cfg.get("usd_krw", 1400)
@@ -1087,12 +1100,14 @@ def save_settings(request: Request, api_key: str = Form(""), model: str = Form(a
                   usd_krw: str | None = Form(None)):
     require_admin(request)
     cfg = aiengine.load_config()
+    # API 키는 .env에만 기록한다(config.json 평문 저장 금지)
     if clear == "1":
-        cfg.pop("api_key", None)
-        cfg.pop("key_source", None)
+        aiengine.clear_api_key()
     elif api_key.strip():
-        cfg["api_key"] = api_key.strip()
-        cfg["key_source"] = "user"
+        if not aiengine.set_api_key(api_key):
+            return JSONResponse(
+                {"ok": False, "message": ".env 파일에 API 키를 저장하지 못했습니다. 파일 권한을 확인해 주세요."},
+                status_code=500)
     cfg["model"] = model if model in aiengine.ALLOWED_MODELS else aiengine.DEFAULT_MODEL
     if access_code is not None:  # 필드가 전송된 경우에만 변경(빈 값 = 공통 코드 해제)
         cfg["access_code"] = access_code.strip()[:60]
