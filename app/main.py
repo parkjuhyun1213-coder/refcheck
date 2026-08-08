@@ -37,7 +37,7 @@ app = FastAPI(title="파일 기반 참고문헌 표준화·검증 에이전트")
 # 화면(index.html)과 프로그램의 버전이 어긋난 채 배포되면 새 기능이 조용히 무시된다.
 # 두 파일에 같은 값을 두고 /api/status에서 대조해 관리자 화면에 경고를 띄운다.
 # 기능을 추가·변경할 때 main.py와 index.html의 APP_VERSION을 함께 올릴 것.
-APP_VERSION = "2026.08.08-12"
+APP_VERSION = "2026.08.08-13"
 
 APP_DIR = Path(__file__).parent
 JOBS: dict[str, dict] = {}
@@ -1719,6 +1719,39 @@ def admin_delete_history(hid: str, request: Request):
     if role not in ("admin", "chair"):
         raise HTTPException(403, "삭제는 편집위원장 또는 관리자만 할 수 있습니다.")
     return {"ok": history_mod.delete_history(hid)}
+
+
+MAX_BULK_DELETE = 500
+
+
+@app.post("/api/admin/history/delete")
+def admin_delete_history_bulk(request: Request, ids: str = Form(...)):
+    """체크한 처리 이력을 한 번에 삭제 — 관리자·편집위원장만.
+
+    권한은 먼저 한 번에 확인하고, 그 뒤 건별로 소속 학회만 대조한다.
+    (중간에 권한 오류로 중단되어 일부만 지워지는 상황을 만들지 않기 위함)
+    """
+    scope_org, role = require_editor(request)
+    if role not in ("admin", "chair"):
+        raise HTTPException(403, "삭제는 편집위원장 또는 관리자만 할 수 있습니다.")
+    id_list = list(dict.fromkeys(x.strip() for x in ids.split(",") if x.strip()))
+    if not id_list:
+        return {"ok": False, "deleted": 0, "skipped": 0,
+                "message": "삭제할 항목을 선택해 주세요."}
+    if len(id_list) > MAX_BULK_DELETE:
+        raise HTTPException(400, f"한 번에 {MAX_BULK_DELETE}건까지 삭제할 수 있습니다.")
+    deleted = skipped = 0
+    for hid in id_list:
+        rec = history_mod.get_history(hid)
+        # 다른 학회 자료나 이미 지워진 항목은 조용히 건너뛴다(전체 실패로 만들지 않음)
+        if not rec or (scope_org and rec.get("org") != scope_org):
+            skipped += 1
+            continue
+        if history_mod.delete_history(hid):
+            deleted += 1
+        else:
+            skipped += 1
+    return {"ok": True, "deleted": deleted, "skipped": skipped}
 
 
 def _csv_response(rows: list[list], filename: str) -> Response:
