@@ -108,12 +108,12 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
 <body>
 <header>
   <div>
-    <h1 onclick="resetAll()" style="cursor:pointer" title="첫 화면으로 돌아갑니다">📚 참고문헌 표준화·검증 에이전트</h1>
+    <h1 onclick="fullReset()" style="cursor:pointer" title="처음 접속한 상태로 되돌립니다 (학회 코드·관리자 로그인까지 해제)">📚 참고문헌 표준화·검증 에이전트</h1>
     <div class="sub">원고 파일에서 참고문헌을 추출해 선택한 학술지 기준으로 정리하고 검증합니다</div>
     <div class="credit">개발: 전남대학교 문헌정보학과 박주현 교수 (<a href="mailto:park51566@jnu.ac.kr" style="color:inherit">park51566@jnu.ac.kr</a>)</div>
   </div>
   <span class="hspace"></span>
-  <button onclick="resetAll()" title="처리 결과와 선택 파일을 지우고 처음 화면으로 돌아갑니다">🗒 새 논문</button>
+  <button onclick="resetAll()" title="처리 결과와 선택 파일을 지웁니다 (학회 코드·로그인은 유지)">🗒 새 논문</button>
   <button onclick="openPast()" title="이전에 처리한 결과를 다시 보고 내려받습니다">📂 지난 결과</button>
   <span id="aiBadge" class="badge" onclick="openModels()" style="cursor:pointer" title="사용 중인 AI 엔진과 선택 가능한 모드를 봅니다">엔진 확인 중…</span>
   <span id="roleBadge" class="badge" style="display:none"></span>
@@ -615,7 +615,7 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
 
 <script>
 // main.py의 APP_VERSION과 같아야 함 — 다르면 배포가 반쪽만 된 상태이므로 경고를 띄운다
-const UI_VERSION='2026.08.08-9';
+const UI_VERSION='2026.08.08-10';
 const $=id=>document.getElementById(id);
 let pickedFiles=[], styles=[], currentJob=null, pollTimer=null, etaTimer=null;
 
@@ -1418,8 +1418,8 @@ function toast(msg){
   _toastTimer=setTimeout(()=>el.classList.remove('show'),1800);
 }
 
-// ---------- 새 논문(초기화)
-function resetAll(){
+// ---------- 새 논문(작업 내용만 초기화 — 학회 코드·로그인은 유지)
+function resetAll(silent){
   if(pollTimer) clearInterval(pollTimer);
   stopEta();
   currentJob=null; window._lastJob=null;
@@ -1450,7 +1450,24 @@ function resetAll(){
   if(s.admin&&typeof loadDashboard==='function') loadDashboard();
   switchTab('up');
   window.scrollTo({top:0,behavior:'smooth'});
-  toast('초기 화면으로 되돌렸습니다');
+  if(!silent) toast('작업 내용을 초기화했습니다');
+}
+
+// ---------- 제목 클릭 — 처음 접속한 상태로 완전 초기화
+// 학회 접근 코드와 관리자 로그인까지 해제하므로, 끝나면 코드 입력창이 다시 뜬다.
+async function fullReset(){
+  resetAll(true);                       // 작업 상태·입력값 정리(알림은 마지막에 한 번만)
+  // 이 브라우저에 저장해 둔 이용자 정보 일체 제거
+  Object.keys(localStorage).filter(k=>k.indexOf('refstd_')===0)
+        .forEach(k=>localStorage.removeItem(k));
+  // 서버 세션 해제 — 어느 한쪽이 실패해도 나머지는 진행
+  try{ await fetch('/api/access/logout',{method:'POST'}); }catch(e){}
+  try{ await fetch('/api/admin/logout',{method:'POST'}); }catch(e){}
+  const sel=$('orgSel');
+  if(sel){ sel.disabled=false; }        // 코드로 잠겨 있던 학회 선택 풀기
+  await init();                         // 첫 접속과 동일한 경로로 화면 재구성
+  window.scrollTo({top:0,behavior:'smooth'});
+  toast('처음 접속한 상태로 초기화했습니다');
 }
 
 // ---------- 설정
