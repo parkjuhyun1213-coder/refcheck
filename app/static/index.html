@@ -237,6 +237,9 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
   <div class="footer-note">
     기준 양식 기본값: 문편협 「인용 및 참고문헌의 기술요소와 형식에 관한 공통기준」(2024. 6. 17. 개정) ·
     AI의 추출·변환에는 오류가 있을 수 있으므로 변경 전·후 대비표로 최종 확인하세요.
+    <div style="margin-top:6px;font-size:11.5px;opacity:.8">
+      참고문헌 표준화·검증 에이전트 <span id="verNote">버전 확인 중…</span>
+    </div>
   </div>
 </main>
 
@@ -558,7 +561,7 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
 
 <script>
 // main.py의 APP_VERSION과 같아야 함 — 다르면 배포가 반쪽만 된 상태이므로 경고를 띄운다
-const UI_VERSION='2026.08.08-3';
+const UI_VERSION='2026.08.08-4';
 const $=id=>document.getElementById(id);
 let pickedFiles=[], styles=[], currentJob=null, pollTimer=null, etaTimer=null;
 
@@ -676,8 +679,12 @@ async function refreshStatus(){
   $('codeBtn').textContent=s.access_ok?'🎫 코드 변경':'🎫 학회 코드 입력';
   $('addStyleBtn').style.display=s.admin?'':'none';
   $('adminBtn').textContent=s.admin?'로그아웃':'🔐 관리자';
-  // 배포 불일치 경고 — 화면만 새로 올리고 프로그램 재시작을 빠뜨린 경우 등
+  // 화면 하단 버전 표시(누구나 확인 가능) + 배포 불일치 경고(관리자)
   const mismatch=s.version!==UI_VERSION;
+  $('verNote').textContent=mismatch
+    ? `버전 ${s.version||'구버전'} (화면 ${UI_VERSION} — 반영 대기)`
+    : `버전 ${s.version||''}`;
+  $('verNote').style.color=mismatch?'var(--warn)':'';
   $('verWarn').style.display=(mismatch&&s.admin)?'':'none';
   if(mismatch&&s.admin)
     $('verWarn').innerHTML=`⚠ <b>배포가 완료되지 않았습니다.</b> 화면 버전(${esc(UI_VERSION)})과 `
