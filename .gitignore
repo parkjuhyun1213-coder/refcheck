@@ -20,6 +20,7 @@ app/api_cost_log.json
 __pycache__/
 *.pyc
 참고문헌_정리결과/
+*_결과테스트.docx
 
 # ── 루트의 개인 문서 (샘플원고 폴더는 포함됨)
 /*.docx
