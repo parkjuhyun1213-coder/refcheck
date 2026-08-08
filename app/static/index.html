@@ -97,6 +97,11 @@ mark.db{background:#e7f4e8;color:var(--ok);border-radius:3px;padding:0 1px}
 .cmp-pair .lbl{display:inline-block;width:86px;font-weight:700;color:var(--sub);vertical-align:top}
 .cmp-pair .txt{display:inline-block;width:calc(100% - 98px);overflow-wrap:anywhere}
 .footer-note{font-size:12px;color:var(--sub);text-align:center;margin-top:24px}
+/* 초기화 등 즉시 피드백용 알림 — 화면 변화가 작을 때도 동작했음을 알린다 */
+#toast{position:fixed;left:50%;bottom:34px;transform:translateX(-50%) translateY(14px);
+  background:#111827;color:#fff;padding:11px 20px;border-radius:999px;font-size:13px;font-weight:600;
+  box-shadow:0 6px 20px rgba(0,0,0,.28);opacity:0;pointer-events:none;transition:opacity .18s,transform .18s;z-index:9999}
+#toast.show{opacity:.95;transform:translateX(-50%) translateY(0)}
 code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:12px}
 </style>
 </head>
@@ -610,7 +615,7 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
 
 <script>
 // main.py의 APP_VERSION과 같아야 함 — 다르면 배포가 반쪽만 된 상태이므로 경고를 띄운다
-const UI_VERSION='2026.08.08-8';
+const UI_VERSION='2026.08.08-9';
 const $=id=>document.getElementById(id);
 let pickedFiles=[], styles=[], currentJob=null, pollTimer=null, etaTimer=null;
 
@@ -671,9 +676,11 @@ async function initOrgs(){
   if(window._status) applyAccessOrg(window._status.access_org||'');
 }
 // 학회별 접근 코드로 인증된 경우 — 학회 선택을 자동 고정
+// (관리자는 전체 학회를 다루므로 코드가 남아 있어도 잠그지 않는다)
 function applyAccessOrg(org){
   const sel=$('orgSel');
   if(!sel.options.length) return;
+  if(window._status&&window._status.admin) org='';
   if(org){
     if(![...sel.options].some(o=>o.value===org)){
       const op=document.createElement('option'); op.value=org; op.textContent=org;
@@ -1401,6 +1408,16 @@ function copyList(idx){
 }
 function downloadZip(){ location='/api/jobs/'+currentJob+'/download_zip'; }
 
+// ---------- 즉시 피드백 알림
+let _toastTimer=null;
+function toast(msg){
+  let el=$('toast');
+  if(!el){ el=document.createElement('div'); el.id='toast'; document.body.appendChild(el); }
+  el.textContent=msg; el.classList.add('show');
+  if(_toastTimer) clearTimeout(_toastTimer);
+  _toastTimer=setTimeout(()=>el.classList.remove('show'),1800);
+}
+
 // ---------- 새 논문(초기화)
 function resetAll(){
   if(pollTimer) clearInterval(pollTimer);
@@ -1414,20 +1431,26 @@ function resetAll(){
   $('progress').style.display='none';
   window._barPct=0;
   $('barFill').style.width='0'; $('stageText').textContent='';
+  // 열려 있는 대화상자 닫기 — 단, 접근 코드 창은 입장 조건이므로 건드리지 않는다
+  document.querySelectorAll('dialog[open]').forEach(d=>{ if(d.id!=='dlgAccess'){ try{ d.close(); }catch(e){} } });
   // 사용자 정보 초기화 — 저장해 둔 이름·기관도 함께 지운다
   $('userName').value=''; $('orgEtc').value='';
   localStorage.removeItem('refstd_user'); localStorage.removeItem('refstd_orgetc');
   const s=window._status||{};
-  if(!s.access_org){  // 접근 코드로 자동 확정된 학회는 유지(권한 정보이므로)
+  // 접근 코드로 자동 확정된 학회는 권한 정보이므로 유지 — 관리자는 코드에 매이지 않으므로 초기화
+  if(!s.access_org||s.admin){
     localStorage.removeItem('refstd_org');
     const sel=$('orgSel');
-    if(sel.options.length) sel.selectedIndex=0;
+    if(sel.options.length){ sel.disabled=false; sel.selectedIndex=0; }
     orgChanged();
   }
   $('results').innerHTML=''; $('resultCard').style.display='none';
   $('outDirNote').textContent='';
+  // 관리자 화면은 대시보드도 최신 상태로 다시 불러온다
+  if(s.admin&&typeof loadDashboard==='function') loadDashboard();
   switchTab('up');
   window.scrollTo({top:0,behavior:'smooth'});
+  toast('초기 화면으로 되돌렸습니다');
 }
 
 // ---------- 설정
