@@ -610,7 +610,7 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
 
 <script>
 // main.py의 APP_VERSION과 같아야 함 — 다르면 배포가 반쪽만 된 상태이므로 경고를 띄운다
-const UI_VERSION='2026.08.08-7';
+const UI_VERSION='2026.08.08-8';
 const $=id=>document.getElementById(id);
 let pickedFiles=[], styles=[], currentJob=null, pollTimer=null, etaTimer=null;
 
@@ -1414,6 +1414,16 @@ function resetAll(){
   $('progress').style.display='none';
   window._barPct=0;
   $('barFill').style.width='0'; $('stageText').textContent='';
+  // 사용자 정보 초기화 — 저장해 둔 이름·기관도 함께 지운다
+  $('userName').value=''; $('orgEtc').value='';
+  localStorage.removeItem('refstd_user'); localStorage.removeItem('refstd_orgetc');
+  const s=window._status||{};
+  if(!s.access_org){  // 접근 코드로 자동 확정된 학회는 유지(권한 정보이므로)
+    localStorage.removeItem('refstd_org');
+    const sel=$('orgSel');
+    if(sel.options.length) sel.selectedIndex=0;
+    orgChanged();
+  }
   $('results').innerHTML=''; $('resultCard').style.display='none';
   $('outDirNote').textContent='';
   switchTab('up');
