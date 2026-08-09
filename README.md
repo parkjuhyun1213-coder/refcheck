@@ -85,7 +85,7 @@
 ## 폴더 구조
 
 ```
-writing_reference/
+writing_reference_agent/
 ├─ 실행.bat                 ← 서버 실행
 ├─ requirements.txt
 ├─ app/

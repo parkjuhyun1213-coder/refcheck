@@ -4,9 +4,9 @@
 # 대상: Ubuntu 22.04 / 24.04 (AWS Lightsail 등)
 #
 # 사용법:
-#   1) 프로젝트 폴더를 /home/ubuntu/writing_reference 로 업로드해 둔 상태에서
-#   2) sudo bash ~/writing_reference/deploy/setup_server.sh 도메인
-#      예: sudo bash ~/writing_reference/deploy/setup_server.sh refcheck.kr
+#   1) 프로젝트 폴더를 /home/ubuntu/writing_reference_agent 로 업로드해 둔 상태에서
+#   2) sudo bash ~/writing_reference_agent/deploy/setup_server.sh 도메인
+#      예: sudo bash ~/writing_reference_agent/deploy/setup_server.sh refcheck.kr
 # ============================================================
 set -euo pipefail
 
@@ -16,12 +16,12 @@ APP_DIR=/opt/refstd
 # 업로드 위치 자동 탐색 (AWS: /home/ubuntu, 가비아 등 root 접속: /root)
 SRC="${2:-}"
 if [ -z "$SRC" ]; then
-  for cand in /root/writing_reference /home/ubuntu/writing_reference; do
+  for cand in /root/writing_reference_agent /home/ubuntu/writing_reference_agent; do
     if [ -f "$cand/app/main.py" ]; then SRC="$cand"; break; fi
   done
 fi
 if [ -z "$SRC" ] || [ ! -f "$SRC/app/main.py" ]; then
-  echo "오류: 업로드된 프로젝트를 찾을 수 없습니다. WinSCP로 writing_reference 폴더를"
+  echo "오류: 업로드된 프로젝트를 찾을 수 없습니다. WinSCP로 writing_reference_agent 폴더를"
   echo "      /root 또는 /home/ubuntu 아래에 업로드했는지 확인하세요."
   exit 1
 fi

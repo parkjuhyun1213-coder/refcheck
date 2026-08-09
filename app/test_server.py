@@ -4,7 +4,7 @@ import time
 import httpx
 
 BASE = "http://127.0.0.1:8765"
-SAMPLE = r"c:\apps\writing_reference\샘플원고\샘플논문_다문화서비스.docx"
+SAMPLE = r"c:\apps\writing_reference_agent\샘플원고\샘플논문_다문화서비스.docx"
 
 
 def wait_job(c, job_id, timeout=300):
@@ -71,7 +71,7 @@ def main():
 
         # 폴더 일괄 처리
         r = c.post(BASE + "/api/process_folder",
-                   data={"path": r"c:\apps\writing_reference\샘플원고",
+                   data={"path": r"c:\apps\writing_reference_agent\샘플원고",
                          "style_id": "munpyeonhyeop", "verify": "0", "crosscheck": "1", "english": "0"})
         job_id = r.json()["job_id"]
         j = wait_job(c, job_id)
