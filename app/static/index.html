@@ -81,6 +81,8 @@ table.cmp td.mism{background:#fdecea;color:var(--warn);font-weight:600}
 table.cmp td.offv{background:#e7f4e8;color:var(--ok);font-weight:600}
 .warnbox{background:#fff8e6;border:1px solid #f0dfa8;border-radius:8px;padding:8px 12px;font-size:12.5px;color:#7a5b00;margin:8px 0}
 .errbox{background:#fdecea;border:1px solid #f2c4bd;border-radius:8px;padding:10px 14px;font-size:13px;color:var(--warn)}
+/* 원고 보관 고지 — 경고가 아니라 안내이므로 눈에 띄되 차분한 색으로 */
+.notebox{background:#eef4fb;border:1px solid #cfe0f2;border-radius:8px;padding:9px 13px;font-size:12.5px;line-height:1.65;color:#2b4a6b;margin:0 0 12px}
 dialog{border:none;border-radius:14px;padding:0;max-width:560px;width:92%;box-shadow:0 12px 40px rgba(0,0,0,.25)}
 dialog::backdrop{background:rgba(15,30,50,.45)}
 dialog .dhead{background:var(--accent);color:#fff;padding:13px 20px;font-weight:700;font-size:14.5px}
@@ -209,6 +211,8 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
     </div>
 
     <div id="paneUp">
+      <!-- 원고 보관 고지 — 로그인(코드 입장·관리자)한 경우에만, 역할에 맞는 내용으로 -->
+      <div class="notebox" id="keepNotice" style="display:none"></div>
       <div class="drop" id="drop" onclick="document.getElementById('fileInput').click()">
         <div style="font-size:30px">📄</div>
         <b>원고 파일을 끌어다 놓거나 클릭해서 선택하세요</b>
@@ -640,7 +644,7 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
 // main.py의 APP_VERSION과 반드시 같아야 한다. 서버에 index.html이 덜 복사됐는지
 // 알아내려고 일부러 손으로 박아 두는 값이라 자동 주입하지 않는다.
 // (test_server.py가 두 값이 어긋나면 실패시킨다)
-const UI_VERSION='2026.08.14-1';
+const UI_VERSION='2026.08.14-2';
 const $=id=>document.getElementById(id);
 let pickedFiles=[], styles=[], currentJob=null, pollTimer=null, etaTimer=null;
 
@@ -730,6 +734,33 @@ function userInfo(){
   localStorage.setItem('refstd_user',name); localStorage.setItem('refstd_org',org); localStorage.setItem('refstd_orgetc',etc);
   return {name,org,etc};
 }
+// 원고 보관 고지 — 로그인한 경우에만 보여 주고, 역할에 따라 내용을 달리한다.
+// 이용자에게는 '내 원고가 어떻게 다뤄지는가', 편집위원 이상에게는 '그 자료를 무엇에
+// 쓰는가'를 알린다. 로그인 전에는 아직 원고를 올릴 수 없으므로 띄우지 않는다.
+function renderKeepNotice(s){
+  const el=$('keepNotice');
+  if(!el) return;
+  const loggedIn=!!(s.admin||(s.access_ok&&s.role));
+  if(!loggedIn){ el.style.display='none'; return; }
+  const org=s.access_org?esc(s.access_org)+' ':'';
+  let h;
+  if(s.admin||s.is_editor){
+    const who=s.admin?'관리자':esc(s.role_label||'편집위원');
+    h=`🏛 <b>${who} 안내 — 보관된 원고의 활용</b><br>`
+      +`이용자가 올린 원고 원본과 발행본은 서버에 보관되며, ${org}편집위원·편집위원장(부편집위원장 포함)이 열람할 수 있습니다. `
+      +`보관 자료는 <b>학회 참고문헌을 더 정확하게 작성하고, 4개 학회 사이의 기술 차이를 확인·수정하기 위한 목적</b>으로만 활용합니다. `
+      +`발행본 비교에서 찾은 차이는 채택 요청을 거쳐 편집위원장 승인 후 학회 제안으로 등록됩니다.<br>`
+      +`열람한 원고는 심사·편집 목적 외로 이용하거나 외부에 제공하지 않습니다. 보관이 끝난 자료는 <b>원고 관리</b>에서 삭제할 수 있습니다.`;
+  }else{
+    h=`📄 <b>원고 보관 안내</b><br>`
+      +`올리신 원고 파일은 처리 이력과 함께 서버에 보관되며, ${org}편집위원회(편집위원·편집위원장)가 열람할 수 있습니다. `
+      +`보관된 원고는 학회 참고문헌 기술을 개선하기 위한 목적으로만 쓰이며, 그 밖의 용도로 이용하거나 외부에 제공하지 않습니다.<br>`
+      +`보관을 원하지 않으시면 위의 <b>‘참고문헌만 붙여넣기’</b> 탭을 이용해 주세요. 원고 파일이 서버에 남지 않습니다.`;
+  }
+  el.innerHTML=h;
+  el.style.display='';
+}
+
 async function refreshStatus(){
   const s=await (await fetch('/api/status')).json();
   const b=$('aiBadge');
@@ -779,6 +810,7 @@ async function refreshStatus(){
   if(!s.admin&&$('paneFo').style.display!=='none') switchTab('up');
   // 접근 코드 충족(또는 관리자 로그인) 시 접근 대화상자 닫기
   if(typeof dlgAccess!=='undefined'&&dlgAccess.open&&(!s.access_required||s.access_ok)) dlgAccess.close();
+  renderKeepNotice(s);
   window._status=s;
   if(typeof applyAccessOrg==='function') applyAccessOrg(s.access_org||'');
   if(typeof updateStyleDesc==='function'&&styles.length) updateStyleDesc();
