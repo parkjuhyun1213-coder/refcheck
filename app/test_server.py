@@ -141,10 +141,36 @@ def check_nlk() -> bool:
                   (res.get("meta") or {}).get("title", "")); ok = False
     if fake.get("status") == "verified":
         print("13) 없는 단행본이 검증됨:", fake.get("detail")); ok = False
+
+    # 단행본은 출판사가 필수 서지요소다 — 대조에 쓰이도록 meta까지 실려야 한다
+    import main as srv
+    meta = got.get("meta") or {}
+    if meta.get("publisher") != NLK_SAMPLE["publisher"]:
+        print("13) 출판사가 meta에 실리지 않음:", repr(meta.get("publisher"))); ok = False
+    if not meta.get("isbn") or "ISBN" not in (got.get("detail") or ""):
+        print("13) ISBN이 빠짐:", repr(meta.get("isbn")), "|", got.get("detail")); ok = False
+    # 맞게 쓴 출판사에 교정을 제안하면 안 되고(법인격 표기 차이 포함),
+    # 틀리게 썼을 때는 제안해야 한다
+    def pub_sugg(pub, m=meta):
+        return [s for s in srv._build_suggestions(
+            {"type": "book", "year": NLK_SAMPLE["year"], "publisher": pub}, m)
+            if s["field"] == "publisher"]
+    if pub_sugg(NLK_SAMPLE["publisher"]) or pub_sugg("(주)" + NLK_SAMPLE["publisher"]):
+        print("13) 맞게 쓴 출판사에 교정을 제안함"); ok = False
+    if not pub_sugg("엉뚱출판사"):
+        print("13) 틀린 출판사에 교정을 제안하지 않음"); ok = False
+    # 학술지 논문에는 출판사 제안이 붙으면 안 된다(참고문헌에 적지 않는 항목)
+    if [s for s in srv._build_suggestions(
+            {"type": "journal", "year": "1993"},
+            {"year": "1993", "publisher": "American Economic Association"})
+            if s["field"] == "publisher"]:
+        print("13) 학술지 논문에 출판사 교정을 제안함"); ok = False
+
     if ok:
         print("13) 국립중앙도서관 단행본 검증:", got["detail"],
               "| 판 구분", (got.get("meta") or {}).get("year"), "·",
               (other.get("meta") or {}).get("year"),
+              "| 출판사", meta.get("publisher"),
               "| 가짜 단행본", fake.get("status"))
     return ok
 

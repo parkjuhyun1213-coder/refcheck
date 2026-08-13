@@ -301,14 +301,33 @@ def _norm_for_compare(s: str) -> str:
 
 
 _SUGGEST_FIELDS = [("year", "연도"), ("volume", "권"), ("issue", "호"), ("pages", "면수")]
+# 출판사는 단행본·보고서에서만 제안한다. 학술지 논문의 발행처는 수록지와 별개 개념이라
+# 참고문헌에 적지 않으므로, 유형을 가리지 않고 제안하면 없는 항목을 넣으라고 하게 된다.
+_BOOK_SUGGEST_FIELDS = [("publisher", "출판사")]
+
+# 같은 출판사인데 표기만 다른 경우 — '(주)조은글터'와 '조은글터', '도서출판 한울'과 '한울'.
+# 이 차이로 교정을 제안하면 맞게 쓴 서지를 고치라고 하게 된다.
+_PUBLISHER_NOISE = re.compile(
+    r"\(\s*[주유재사합]\s*\)|㈜|주식회사|유한회사|재단법인|사단법인|도서출판|"
+    r"\b(?:inc|ltd|co|corp|company)\b\.?", re.I)
+
+
+def _norm_publisher(s: str) -> str:
+    # 붙임표는 여기서만 지운다('Wiley-Blackwell'과 'Wiley Blackwell'). _norm_for_compare는
+    # 면수 비교에도 쓰여서 붙임표를 지우면 '71-86'과 '7186'이 같아진다.
+    s = _PUBLISHER_NOISE.sub("", (s or "").lower())
+    return _norm_for_compare(re.sub(r"[\-–—]+", "", s))
 
 
 def _build_suggestions(entry: dict, meta: dict | None) -> list[dict]:
     """검증에서 매칭된 정규 서지(meta)와 파싱 결과의 차이 → 필드별 수정 제안."""
     if not meta:
         return []
+    fields = list(_SUGGEST_FIELDS)
+    if entry.get("type") in ("book", "report"):
+        fields += _BOOK_SUGGEST_FIELDS
     out = []
-    for f, label in _SUGGEST_FIELDS:
+    for f, label in fields:
         cur = (entry.get(f) or "").strip()
         new = (meta.get(f) or "").strip().replace("–", "-")
         if f == "year":
@@ -318,6 +337,8 @@ def _build_suggestions(entry: dict, meta: dict | None) -> list[dict]:
         if not new or new == cur:
             continue
         if f == "pages" and cur and _norm_for_compare(cur) == _norm_for_compare(new):
+            continue
+        if f == "publisher" and cur and _norm_publisher(cur) == _norm_publisher(new):
             continue
         out.append({"field": f, "label": label, "current": cur or "(없음)",
                     "suggested": new, "source": meta.get("source", "")})

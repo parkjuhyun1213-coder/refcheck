@@ -237,6 +237,7 @@ def _s2_match(client: httpx.Client, entry: dict) -> dict | None:
 
 def _meta_from_crossref(m: dict) -> dict:
     parts = (m.get("issued") or {}).get("date-parts") or [[None]]
+    isbns = m.get("ISBN") or []
     return {
         "title": " ".join(m.get("title") or []),
         "container": " ".join(m.get("container-title") or []),
@@ -245,6 +246,8 @@ def _meta_from_crossref(m: dict) -> dict:
         "issue": m.get("issue", "") or "",
         "pages": (m.get("page", "") or "").replace("--", "-"),
         "doi": m.get("DOI", "") or "",
+        "publisher": m.get("publisher", "") or "",
+        "isbn": (isbns[0] if isbns else ""),
         "source": "Crossref",
     }
 
@@ -263,6 +266,8 @@ def _meta_from_openalex(w: dict) -> dict:
         "issue": biblio.get("issue") or "",
         "pages": pages,
         "doi": (w.get("doi") or "").replace("https://doi.org/", ""),
+        # OpenAlex의 host_organization은 학술지 발행처라 단행본 출판사와 뜻이 달라 쓰지 않는다
+        "publisher": "", "isbn": "",
         "source": "OpenAlex",
     }
 
@@ -272,7 +277,11 @@ def _meta_from_kr(m: dict) -> dict:
         "title": m.get("title", ""), "container": m.get("container", ""),
         "year": m.get("year", ""), "volume": m.get("volume", ""),
         "issue": m.get("issue", ""), "pages": m.get("pages", ""),
-        "doi": m.get("doi", ""), "source": m.get("source", ""),
+        "doi": m.get("doi", ""),
+        # 단행본은 출판사가 서지의 핵심 요소다(문편협 기준 필수 항목).
+        # ISBN은 원고에 적지 않는 항목이라 교정 대상이 아니라 확인용으로만 싣는다.
+        "publisher": m.get("publisher", ""), "isbn": m.get("isbn", ""),
+        "source": m.get("source", ""),
     }
 
 
@@ -537,9 +546,12 @@ def verify_entry(client: httpx.Client, entry: dict) -> dict:
                     for f in ("doi", "pages"):
                         if detail.get(f) and not kr.get(f):
                             kr[f] = detail[f]
+            detail = f"{kr.get('source')} 대조 성공(제목 일치 {kr.get('sim', 0):.0%})"
+            if kr.get("isbn"):
+                # 같은 서명의 다른 판과 헷갈릴 때 이용자가 손으로 확인할 수 있는 유일한 값
+                detail += f" · ISBN {kr['isbn']}"
             result.update(status="verified", source=kr.get("source", "국내DB"),
-                          detail=f"{kr.get('source')} 대조 성공(제목 일치 {kr.get('sim', 0):.0%})",
-                          meta=_meta_from_kr(kr))
+                          detail=detail, meta=_meta_from_kr(kr))
             if kr.get("doi"):
                 result["found_doi"] = kr["doi"]
                 _enrich_from_crossref(client, result, kr["doi"])  # 철회 여부 보강

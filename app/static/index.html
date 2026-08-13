@@ -173,7 +173,7 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
     <div id="srcBoxCard" style="display:none;margin-top:8px"></div>
     <div class="checks">
       <label><input type="checkbox" id="optVerify" checked> 실존·윤리 검증 <span class="hint">(Crossref·OpenAlex·국내DB·철회검사·URL)</span></label>
-      <label><input type="checkbox" id="optAutofix"> 서지 자동 교정 <span class="hint">(공식 서지로 연도·권·호·면수 자동 수정)</span></label>
+      <label><input type="checkbox" id="optAutofix"> 서지 자동 교정 <span class="hint">(공식 서지로 연도·권·호·면수, 단행본은 출판사까지 자동 수정)</span></label>
       <label><input type="checkbox" id="optCross" checked> 본문 인용 ↔ 목록 대조</label>
       <label><input type="checkbox" id="optEng"> 영문 변환 목록 <span class="hint">(문편협 기준·AI 모드)</span></label>
     </div>
@@ -1157,16 +1157,24 @@ function filterChanged(idx){
 // ---------- 내 원고 ↔ 공식 서지 필드별 대조
 const META_FIELDS=[['title','제목'],['container','수록지'],['year','발행연도'],
                    ['volume','권'],['issue','호'],['pages','면수'],['doi','DOI']];
+// 출판사는 단행본·보고서에서만 본다. 학술지 논문은 참고문헌에 출판사를 적지 않는데
+// Crossref는 발행처를 주므로, 유형을 가리지 않으면 '출판사 없음'이 전부 불일치로 뜬다.
+const BOOK_META_FIELDS=[['publisher','출판사']];
 function normCmp(s){ return (s==null?'':String(s)).toLowerCase().replace(/[\s.,:;·\-–—()\[\]]/g,''); }
+// 법인격 표기만 다른 같은 출판사를 불일치로 보지 않는다(서버의 _norm_publisher와 같은 규칙)
+function normPub(s){ return normCmp((s==null?'':String(s)).toLowerCase()
+  .replace(/\(\s*[주유재사합]\s*\)|㈜|주식회사|유한회사|재단법인|사단법인|도서출판|\b(?:inc|ltd|co|corp|company)\b\.?|['"“”]/g,'')); }
 function metaRows(it){
   const m=(it.verify&&it.verify.meta)||null, e=it.entry||null;
   if(!m||!e) return null;
+  const fields=META_FIELDS.concat(
+    (it.type==='book'||it.type==='report')?BOOK_META_FIELDS:[]);
   const rows=[];
-  for(const [k,label] of META_FIELDS){
+  for(const [k,label] of fields){
     const mine=(e[k]==null?'':String(e[k])).trim(), off=(m[k]==null?'':String(m[k])).trim();
     if(!mine&&!off) continue;
-    rows.push({label, mine, off,
-               bad:(!!mine&&!!off&&normCmp(mine)!==normCmp(off))||(!mine&&!!off)});
+    const eq=(k==='publisher')?normPub(mine)===normPub(off):normCmp(mine)===normCmp(off);
+    rows.push({label, mine, off, bad:(!!mine&&!!off&&!eq)||(!mine&&!!off)});
   }
   return rows.some(r=>r.bad)?rows:null;
 }
@@ -1301,7 +1309,8 @@ function fileBodyHtml(job,idx,viewHid){
         mh+='</table></div>';
       });
       if(mh) h+='<h3>내 원고 ↔ 공식 서지 대조 <span class="hint">'
-        +'(연도·권·호·면수 중 무엇이 어긋났는지 항목별로 보여줍니다. 색이 칠해진 줄만 확인하면 됩니다)</span></h3>'+mh;
+        +'(연도·권·호·면수, 단행본은 출판사까지 무엇이 어긋났는지 항목별로 보여줍니다. '
+        +'색이 칠해진 줄만 확인하면 됩니다)</span></h3>'+mh;
     }
 
     // 본문 대조
