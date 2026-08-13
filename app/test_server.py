@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """서버 스모크 테스트: 상태, 기준 관리, 업로드 처리, 폴더 일괄, 다운로드."""
+import re
 import sys
 import time
 from pathlib import Path
@@ -175,6 +176,30 @@ def check_nlk() -> bool:
     return ok
 
 
+def check_versions() -> bool:
+    """main.py의 APP_VERSION과 index.html의 UI_VERSION이 같은지 본다.
+
+    두 값이 다르면 사이트에 '배포가 완료되지 않았습니다' 경고가 뜬다. 원래는 서버에
+    index.html이 덜 복사된 것을 잡아내려는 장치인데, 소스에서 한쪽만 올려도 같은
+    경고가 떠서 배포가 잘못된 것처럼 보인다. 올리기 전에 여기서 걸러 낸다.
+    """
+    src = Path(__file__).resolve().parent
+    app_v = re.search(r'^APP_VERSION\s*=\s*"([^"]+)"',
+                      (src / "main.py").read_text(encoding="utf-8"), re.M)
+    ui_v = re.search(r"^const UI_VERSION\s*=\s*'([^']+)'",
+                     (src / "static" / "index.html").read_text(encoding="utf-8"), re.M)
+    if not app_v or not ui_v:
+        print("0) 버전 표기를 찾지 못했습니다 — main.py APP_VERSION / index.html UI_VERSION 확인 필요")
+        return False
+    if app_v.group(1) != ui_v.group(1):
+        print(f"0) 버전 불일치: main.py {app_v.group(1)} ≠ index.html {ui_v.group(1)}\n"
+              f"   → index.html의 UI_VERSION을 {app_v.group(1)} 로 맞춰 주세요."
+              f" (그대로 배포하면 사이트에 '배포가 완료되지 않았습니다' 경고가 뜹니다)")
+        return False
+    print("0) 버전 표기 일치:", app_v.group(1))
+    return True
+
+
 def job_id_of(r, step: str) -> str:
     """처리 요청 응답에서 job_id를 꺼낸다. 실패 시 서버가 알려준 이유를 그대로 보여준다."""
     if r.status_code != 200 or "job_id" not in r.json():
@@ -194,6 +219,9 @@ def wait_job(c, job_id, timeout=300):
 
 
 def main():
+    # 서버를 부르기 전에 — 소스만 봐도 알 수 있는 문제부터 걸러 낸다
+    if not check_versions():
+        sys.exit(1)
     with httpx.Client(timeout=60) as c:
         # 서버 기동 대기 — 끝내 못 붙으면 원인을 분명히 알리고 끝낸다
         # (예전에는 여기서 응답 변수가 없는 채로 진행돼 엉뚱한 오류로 죽었다)
