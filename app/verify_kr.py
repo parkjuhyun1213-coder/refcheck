@@ -404,10 +404,22 @@ def nlk_book_search(client: httpx.Client, title: str, author: str = "",
 
 # ---------------------------------------------------------------- 국회도서관(학위논문 등)
 
-def nanet_search(client: httpx.Client, title: str) -> dict | None:
+def _nanet_clean(v: str) -> str:
+    """국회도서관 응답값에서 검색어 강조용 HTML을 걷어낸다.
+
+    검색어와 겹치는 글자에 태그를 입혀서 준다(2026-08 실측):
+        발행자: 숭의여자대<font color="red">학교</font> 문헌정보과
+    XML상에는 이스케이프돼 있어 파서를 통과하므로, 그대로 두면 태그가 붙은 채로
+    화면과 교정 제안에까지 흘러간다.
+    """
+    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", v or "")).strip()
+
+
+def nanet_search(client: httpx.Client, title: str, year: str = "") -> dict | None:
     key = _service_key("NANET_API_KEY")
     if not key or not title or len(title) < 4:
         return None
+    want_year = re.sub(r"\D", "", year or "")[:4]
     # 검색식이 '필드,검색어' 형식이므로 제목의 콤마는 공백으로 치환
     q_title = title[:60].replace(",", " ").strip()
     # 검색항목은 '전체'가 아니라 '자료명'을 쓴다. '전체'는 느슨하게 매칭되어
@@ -421,12 +433,12 @@ def nanet_search(client: httpx.Client, title: str) -> dict | None:
     root = _xml_root(r.text)
     if root is None:
         return None
-    best, best_sim = None, 0.0
+    best, best_key = None, (0.0, 0)
     for rec in root.iter("recode"):  # 국회도서관 API의 실제 태그명(recode)
         fields = {}
         for item in rec.iter("item"):
-            name = (item.findtext("name") or "").strip()
-            value = (item.findtext("value") or "").strip()
+            name = _nanet_clean(item.findtext("name") or "")
+            value = _nanet_clean(item.findtext("value") or "")
             if name:
                 fields[name] = value
         # 제목 필드명이 자료 유형마다 다르다(2026-08 실측): 학술기사 '기사명',
@@ -437,15 +449,20 @@ def nanet_search(client: httpx.Client, title: str) -> dict | None:
         # '국문제목 = English title' 대역 제목과 도서의 저자사항 구분자 '/'를 떼어낸다
         t = t.split(" = ")[0].split(" /")[0].strip().rstrip("/").strip()
         sim = _sim(title, t)
-        if sim > best_sim:
-            best_sim = sim
+        d_year = re.sub(r"\D", "", fields.get("발행년도", "")
+                        or fields.get("학위년도", "")
+                        or fields.get("발행년", ""))[:4]
+        # 같은 제목의 자료가 여러 건일 때 원고 연도에 맞는 것을 고른다. 학위논문이
+        # 학술기사로도 실리면 제목이 100% 같은 레코드가 여러 해에 걸쳐 나오는데
+        # (변회균 논문: 2014년 학회지 · 2017년 연구지), 앞의 것을 집으면 맞게 쓴
+        # 발행연도를 다른 자료의 연도로 '교정'하라고 하게 된다.
+        key = (round(sim, 3), 1 if want_year and d_year == want_year else 0)
+        if key > best_key:
+            best_key = key
             best = {"title": t, "authors": [fields.get("저자명", "")],
-                    # 학위논문은 '학위년도'로 온다
-                    "year": re.sub(r"\D", "", fields.get("발행년도", "")
-                                   or fields.get("학위년도", "")
-                                   or fields.get("발행년", ""))[:4],
-                    "publisher": fields.get("발행자", ""), "source": "국회도서관"}
-    if best and best_sim >= 0.80:
-        best["sim"] = best_sim
+                    "year": d_year, "publisher": fields.get("발행자", ""),
+                    "source": "국회도서관"}
+    if best and best_key[0] >= 0.80:
+        best["sim"] = best_key[0]
         return best
     return None

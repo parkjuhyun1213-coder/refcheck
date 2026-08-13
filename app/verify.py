@@ -463,10 +463,25 @@ def verify_entry(client: httpx.Client, entry: dict) -> dict:
         if meta:
             cr_title = " ".join(meta.get("title") or [])
             sim = _best_sim(entry.get("title", ""), meta)
+            kci = None
+            if sim < 0.75 and lang == "ko" and entry.get("title"):
+                # 국내 학술지는 Crossref에 영문 제목만 등록하는 곳이 많다. 국문 제목과
+                # 대조하면 유사도가 10%대로 떨어져, 제대로 쓴 참고문헌이 '제목 불일치 ·
+                # 확인 필요'로 뜬다. 같은 DOI를 KCI에서 국문 제목으로 확인되면 정상이다.
+                kci, e_kci = _safe(verify_kr.kci_article_search, client,
+                                   entry["title"], (entry.get("authors") or [""])[0])
+                lookup_err |= e_kci
+                if not (kci and kci.get("doi", "").lower() == doi.lower()):
+                    kci = None
             if sim >= 0.75 or not entry.get("title"):
                 result.update(status="verified", source="Crossref",
                               detail=f"DOI 확인됨 · Crossref 제목 일치({sim:.0%})",
                               meta=_meta_from_crossref(meta))
+            elif kci:
+                result.update(status="verified", source="KCI",
+                              detail=f"DOI 확인됨 · KCI 국문 제목 일치({kci.get('sim', 0):.0%})"
+                                     f" · Crossref에는 영문 제목으로 등록됨",
+                              meta=_meta_from_kr(kci))
             else:
                 result.update(status="mismatch", source="Crossref",
                               detail=f"DOI는 존재하나 제목 불일치({sim:.0%}) — Crossref: “{cr_title[:80]}” · 확인 필요",
@@ -526,14 +541,15 @@ def verify_entry(client: httpx.Client, entry: dict) -> dict:
                             authors[0] if authors else "")
             lookup_err |= e_k
         elif etype == "thesis":
-            kr, e_k = _safe(verify_kr.nanet_search, client, title)
+            kr, e_k = _safe(verify_kr.nanet_search, client, title, entry.get("year", ""))
             lookup_err |= e_k
         elif etype in ("book", "report"):
             kr, e_k = _safe(verify_kr.nlk_book_search, client, title,
                             authors[0] if authors else "", entry.get("year", ""))
             lookup_err |= e_k
             if not kr:
-                kr, e_k2 = _safe(verify_kr.nanet_search, client, title)
+                kr, e_k2 = _safe(verify_kr.nanet_search, client, title,
+                                 entry.get("year", ""))
                 lookup_err |= e_k2
         if kr:
             # KCI 검색 결과에는 DOI·페이지·등재구분이 빠져 있어 상세 조회로 보강한다
@@ -580,8 +596,13 @@ def verify_entry(client: httpx.Client, entry: dict) -> dict:
             # 조회 자체가 실패한 경우 — '없는 문헌'으로 오해하게 두지 않는다
             _mark_lookup_failed(result)
         elif used:
-            result.update(status="not_found",
-                          detail="국내 DB·Crossref에서 일치 문헌을 찾지 못함 — 서지사항 확인 필요")
+            detail = "국내 DB·Crossref에서 일치 문헌을 찾지 못함 — 서지사항 확인 필요"
+            if etype in ("book", "report"):
+                # 국립중앙도서관 서지정보는 ISBN이 붙은 도서만 담고 있어, 비매품
+                # 기관 발간물·정부간행물은 실제로 존재해도 걸리지 않는다. 이를 알려
+                # 주지 않으면 '없는 문헌'으로 오해해 멀쩡한 참고문헌을 지우게 된다.
+                detail += " (ISBN 없는 비매품·기관 발간물은 국내 DB에 수록되지 않아, 실제로 존재해도 여기서는 확인되지 않습니다)"
+            result.update(status="not_found", detail=detail)
         else:
             result.update(status="skipped",
                           detail="국내 문헌 — 국내 DB 검증용 API 키 미설정(관리자 설정 참조), KCI·RISS에서 확인 권장")

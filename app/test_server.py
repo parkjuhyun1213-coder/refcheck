@@ -200,6 +200,60 @@ def check_versions() -> bool:
     return True
 
 
+# 같은 제목의 학술기사가 2014년(한국문헌정보학회지)·2017년(문헌정보학연구지)에
+# 각각 실려 있어, '원고 연도에 맞는 레코드를 고르는지'를 이 한 건으로 확인할 수 있다.
+NANET_SAMPLE = {"title": "학교도서관 사서의 SNS 활용과 업무성과의 영향요인 연구",
+                "years": ("2014", "2017")}
+# 국내 학술지가 Crossref에는 영문 제목만 등록한 논문 — 국문 제목과는 유사도가 10%대다
+KO_DOI_SAMPLE = {"doi": "10.16981/kliss.46.4.201512.529", "author": "정영미", "year": "2015",
+                 "title": "기술확산 통합모델을 통한 개방형 기관 리포지터리 수용의 영향요인 분석"}
+
+
+def check_kr_matching() -> bool:
+    """국내 DB 매칭에서 이용자에게 잘못된 교정을 주지 않는지 점검."""
+    import httpx as _httpx
+    import verify
+    import verify_kr
+    from http_util import LookupUnavailable
+    ok = True
+    with _httpx.Client(headers={"User-Agent": "refstd-agent"}) as vc:
+        if env_get("NANET_API_KEY"):
+            try:
+                for want in NANET_SAMPLE["years"]:
+                    r = verify_kr.nanet_search(vc, NANET_SAMPLE["title"], want)
+                    if not r:
+                        print(f"14) 국회도서관: {want}년 자료를 찾지 못함"); ok = False
+                    elif r["year"] != want:
+                        # 앞의 레코드를 집으면 맞게 쓴 연도를 틀리다고 교정하게 된다
+                        print(f"14) 국회도서관: 원고 {want}년인데 {r['year']}년 자료가 잡힘"); ok = False
+                    elif "<" in r.get("publisher", "") or "<" in r.get("title", ""):
+                        # 검색어 강조용 <font> 태그가 값에 섞여 온다
+                        print(f"14) 국회도서관: 응답에 HTML 태그가 남음 {r.get('publisher')!r}"); ok = False
+            except LookupUnavailable as e:
+                print("14) 국회도서관: 경고 — 조회 불가", e)
+        else:
+            print("14) 국회도서관 점검: 건너뜀 — .env에 NANET_API_KEY가 없습니다.")
+
+        if env_get("KCI_API_KEY"):
+            try:
+                r = verify.verify_entry(vc, {
+                    "type": "journal", "lang": "ko", "doi": KO_DOI_SAMPLE["doi"],
+                    "title": KO_DOI_SAMPLE["title"], "authors": [KO_DOI_SAMPLE["author"]],
+                    "year": KO_DOI_SAMPLE["year"]})
+            except LookupUnavailable as e:
+                print("14) 국문 제목 DOI 점검: 경고 — 조회 불가", e)
+            else:
+                # Crossref에 영문 제목만 있다고 '제목 불일치·확인 필요'로 두면,
+                # 제대로 쓴 국내 논문이 전부 확인 필요로 뜬다
+                if r.get("status") != "verified":
+                    print("14) 국문 제목 DOI가 확인되지 않음:", r.get("status"), r.get("detail")); ok = False
+        else:
+            print("14) 국문 제목 DOI 점검: 건너뜀 — .env에 KCI_API_KEY가 없습니다.")
+    if ok:
+        print("14) 국내 DB 매칭: 연도 구분·HTML 제거·국문 제목 DOI 모두 정상")
+    return ok
+
+
 def job_id_of(r, step: str) -> str:
     """처리 요청 응답에서 job_id를 꺼낸다. 실패 시 서버가 알려준 이유를 그대로 보여준다."""
     if r.status_code != 200 or "job_id" not in r.json():
@@ -311,6 +365,11 @@ def main():
         # 국내 단행본 검증(국립중앙도서관)
         if not check_nlk():
             print("\n== 국립중앙도서관 검증 점검 실패 ==")
+            sys.exit(1)
+
+        # 국내 DB 매칭 품질 — 잘못된 교정을 이용자에게 주지 않는지
+        if not check_kr_matching():
+            print("\n== 국내 DB 매칭 점검 실패 ==")
             sys.exit(1)
 
         print("\n== 서버 스모크 테스트 전체 통과 ==")
