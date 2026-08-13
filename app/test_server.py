@@ -35,6 +35,10 @@ KCI_SAMPLE = {"title": "일본의 다문화 공생을 위한 방재교육", "aut
 KCI_FAKE_TITLE = "존재하지않는가상의논문제목 zzqx 12345"
 
 
+def _norm_for_match(s: str) -> str:
+    return re.sub(r"[^0-9a-z가-힣]", "", (s or "").lower())
+
+
 def check_kci(c) -> bool:
     """국내 문헌 검증(KCI) 점검. 통과 여부를 반환한다.
 
@@ -55,7 +59,18 @@ def check_kci(c) -> bool:
     if r.status_code != 200 or r.json().get("count", 0) < 1:
         print(f"10) KCI 참고문헌 조회 실패: HTTP {r.status_code} {r.text[:200]}")
         return False
-    print("10) KCI 참고문헌 조회:", r.json()["count"], "건")
+    refs = r.json()["references"]
+    # 건수만 세면 안 된다 — referenceSearch를 쓰던 시절에는 그 논문 자신이 표기만
+    # 달리해 여러 건 돌아왔는데도 '참고문헌 N건'으로 통과했다. 조회한 논문 자신이
+    # 목록에 들어 있으면 잘못된 API를 보고 있는 것이다.
+    self_title = _norm_for_match(KCI_SAMPLE["title"])
+    if any(self_title in _norm_for_match(x) for x in refs):
+        print("10) KCI가 준 '참고문헌'에 조회한 논문 자신이 들어 있습니다 — "
+              "articleDetail의 referenceInfo가 아니라 피인용 목록을 보고 있습니다.")
+        for x in refs[:3]:
+            print("      ·", x[:120])
+        return False
+    print(f"10) KCI 참고문헌 조회: {len(refs)}건 (예: {refs[0][:70]}…)")
 
     # 10-2) 없는 논문은 404 — '조회 실패'와 '자료 없음'이 구분되는지
     r = c.get(BASE + "/api/admin/kci/references", params={"title": KCI_FAKE_TITLE})

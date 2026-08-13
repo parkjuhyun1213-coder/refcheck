@@ -102,6 +102,19 @@ def _collapse_ws(s: str) -> str:
     return re.sub(r"\s+", " ", (s or "")).strip()
 
 
+# 저자 표기부 = 맨 앞부터 '(연도).'까지. 문편협 형식은 국문·영문 모두 이 꼴이다.
+_AUTHOR_HEAD = re.compile(r"^.*?\((?:\d{4}[a-z]?|n\.d\.|발행년불명)[^)]*\)\.\s*")
+
+
+def _drop_authors(s: str) -> str:
+    """저자 표기부를 떼어낸 나머지.
+
+    KCI 참고문헌 레코드는 제1저자만 담고 있어(4인 공저도 한 명), 저자까지 대조하면
+    모든 항목이 차이로 잡힌다. 저자를 뺀 나머지로 비교할 때 쓴다.
+    """
+    return _AUTHOR_HEAD.sub("", s or "", count=1).strip() or (s or "").strip()
+
+
 def extract_published_refs(filename: str, data: bytes, split_ai=None) -> list[str]:
     """발행본 파일에서 참고문헌 목록을 추출. split_ai가 주어지면 AI 분리 우선.
 
@@ -138,10 +151,14 @@ def _diff_segments(a: str, b: str) -> list[list[str]]:
     return out
 
 
-def align(agent_items: list[dict], published: list[str]) -> dict:
+def align(agent_items: list[dict], published: list[str],
+          ignore_authors: bool = False) -> dict:
     """에이전트 결과 항목과 발행본 문헌 문자열을 짝지어 비교.
 
     agent_items: history 레코드의 items ({raw, formatted, type, entry{title, doi}, ...})
+    ignore_authors: 저자 표기부를 뺀 나머지로만 일치를 판정한다. 발행본을 KCI에서
+        가져온 경우, KCI 레코드에 제1저자만 담겨 있어 저자를 대조하면 모든 항목이
+        차이로 잡히기 때문이다(화면에는 양쪽 원문을 그대로 보여 준다).
     반환: {pairs, agent_only, published_only, n_same, n_diff}
     """
     pub_norm = [_norm(p) for p in published]
@@ -171,7 +188,11 @@ def align(agent_items: list[dict], published: list[str]) -> dict:
         if best >= _MATCH_THRESHOLD and best_j >= 0:
             used.add(best_j)
             pub_str = _collapse_ws(published[best_j])
-            same = _collapse_ws(formatted) == pub_str
+            if ignore_authors:
+                cmp_a, cmp_b = _drop_authors(formatted), _drop_authors(pub_str)
+            else:
+                cmp_a, cmp_b = _collapse_ws(formatted), pub_str
+            same = cmp_a == cmp_b
             pairs.append({
                 "pair_id": len(pairs),
                 "index": i,
@@ -181,7 +202,7 @@ def align(agent_items: list[dict], published: list[str]) -> dict:
                 "published": pub_str,
                 "same": same,
                 "sim": round(best, 3),
-                "diff": [] if same else _diff_segments(formatted, pub_str),
+                "diff": [] if same else _diff_segments(cmp_a, cmp_b),
             })
         else:
             agent_only.append({"index": i, "agent": formatted,

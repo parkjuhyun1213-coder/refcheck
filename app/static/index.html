@@ -577,7 +577,9 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
         <input type="text" id="cmpKciYear" placeholder="발행연도(선택)" style="max-width:130px">
         <button class="btn ghost small" id="cmpKciBtn" onclick="runCompareKci()">KCI로 비교 시작</button>
       </div>
-      <div class="hint">KCI 인증키가 설정되어 있으면 발행본 파일 없이도 KCI에 등재된 참고문헌을 바로 가져와 비교할 수 있습니다.</div>
+      <div class="hint">KCI 인증키가 설정되어 있으면 발행본 파일 없이도 KCI에 등재된 참고문헌을 바로 가져와 비교할 수 있습니다.
+        다만 KCI는 <b>서지요소만</b> 제공하므로 구두점·배열 같은 <b>형식 차이는 드러나지 않고</b>, 저자도 제1저자만
+        담고 있어 <b>대조에서 제외</b>됩니다. 형식 관행까지 보려면 발행본 파일을 올려 주세요.</div>
       <div class="msg" id="cmpMsg"></div>
       <div id="cmpResult"></div>
     </div>
@@ -638,7 +640,7 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
 // main.py의 APP_VERSION과 반드시 같아야 한다. 서버에 index.html이 덜 복사됐는지
 // 알아내려고 일부러 손으로 박아 두는 값이라 자동 주입하지 않는다.
 // (test_server.py가 두 값이 어긋나면 실패시킨다)
-const UI_VERSION='2026.08.13-3';
+const UI_VERSION='2026.08.14-1';
 const $=id=>document.getElementById(id);
 let pickedFiles=[], styles=[], currentJob=null, pollTimer=null, etaTimer=null;
 

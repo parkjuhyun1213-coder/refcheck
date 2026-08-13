@@ -203,6 +203,72 @@ def kci_article_detail(client: httpx.Client, article_id: str) -> dict | None:
     return out
 
 
+# KCI 참고문헌 레코드의 자료유형 코드(2026-08 실측) → 이 앱의 유형 코드
+_KCI_REF_TYPE = {
+    "01": "journal",   # 학술지(정기간행물)
+    "02": "conference",  # 학술대회논문
+    "03": "book",      # 단행본
+    "05": "thesis",    # 학위논문
+    "06": "web",       # 인터넷자원
+}
+
+
+def kci_article_references(client: httpx.Client, article_id: str) -> list[dict] | None:
+    """articleDetail의 <referenceInfo> — 그 논문이 실제로 인용한 참고문헌 목록.
+
+    referenceSearch와 혼동하면 안 된다. referenceSearch는 '이 논문이 남의 논문에
+    인용된 형태'를 주므로(2026-08 실측: 같은 논문이 표기만 달리해 여러 건) 발행본의
+    참고문헌으로 쓸 수 없다. 논문 자신의 참고문헌은 여기에만 있다.
+
+    한계: 레코드에 **제1저자만** 담긴다(4인 공저도 한 명만). 저자 대조에 쓰면
+    모든 항목이 '저자 누락'으로 잡히므로 호출하는 쪽에서 저자를 빼고 비교해야 한다.
+
+    반환: 서지요소 dict 목록(형식 변환은 formatter가 한다).
+    """
+    key = env_get("KCI_API_KEY")
+    if not key or not article_id:
+        return None
+    r = _get(client, "https://open.kci.go.kr/po/openapi/openApiSearch.kci",
+             {"apiCode": "articleDetail", "key": key, "id": article_id})
+    if r is None:
+        return None
+    root = _xml_root(r.text)
+    if root is None:
+        return None
+    if (errs := _kci_error_msgs(root)):
+        raise LookupUnavailable(f"KCI articleDetail: {'; '.join(errs)}")
+
+    out: list[dict] = []
+    for ref in root.iter("reference"):
+        f = {ch.tag: (ch.text or "").strip() for ch in ref}
+        title = f.get("title", "")
+        if not title:
+            continue
+        etype = _KCI_REF_TYPE.get(ref.get("type-code", ""), "unknown")
+        author = f.get("author", "")
+        entry = {
+            "type": etype,
+            # 한글이 있으면 국내문헌 — 배열·형식이 갈린다
+            "lang": "ko" if re.search(r"[가-힣]", title + author) else "west",
+            "title": title,
+            "authors": [author] if author else [],
+            "year": re.sub(r"\D", "", f.get("pubi-year", "")
+                           or f.get("registration-day", ""))[:4],
+            # KCI 스키마의 오타를 그대로 따른다(isseue·pubilisher)
+            "container": f.get("journal-name") or f.get("conference-name") or f.get("site-name", ""),
+            "volume": f.get("volume", ""),
+            "issue": f.get("isseue", ""),
+            "pages": f.get("page", ""),
+            "doi": _bare_doi(f.get("doi", "")),
+            "url": f.get("url", ""),
+            "publisher": f.get("pubilisher", ""),
+            "degree": f.get("degree", ""),
+            "institution": f.get("university", ""),
+        }
+        out.append(entry)
+    return out
+
+
 def kci_reference_search(client: httpx.Client, title: str, author: str = "",
                          year: str = "") -> list[str] | None:
     """KCI referenceSearch — 해당 논문에 실린 참고문헌 목록을 문자열로 반환.

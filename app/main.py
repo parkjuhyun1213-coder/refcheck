@@ -37,7 +37,7 @@ app = FastAPI(title="파일 기반 참고문헌 표준화·검증 에이전트")
 # 화면(index.html)과 프로그램의 버전이 어긋난 채 배포되면 새 기능이 조용히 무시된다.
 # 두 파일에 같은 값을 두고 /api/status에서 대조해 관리자 화면에 경고를 띄운다.
 # 기능을 추가·변경할 때 main.py와 index.html의 APP_VERSION을 함께 올릴 것.
-APP_VERSION = "2026.08.13-3"
+APP_VERSION = "2026.08.14-1"
 
 APP_DIR = Path(__file__).parent
 JOBS: dict[str, dict] = {}
@@ -1021,10 +1021,11 @@ def _run_case_job(job: dict, journal: str, files: list[tuple[str, bytes]]):
 
 
 def _run_compare_job(job: dict, hid: str, filename: str, data: bytes,
-                     kci_refs: list[str] | None = None):
+                     kci_refs: list[str] | None = None, ignore_authors: bool = False):
     """발행본 비교: 처리 이력의 에이전트 결과와 발행본 참고문헌을 짝지어 차이를 찾는다.
 
     kci_refs가 주어지면 파일 대신 KCI에서 가져온 참고문헌 목록을 발행본으로 사용한다.
+    이때 ignore_authors로 저자를 대조에서 뺀다(KCI 레코드는 제1저자만 담는다).
     """
     def progress(stage, fn):
         job["stage"], job["current_file"] = stage, fn
@@ -1049,7 +1050,7 @@ def _run_compare_job(job: dict, hid: str, filename: str, data: bytes,
                 job["error"] = str(ex)
                 return
         progress(f"항목 대조 (에이전트 {len(rec['items'])}건 ↔ 발행본 {len(raws)}건)", filename)
-        cmp = compare_mod.align(rec["items"], raws)
+        cmp = compare_mod.align(rec["items"], raws, ignore_authors=ignore_authors)
         diffs = [p for p in cmp["pairs"] if not p["same"]]
         drafts: dict[int, dict] = {}
         if diffs and use_ai:
@@ -1955,9 +1956,26 @@ def org_delete_request(rid: str, request: Request):
     return {"ok": suggestions_mod.delete_request(rid)}
 
 
+def _kci_find_article(client, title: str, author: str = "", year: str = "") -> dict:
+    """논문명으로 KCI 논문을 찾아 Control Number가 있는 레코드를 돌려준다.
+
+    참고문헌 목록은 articleDetail에만 있고 그 조회에 Control Number가 필요하다.
+    """
+    import verify_kr
+    art = verify_kr.kci_article_search(client, title.strip(), author.strip())
+    if not art or not art.get("kci_id"):
+        raise HTTPException(404, "KCI에서 이 논문을 찾지 못했습니다. 제목·저자를 확인해 주세요.")
+    want = re.sub(r"\D", "", year or "")[:4]
+    if want and art.get("year") and art["year"] != want:
+        # 같은 제목의 다른 해 논문을 집으면 남의 참고문헌을 발행본으로 쓰게 된다
+        raise HTTPException(404, f"KCI에서 찾은 논문의 발행연도가 {art['year']}년으로 "
+                                 f"입력하신 {want}년과 다릅니다. 확인해 주세요.")
+    return art
+
+
 @app.get("/api/admin/kci/references")
 def admin_kci_references(request: Request, title: str = "", author: str = "", year: str = ""):
-    """KCI referenceSearch — 논문명으로 발행본 참고문헌 목록 조회(편집위원 이상)."""
+    """KCI articleDetail — 논문명으로 그 논문의 참고문헌 목록 조회(편집위원 이상)."""
     require_editor(request)
     import verify_kr
     if not verify_kr.kr_api_status().get("kci"):
@@ -1967,19 +1985,25 @@ def admin_kci_references(request: Request, title: str = "", author: str = "", ye
     import httpx
     try:
         with httpx.Client(headers={"User-Agent": "refstd-agent"}) as client:
-            refs = verify_kr.kci_reference_search(client, title.strip(), author.strip(), year.strip())
+            art = _kci_find_article(client, title, author, year)
+            entries = verify_kr.kci_article_references(client, art["kci_id"])
     except verify_kr.LookupUnavailable as e:
         raise HTTPException(502, f"KCI 조회에 실패했습니다(인증키·허용 IP·서비스 신청 항목 확인). {e}")
-    if not refs:
-        raise HTTPException(404, "KCI에서 이 논문의 참고문헌을 찾지 못했습니다. "
-                                 "논문명을 정확히 입력했는지 확인하거나 발행본 파일을 올려 주세요.")
-    return {"title": title.strip(), "count": len(refs), "references": refs}
+    if not entries:
+        raise HTTPException(404, "KCI에 이 논문의 참고문헌 목록이 등록되어 있지 않습니다. "
+                                 "발행본 파일을 올려 주세요.")
+    refs = [formatter.format_entry(e) for e in entries]
+    return {"title": art.get("title") or title.strip(), "count": len(refs), "references": refs}
 
 
 @app.post("/api/admin/compare_kci")
 def admin_compare_kci(request: Request, history_id: str = Form(...), title: str = Form(...),
                       author: str = Form(""), year: str = Form("")):
-    """KCI에서 발행본 참고문헌을 가져와 3단 비교(발행본 파일 업로드 대체)."""
+    """KCI에서 발행본 참고문헌을 가져와 3단 비교(발행본 파일 업로드 대체).
+
+    논문을 먼저 찾아 Control Number를 얻은 뒤 articleDetail의 <referenceInfo>를 읽는다.
+    referenceSearch는 '이 논문이 남에게 인용된 형태'를 주므로 쓸 수 없다.
+    """
     _require_org_record(history_id, request)
     import verify_kr
     if not verify_kr.kr_api_status().get("kci"):
@@ -1987,14 +2011,19 @@ def admin_compare_kci(request: Request, history_id: str = Form(...), title: str 
     import httpx
     try:
         with httpx.Client(headers={"User-Agent": "refstd-agent"}) as client:
-            refs = verify_kr.kci_reference_search(client, title.strip(), author.strip(), year.strip())
+            art = _kci_find_article(client, title, author, year)
+            entries = verify_kr.kci_article_references(client, art["kci_id"])
     except verify_kr.LookupUnavailable as e:
         raise HTTPException(502, f"KCI 조회에 실패했습니다(인증키·허용 IP·서비스 신청 항목 확인). {e}")
-    if not refs:
-        raise HTTPException(404, "KCI에서 이 논문의 참고문헌을 찾지 못했습니다.")
+    if not entries:
+        raise HTTPException(404, "KCI에 이 논문의 참고문헌 목록이 등록되어 있지 않습니다. "
+                                 "발행본 파일을 올려 비교해 주세요.")
+    # KCI는 서지요소만 주므로 우리 형식으로 렌더해 붙인다 — 형식 차이가 아니라
+    # 서지요소 차이만 드러나게 하려는 것이다(저자는 제1저자만이라 대조에서 뺀다).
+    refs = [formatter.format_entry(e) for e in entries]
     job = _new_job("compare")
     threading.Thread(target=_run_compare_job,
-                     args=(job, history_id, f"KCI: {title.strip()}", b"", refs),
+                     args=(job, history_id, f"KCI: {title.strip()}", b"", refs, True),
                      daemon=True).start()
     return {"job_id": job["id"], "count": len(refs)}
 
