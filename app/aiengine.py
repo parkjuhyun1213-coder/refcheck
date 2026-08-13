@@ -15,6 +15,20 @@ ENV_PATH = Path(__file__).parent.parent / ".env"
 DEFAULT_MODEL = "claude-opus-5"
 ALLOWED_MODELS = ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"]
 
+# 사고 깊이(effort) 지원 모델. Haiku 4.5에 이 파라미터를 보내면 400이 나므로
+# 지원 모델에서만 싣는다(_once 참조).
+EFFORT_MODELS = {"claude-opus-5", "claude-sonnet-5"}
+
+# 단계별 사고 깊이. 모델은 답하기 전에 속으로 추론하고, 그 사고 토큰도 화면에는
+# 보이지 않지만 출력 단가로 과금된다. 지정하지 않으면 기본값 high로 동작한다.
+#   low    — 규칙이 프롬프트에 다 적힌 기계적 작업, 또는 틀려도 결과물이 훼손되지 않는 작업
+#   medium — 판단이 필요하지만 규칙이 명시적으로 주어진 작업
+#   (미지정) — 구두점·대소문자 판단이 곧 결과물인 단계는 기본값을 유지한다
+EFFORT_SPLIT = "low"        # 깨진 줄바꿈 복원 — 기계적
+EFFORT_MATCH = "low"        # 작성 제안 매칭 — 표시 전용, 결과물에 영향 없음
+EFFORT_STRUCTURE = "medium"  # 서지 구조화 — 유형·언어 판별에 판단이 필요
+EFFORT_STANDARDS = "medium"  # 관리자 기준·지침 반영 — 규칙이 문장으로 주어짐
+
 BATCH_SIZE = 12
 # 적응형 사고가 켜진 모델에서 max_tokens는 사고 토큰과 출력 토큰의 합산 상한이다.
 # 12건×20여 필드의 구조화 출력이 16,000에서 잘리는 사례가 있어 상향했다.
@@ -180,16 +194,24 @@ def _client():
     return anthropic.Anthropic(api_key=key)
 
 
-def _once(system: str, user: str, schema: dict, max_tokens: int):
-    """Claude 1회 호출 — 응답 객체를 그대로 반환."""
+def _once(system, user, schema: dict, max_tokens: int, effort: str = ""):
+    """Claude 1회 호출 — 응답 객체를 그대로 반환.
+
+    system·user는 평문 문자열이거나, 캐시 중단점을 붙인 콘텐츠 블록 목록이다.
+    """
     import anthropic
     client = _client()
+    model = get_model()
+    out_cfg: dict = {"format": {"type": "json_schema", "schema": schema}}
+    # effort 미지원 모델에 보내면 400이므로 지원 모델에서만 싣는다
+    if effort and model in EFFORT_MODELS:
+        out_cfg["effort"] = effort
     kwargs = dict(
-        model=get_model(),
+        model=model,
         max_tokens=max_tokens,
         system=system,
         messages=[{"role": "user", "content": user}],
-        output_config={"format": {"type": "json_schema", "schema": schema}},
+        output_config=out_cfg,
     )
     # max_tokens가 크면 SDK가 스트리밍을 요구한다(비스트리밍 10분 제한). 항상 스트리밍으로 받는다.
     try:
@@ -230,16 +252,36 @@ def _once(system: str, user: str, schema: dict, max_tokens: int):
     return resp
 
 
-def _call(system: str, user: str, schema: dict) -> dict:
+def _call(system: str, user: str, schema: dict,
+          *, cache: bool = False, prefix: str = "", effort: str = "") -> dict:
     """구조화 출력(JSON 스키마)으로 Claude 호출.
 
     응답이 길이 제한에 걸려 잘리면(stop_reason='max_tokens') 잘린 JSON이 파싱에 실패해
     '해석 불가'로 뭉뚱그려지고 조용히 규칙 엔진 결과로 바뀐다. 절단을 별도로 감지해
     한도를 늘려 1회 재시도하고, 그래도 잘리면 AITruncated로 구분해 알린다.
+
+    prefix: 배치마다 동일하게 반복되는 앞부분(작성기준 원문 등). user 앞에 붙는다.
+    cache: 프롬프트 캐시 중단점을 둘지 여부. 캐시 쓰기는 입력 단가의 1.25배이고
+        읽기는 0.1배이므로, 같은 프리픽스로 2회 이상 호출할 때만 이득이다.
+        호출부에서 배치가 2개 이상일 때만 True를 넘긴다.
+        캐시 가능한 최소 길이(모델별 512~4096토큰)에 못 미치면 조용히 캐시되지
+        않을 뿐 오류는 아니다.
     """
+    sys_param: object = system
+    content: object = user
+    if prefix:
+        head: dict = {"type": "text", "text": prefix}
+        if cache:
+            # 렌더 순서가 system → messages이므로 이 중단점 하나로 system까지 함께 캐시된다
+            head["cache_control"] = {"type": "ephemeral"}
+        content = [head, {"type": "text", "text": user}]
+    elif cache:
+        sys_param = [{"type": "text", "text": system,
+                      "cache_control": {"type": "ephemeral"}}]
+
     limit = MAX_TOKENS
     for attempt in (1, 2):
-        resp = _once(system, user, schema, limit)
+        resp = _once(sys_param, content, schema, limit, effort)
         if resp.stop_reason == "refusal":
             raise AIError("요청이 안전상 처리되지 않았습니다(규칙 엔진으로 대체 처리됩니다).")
         if resp.stop_reason == "max_tokens":
@@ -316,6 +358,17 @@ _ENTRY_PROPS = {
     "notes": {"type": "array", "items": {"type": "string"}},
 }
 
+# 전 필드를 required로 걸면 학술지 논문 한 건에도 degree·country·orig_year 같은
+# 무관한 필드를 빈 문자열로 채워 내보내게 되어 출력 토큰이 낭비된다. 특정 자료 유형에서만
+# 쓰이는 아래 8개를 선택 필드로 빼서 12건 배치당 빈 필드 90여 개를 줄인다.
+#
+# 선택 필드를 더 늘릴 수는 없다 — 구조화 출력 스키마 컴파일러가 9개부터
+# '400 Schema is too complex.'로 거부한다(2026-08 실측, 문서에 없는 제한).
+# 늘리려면 반드시 소형 호출로 먼저 확인할 것.
+_ENTRY_OPTIONAL = ("orig_year", "medium", "report_no", "country",
+                   "institution", "degree", "editors", "author_note")
+_ENTRY_REQUIRED = [k for k in _ENTRY_PROPS if k not in _ENTRY_OPTIONAL]
+
 _STRUCTURE_SCHEMA = {
     "type": "object",
     "properties": {
@@ -324,7 +377,7 @@ _STRUCTURE_SCHEMA = {
             "items": {
                 "type": "object",
                 "properties": _ENTRY_PROPS,
-                "required": list(_ENTRY_PROPS.keys()),
+                "required": _ENTRY_REQUIRED,
                 "additionalProperties": False,
             },
         }
@@ -355,13 +408,15 @@ _CUSTOM_FORMAT_SCHEMA = {
                     "group": {"type": "string"},
                     "issues": {"type": "array", "items": {"type": "string"}},
                 },
-                "required": ["index", "formatted", "group", "issues"],
+                # issues는 확인이 필요한 항목에만 붙는다 — 필수로 걸면 대부분의 항목이
+                # 빈 배열을 실어 보내게 된다
+                "required": ["index", "formatted", "group"],
                 "additionalProperties": False,
             },
         },
         "order_note": {"type": "string"},
     },
-    "required": ["references", "order_note"],
+    "required": ["references"],
     "additionalProperties": False,
 }
 
@@ -397,7 +452,8 @@ def split_entries_ai(section_text: str) -> list[str]:
         "PDF 추출 과정에서 깨진 줄바꿈과 하이픈 분절을 복원하고, 항목 번호([1], 1. 등)는 제거하되 "
         "문헌 내용 자체는 절대 수정·요약·보완하지 마세요. 참고문헌이 아닌 텍스트(쪽 번호, 머리글, 부록)는 제외하세요."
     )
-    result = _call(system, f"<참고문헌_구역>\n{section_text}\n</참고문헌_구역>", _SPLIT_SCHEMA)
+    result = _call(system, f"<참고문헌_구역>\n{section_text}\n</참고문헌_구역>", _SPLIT_SCHEMA,
+                   effort=EFFORT_SPLIT)
     return [r.strip() for r in result.get("references", []) if len(r.strip()) >= 15]
 
 
@@ -424,13 +480,18 @@ def structure_entries_ai(raws: list[str]) -> list[dict]:
         "해외 학위논문은 country에 국가명.\n"
         "- 원문에 없는 정보를 만들어내지 마세요. 확인이 필요하거나 누락된 요소는 notes 배열에 "
         "'~ 확인 필요' 형태의 한국어 메모로 기재하세요.\n"
+        "- 다음 8개 필드는 해당 문헌에 해당하지 않으면 필드 자체를 생략하세요(빈 문자열로 채우지 마세요): "
+        "orig_year, medium, report_no, country, institution, degree, editors, author_note.\n"
         "- 입력 순서 그대로, 같은 개수의 entries를 반환하세요."
     )
     out: list[dict] = []
+    # 배치가 2개 이상일 때만 캐시가 이득이다(캐시 쓰기 1.25배 > 단일 호출 이득)
+    cache = len(raws) > BATCH_SIZE
     for i in range(0, len(raws), BATCH_SIZE):
         batch = raws[i:i + BATCH_SIZE]
         numbered = "\n".join(f"[{j + 1}] {r}" for j, r in enumerate(batch))
-        result = _call(system, numbered, _STRUCTURE_SCHEMA)
+        result = _call(system, numbered, _STRUCTURE_SCHEMA, cache=cache,
+                       effort=EFFORT_STRUCTURE)
         entries = result.get("entries", [])
         for j, raw in enumerate(batch):
             if j < len(entries):
@@ -466,8 +527,8 @@ def format_custom_style_ai(entries: list[dict], style: dict,
         "- 기준이 문헌 유형별 형식을 정의하면 해당 유형 형식을 적용하고, 기준에 없는 유형은 기준의 전반적 원칙(APA 등)에 맞춰 작성하세요.\n"
         "- formatted: 변환된 참고문헌 한 건의 완성 문자열.\n"
         "- group: 기준의 배열 규칙상 소속 그룹(예: '국내문헌', '서양문헌', '동양문헌', 구분 없으면 '전체').\n"
-        "- issues: 기준 적용에 필요한 정보가 원문에 없어 확인이 필요한 사항(한국어, 없으면 빈 배열). "
-        "원문에 없는 서지요소를 임의로 만들지 마세요.\n"
+        "- issues: 기준 적용에 필요한 정보가 원문에 없어 확인이 필요한 사항(한국어). "
+        "확인할 사항이 없으면 issues 필드를 생략하세요. 원문에 없는 서지요소를 임의로 만들지 마세요.\n"
         "- references 배열은 기준이 요구하는 최종 배열 순서대로 정렬해 반환하고, 각 항목의 index에 "
         "입력 문헌 번호(0부터)를 기재하세요. order_note에 적용한 정렬 규칙을 한 문장으로 설명하세요."
     )
@@ -481,13 +542,15 @@ def format_custom_style_ai(entries: list[dict], style: dict,
         })
     refs: list[dict] = []
     order_note = ""
+    # 작성기준 원문은 최대 3만 자로, 배치마다 그대로 재전송된다. 배치가 2개 이상이면
+    # 이 부분에 캐시 중단점을 두어 두 번째 배치부터 입력 단가의 0.1배로 읽는다.
+    style_block = f"<작성기준>\n{style_text}\n</작성기준>"
+    cache = len(payload_entries) > BATCH_SIZE
     for i in range(0, len(payload_entries), BATCH_SIZE):
         batch = payload_entries[i:i + BATCH_SIZE]
-        user = (
-            f"<작성기준>\n{style_text}\n</작성기준>\n\n"
-            f"<문헌목록>\n{json.dumps(batch, ensure_ascii=False, indent=1)}\n</문헌목록>"
-        )
-        result = _call(system, user, _CUSTOM_FORMAT_SCHEMA)
+        user = f"<문헌목록>\n{json.dumps(batch, ensure_ascii=False, indent=1)}\n</문헌목록>"
+        result = _call(system, user, _CUSTOM_FORMAT_SCHEMA,
+                       cache=cache, prefix=style_block)
         refs.extend(result.get("references", []))
         order_note = result.get("order_note", order_note)
     # 배치 간 순서는 AI가 배치 내에서만 정렬하므로, 전체를 그룹→formatted로 재정렬
@@ -504,17 +567,20 @@ def apply_directives_ai(formatted_list: list[str], directives: list[str], style_
         "<편집지침>의 내용만 각 항목에 반영해 수정하세요.\n"
         "규칙:\n"
         "- 지침과 무관한 부분(저자, 연도, 제목, 구두점 등)은 한 글자도 변경하지 마세요.\n"
-        "- 지침이 해당되지 않는 항목은 원문 그대로 반환하세요.\n"
-        "- 입력과 같은 개수의 references를 index 순서대로 반환하세요."
+        "- 실제로 수정한 항목만 references에 담으세요. 지침이 해당되지 않는 항목은 반환하지 마세요 "
+        "— 반환하지 않은 항목은 원문이 그대로 유지됩니다."
     )
     out = list(formatted_list)
     dir_text = "\n".join(f"- {d}" for d in directives)
+    dir_block = f"<편집지침>\n{dir_text}\n</편집지침>"
+    cache = len(formatted_list) > BATCH_SIZE
     for i in range(0, len(formatted_list), BATCH_SIZE):
         batch = formatted_list[i:i + BATCH_SIZE]
         payload = [{"index": j, "reference": r} for j, r in enumerate(batch)]
-        user = (f"<편집지침>\n{dir_text}\n</편집지침>\n\n"
-                f"<참고문헌목록>\n{json.dumps(payload, ensure_ascii=False, indent=1)}\n</참고문헌목록>")
-        result = _call(system, user, _ENGLISH_SCHEMA)  # {references:[{index, formatted}]}
+        user = f"<참고문헌목록>\n{json.dumps(payload, ensure_ascii=False, indent=1)}\n</참고문헌목록>"
+        # 변경분만 오므로 out에 없는 인덱스는 원문이 유지된다
+        result = _call(system, user, _ENGLISH_SCHEMA,  # {references:[{index, formatted}]}
+                       cache=cache, prefix=dir_block, effort=EFFORT_STANDARDS)
         for r in result.get("references", []):
             j = r.get("index", -1)
             if 0 <= j < len(batch) and r.get("formatted"):
@@ -535,7 +601,8 @@ _STANDARDS_SCHEMA = {
                     "note": {"type": "string"},
                     "conflict": {"type": "string"},
                 },
-                "required": ["index", "formatted", "note", "conflict"],
+                # note·conflict는 해당되는 항목에만 붙는다
+                "required": ["index", "formatted"],
                 "additionalProperties": False,
             },
         }
@@ -570,17 +637,22 @@ def apply_standards_ai(formatted_list: list[str], standards: list[dict],
         "2) <편집지침>: 관리자가 확정한 지침 — 반드시 적용하세요.\n"
         "규칙:\n"
         "- 규칙과 무관한 부분(저자, 연도, 제목, 구두점 등)은 한 글자도 변경하지 마세요.\n"
-        "- 적용한 항목은 note에 어떤 규칙을 적용했는지 짧게 기재하세요(미적용이면 빈 문자열).\n"
-        "- 해당 없는 항목은 원문 그대로, note·conflict는 빈 문자열로 반환하세요.\n"
-        "- 입력과 같은 개수의 references를 index 순서대로 반환하세요."
+        "- references에는 '실제로 수정한 항목'과 '충돌로 적용하지 않은 항목'만 담으세요. "
+        "규칙이 걸리지 않는 항목은 반환하지 마세요 — 반환하지 않은 항목은 원문이 그대로 유지됩니다. "
+        "대개 목록의 대부분이 여기 해당합니다.\n"
+        "- 수정한 항목은 note에 어떤 규칙을 적용했는지 짧게 기재하세요.\n"
+        "- 충돌 항목은 formatted를 원문 그대로 두고 conflict에만 사유를 기재하세요."
     )
+    rules_block = (f"<관리자추가기준>\n{std_text}\n</관리자추가기준>\n\n"
+                   f"<편집지침>\n{dir_text}\n</편집지침>")
+    cache = len(formatted_list) > BATCH_SIZE
     for i in range(0, len(formatted_list), BATCH_SIZE):
         batch = formatted_list[i:i + BATCH_SIZE]
         payload = [{"index": j, "reference": r} for j, r in enumerate(batch)]
-        user = (f"<관리자추가기준>\n{std_text}\n</관리자추가기준>\n\n"
-                f"<편집지침>\n{dir_text}\n</편집지침>\n\n"
-                f"<참고문헌목록>\n{json.dumps(payload, ensure_ascii=False, indent=1)}\n</참고문헌목록>")
-        result = _call(system, user, _STANDARDS_SCHEMA)
+        user = f"<참고문헌목록>\n{json.dumps(payload, ensure_ascii=False, indent=1)}\n</참고문헌목록>"
+        # 반환되지 않은 인덱스는 out 초기값(원문·note·conflict 빈 문자열)이 그대로 남는다
+        result = _call(system, user, _STANDARDS_SCHEMA, cache=cache, prefix=rules_block,
+                       effort=EFFORT_STANDARDS)
         for r in result.get("references", []):
             j = r.get("index", -1)
             if 0 <= j < len(batch):
@@ -637,11 +709,13 @@ def match_suggestions_ai(items_payload: list[dict], pool: list[dict]) -> dict[in
     )
     out: dict[int, list[str]] = {}
     valid_ids = {s["id"] for s in pool}
+    pool_block = f"<제안목록>\n{pool_text}\n</제안목록>"
+    cache = len(items_payload) > BATCH_SIZE * 2
     for i in range(0, len(items_payload), BATCH_SIZE * 2):
         batch = items_payload[i:i + BATCH_SIZE * 2]
-        user = (f"<제안목록>\n{pool_text}\n</제안목록>\n\n"
-                f"<참고문헌목록>\n{json.dumps(batch, ensure_ascii=False, indent=1)}\n</참고문헌목록>")
-        result = _call(system, user, _MATCH_SCHEMA)
+        user = f"<참고문헌목록>\n{json.dumps(batch, ensure_ascii=False, indent=1)}\n</참고문헌목록>"
+        result = _call(system, user, _MATCH_SCHEMA, cache=cache, prefix=pool_block,
+                       effort=EFFORT_MATCH)
         for m in result.get("matches", []):
             idx = m.get("index", -1)
             ids = [x for x in (m.get("suggestion_ids") or []) if x in valid_ids]
@@ -750,9 +824,11 @@ def draft_rules_from_diffs_ai(pairs: list[dict]) -> dict[int, dict]:
         "- 입력 index를 그대로 유지해 모든 항목에 대해 반환하세요."
     )
     out: dict[int, dict] = {}
+    cache = len(payload) > BATCH_SIZE
     for i in range(0, len(payload), BATCH_SIZE):
         batch = payload[i:i + BATCH_SIZE]
-        result = _call(system, json.dumps(batch, ensure_ascii=False, indent=1), _DRAFT_SCHEMA)
+        result = _call(system, json.dumps(batch, ensure_ascii=False, indent=1), _DRAFT_SCHEMA,
+                       cache=cache)
         for r in result.get("rules", []):
             idx = r.get("index", -1)
             if idx >= 0 and r.get("rule"):
@@ -778,8 +854,10 @@ def translate_to_english_ai(entries: list[dict]) -> list[dict]:
     )
     payload = [{"index": i, "참고문헌": e.get("raw", "")} for i, e in enumerate(entries)]
     out: list[dict] = []
+    cache = len(payload) > BATCH_SIZE
     for i in range(0, len(payload), BATCH_SIZE):
         batch = payload[i:i + BATCH_SIZE]
-        result = _call(system, json.dumps(batch, ensure_ascii=False, indent=1), _ENGLISH_SCHEMA)
+        result = _call(system, json.dumps(batch, ensure_ascii=False, indent=1), _ENGLISH_SCHEMA,
+                       cache=cache)
         out.extend(result.get("references", []))
     return out

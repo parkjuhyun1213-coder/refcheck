@@ -64,6 +64,15 @@ def _sim(a: str, b: str) -> float:
     return difflib.SequenceMatcher(None, a, b).ratio()
 
 
+def _bare_doi(s: str) -> str:
+    """'http://dx.doi.org/10.x/y' → '10.x/y'.
+
+    KCI는 DOI를 URL 형태로 준다. Crossref 조회는 DOI를 URL 경로에 그대로 넣으므로,
+    URL째 넘기면 404가 되어 철회 여부 보강이 조용히 건너뛰어진다.
+    """
+    return re.sub(r"^\s*(https?://)?(dx\.)?doi\.org/", "", (s or "").strip(), flags=re.I)
+
+
 def _xml_root(text: str):
     try:
         return ET.fromstring(text)
@@ -73,19 +82,38 @@ def _xml_root(text: str):
 
 # ---------------------------------------------------------------- KCI
 
+def _kci_error_msgs(root) -> list[str]:
+    """KCI 응답에서 '조회 자체가 안 된' 사유만 추린다.
+
+    KCI는 오류도 HTTP 200 + <resultMsg>로 준다. '등록되지 않은 서비스'(신청하지 않은
+    apiCode), '등록되지 않은 key 입니다.'(키 폐기·IP 불일치), '필수 요청 파라미터가 없음'
+    등이 여기 해당하며, 이를 결과 없음으로 읽으면 실존하는 논문이 '미발견'이 된다.
+
+    반대로 검색 결과가 0건일 때도 <resultMsg>No Data</resultMsg>가 온다. 이것은 정상
+    응답이므로 오류로 보면 진짜 미발견까지 '확인 못 함'으로 묻힌다 — 반드시 제외한다.
+    """
+    return [t for el in root.iter("resultMsg") if (t := (el.text or "").strip())
+            and t.lower() != "no data"]
+
+
 def kci_article_search(client: httpx.Client, title: str, author: str = "") -> dict | None:
     """KCI 논문 검색 → 최고 유사도 매칭. 반환: {sim, meta} 또는 None."""
     key = env_get("KCI_API_KEY")
     if not key or not title or len(title) < 4:
         return None
-    r = _get(client, "https://open.kci.go.kr/po/openapi/openApiSearch.kci",
-             {"apiCode": "articleSearch", "key": key,
-              "title": title[:80], "displayCount": 10})
+    params = {"apiCode": "articleSearch", "key": key,
+              "title": title[:80], "displayCount": 10}
+    if author:
+        params["author"] = author[:40]  # API가 지원하는 검색조건 — 동명 제목의 오매칭을 줄인다
+    r = _get(client, "https://open.kci.go.kr/po/openapi/openApiSearch.kci", params)
     if r is None:
         return None
     root = _xml_root(r.text)
     if root is None:
         return None
+    if (errs := _kci_error_msgs(root)):
+        # 키·서비스 문제를 '미발견'으로 보고하면 실존 논문이 허위로 표시된다
+        raise LookupUnavailable(f"KCI articleSearch: {'; '.join(errs)}")
 
     best, best_sim = None, 0.0
     for rec in root.iter("record"):
@@ -108,14 +136,63 @@ def kci_article_search(client: httpx.Client, title: str, author: str = "") -> di
                 "volume": g(".//volume"),
                 "issue": g(".//issue"),
                 "pages": "-".join(x for x in (g(".//fpage"), g(".//lpage")) if x),
-                "doi": g(".//doi"),
+                "doi": _bare_doi(g(".//doi")),
                 "uci": g(".//uci", ".//UCI"),
                 "source": "KCI",
+                # articleDetail 조회용 Control Number(<articleInfo article-id="ART…">)
+                "kci_id": (ai.get("article-id") or "") if (ai := rec.find(".//articleInfo")) is not None else "",
             }
     if best and best_sim >= 0.80:
         best["sim"] = best_sim
         return best
     return None
+
+
+_KCI_DETAIL_CACHE: dict[str, dict] = {}
+
+
+def kci_article_detail(client: httpx.Client, article_id: str) -> dict | None:
+    """articleDetail — Control Number(ART…)로 상세 서지 조회.
+
+    검색 결과에는 없는 <kci-registration>(학술지 등재 구분)·ISSN·페이지를 준다.
+    학술지 등재 여부는 journalSearch로도 얻을 수 있으나 그쪽은 별도 신청 항목이므로,
+    이미 승인된 articleDetail로 대신한다.
+    """
+    key = env_get("KCI_API_KEY")
+    if not key or not article_id:
+        return None
+    with _CACHE_LOCK:
+        if article_id in _KCI_DETAIL_CACHE:
+            return _KCI_DETAIL_CACHE[article_id]
+    r = _get(client, "https://open.kci.go.kr/po/openapi/openApiSearch.kci",
+             {"apiCode": "articleDetail", "key": key, "id": article_id})
+    if r is None:
+        return None
+    root = _xml_root(r.text)
+    if root is None:
+        return None
+    if (errs := _kci_error_msgs(root)):
+        raise LookupUnavailable(f"KCI articleDetail: {'; '.join(errs)}")
+
+    def g(*paths):
+        for p in paths:
+            el = root.find(p)
+            if el is not None and (el.text or "").strip():
+                return el.text.strip()
+        return ""
+
+    out = {
+        "kci_registration": g(".//kci-registration"),
+        "issn": g(".//issn"),
+        "container": g(".//journal-name"),
+        "doi": _bare_doi(g(".//doi")),
+        "pages": "-".join(x for x in (g(".//fpage"), g(".//lpage")) if x),
+    }
+    if not any(out.values()):
+        return None
+    with _CACHE_LOCK:
+        _KCI_DETAIL_CACHE[article_id] = out
+    return out
 
 
 def kci_reference_search(client: httpx.Client, title: str, author: str = "",
@@ -139,13 +216,17 @@ def kci_reference_search(client: httpx.Client, title: str, author: str = "",
     root = _xml_root(r.text)
     if root is None:
         return None
+    if (errs := _kci_error_msgs(root)):
+        raise LookupUnavailable(f"KCI referenceSearch: {'; '.join(errs)}")
 
     refs: list[str] = []
     for el in root.iter():
         tag = el.tag.lower()
-        # 참고문헌 원문이 한 요소에 통째로 담긴 경우
+        # 참고문헌 원문이 한 요소에 통째로 담긴 경우. 실제 응답은
+        # <record article-id="...">저자(연도). 제목. 학술지…</record>처럼 요소의 자체
+        # 텍스트에 원문이 들어오므로, record를 빼면 한 건도 얻지 못한다
         if tag.endswith(("reference", "reference-text", "referencetext",
-                         "citation", "org-reference")) and (el.text or "").strip():
+                         "citation", "org-reference", "record")) and (el.text or "").strip():
             refs.append(re.sub(r"\s+", " ", el.text).strip())
     if not refs:
         # 서지요소가 나뉘어 온 경우 — 하위 필드를 조합해 한 건씩 만든다
@@ -181,11 +262,12 @@ def kci_journal_status(client: httpx.Client, journal_name: str) -> str:
     result = ""
     try:
         # 학술지 신뢰도는 부가 정보이므로, 조회 실패는 예외로 올리지 않고 ''(조회 불가)로 둔다
+        # 검색어 파라미터는 title — journalName은 API가 무시한다(inputData에 되돌아오지 않음)
         r = _get(client, "https://open.kci.go.kr/po/openapi/openApiSearch.kci",
-                 {"apiCode": "journalSearch", "key": key, "journalName": jn[:60]})
+                 {"apiCode": "journalSearch", "key": key, "title": jn[:60]})
         if r is not None:
             root = _xml_root(r.text)
-            if root is not None:
+            if root is not None and not _kci_error_msgs(root):
                 names = [el.text.strip() for el in root.iter() if el.tag.lower().endswith("journalname")
                          and el.text and el.text.strip()]
                 if not names:
@@ -201,34 +283,122 @@ def kci_journal_status(client: httpx.Client, journal_name: str) -> str:
 
 # ---------------------------------------------------------------- 국립중앙도서관(단행본)
 
-def nlk_book_search(client: httpx.Client, title: str, author: str = "") -> dict | None:
-    key = env_get("NLK_CERT_KEY")
-    if not key or not title or len(title) < 3:
-        return None
-    r = _get(client, "https://www.nl.go.kr/seoji/SearchApi.do",
-             {"cert_key": key, "result_style": "json", "page_no": 1,
-              "page_size": 10, "title": title[:60]})
+_NLK_URL = "https://www.nl.go.kr/seoji/SearchApi.do"
+
+
+def _nlk_docs(client: httpx.Client, params: dict) -> list[dict] | None:
+    """SEOJI 호출 → docs 목록. 오류 응답은 LookupUnavailable로 올린다.
+
+    SEOJI도 KCI처럼 오류를 HTTP 200으로 준다(2026-08 실측).
+        {"RESULT":"ERROR","ERR_CODE":"011","ERR_MESSAGE":"유효하지 않은 인증키 값입니다."}
+    이때 docs 키가 아예 없으므로, 그냥 읽으면 '자료 없음'과 구별되지 않아
+    키가 죽은 동안 실존 단행본이 전부 '미발견'으로 표시된다.
+    자료가 0건일 때는 정상 응답으로 {"TOTAL_COUNT":"0", ..., "docs":[]}가 온다.
+    """
+    r = _get(client, _NLK_URL, params)
     if r is None:
         return None
     try:
-        docs = (r.json() or {}).get("docs") or []
-    except ValueError:  # 응답이 JSON이 아님 — 질의 결과 없음으로 처리
+        j = r.json() or {}
+    except ValueError:  # 점검 페이지 등 — 조회 못 한 것이지 자료가 없는 게 아니다
+        raise LookupUnavailable("SEOJI: 응답이 JSON이 아님")
+    if str(j.get("RESULT", "")).upper() == "ERROR":
+        raise LookupUnavailable(
+            f"SEOJI {j.get('ERR_CODE', '')}: {j.get('ERR_MESSAGE', '')}".strip())
+    return j.get("docs") or []
+
+
+def _nlk_main_title(t: str) -> str:
+    """등록 서명에서 대역서명·판차 부기·부제를 떼어낸 주서명."""
+    t = re.sub(r"\s+", " ", (t or "")).strip()
+    t = t.split(" = ")[0]                        # '국문서명 = English title'
+    t = re.sub(r"[(（\[].*?[)）\]]", " ", t)       # '(전면개정판)' 등 부기
+    t = re.split(r"\s*[:：]\s*", t)[0]            # 부제
+    return re.sub(r"\s+", " ", t).strip(" .,:;-–—")
+
+
+def _nlk_queries(title: str) -> list[str]:
+    """검색어 후보 — 넓은 것 순으로 최대 3개.
+
+    SEOJI의 title 검색은 등록 서명에 검색어가 통째로 들어 있어야 걸리는
+    부분 문자열 방식이다(2026-08 실측: '서비스론' 85건, '정보서비스론' 11건).
+    그래서 원고 서명이 등록 서명보다 길면 — 부제·판차 부기가 붙었거나 띄어쓰기
+    표기가 다르면 — 실존 단행본도 0건이 된다
+    ('정보서비스론: 이론과 실제' 0건 / '정보서비스론' 11건).
+    걸릴 때까지 줄여 재시도하되, 넓힌 검색어로 얻은 후보도 판정은 원 서명과의
+    유사도로 하므로 엉뚱한 책이 통과하지는 않는다.
+    """
+    out: list[str] = []
+    for cand in (title, _nlk_main_title(title)):
+        c = re.sub(r"\s+", " ", (cand or "")).strip()
+        if len(_norm(c)) >= 3 and c not in out:
+            out.append(c)
+    words = out[-1].split() if out else []
+    for n in (3, 2):                              # 앞 n어절까지 축약
+        if len(words) > n:
+            c = " ".join(words[:n])
+            # 너무 짧은 검색어는 후보만 폭증시키고 정답을 밀어낸다
+            if len(_norm(c)) >= 6 and c not in out:
+                out.append(c)
+    return out[:3]
+
+
+def nlk_book_search(client: httpx.Client, title: str, author: str = "",
+                    year: str = "") -> dict | None:
+    key = env_get("NLK_CERT_KEY")
+    if not key or not title or len(title) < 3:
         return None
-    best, best_sim = None, 0.0
-    for d in docs:
-        t = d.get("TITLE") or ""
-        sim = _sim(title, t.split("=")[0])
-        if sim > best_sim:
-            best_sim = sim
-            year = re.sub(r"\D", "", d.get("PUBLISH_PREDATE") or "")[:4]
-            best = {
-                "title": t, "authors": [d.get("AUTHOR") or ""],
-                "publisher": d.get("PUBLISHER") or "", "year": year,
-                "isbn": d.get("EA_ISBN") or "", "source": "국립중앙도서관",
-            }
-    if best and best_sim >= 0.80:
-        best["sim"] = best_sim
-        return best
+    want_year = re.sub(r"\D", "", year or "")[:4]
+    # 저자는 AND 조건이며 부분 일치다. 맞으면 동명 서명의 오매칭을 줄여 주지만
+    # 표기가 다르면 실존 단행본도 0건이 되므로, 결과가 없으면 저자를 빼고 다시 본다.
+    au = re.sub(r"\s+", " ", (author or "")).strip()
+    if len(au) > 20 or re.search(r"\d", au):
+        au = ""
+
+    q_main = _nlk_main_title(title)
+    use_main = len(_norm(q_main)) >= 6          # 주서명이 너무 짧으면 오매칭 위험
+
+    def pick(docs: list[dict]) -> tuple[dict | None, float]:
+        best, best_key = None, (0.0, 0)
+        for d in docs:
+            raw = (d.get("TITLE") or "").strip()
+            sim = _sim(title, raw.split(" = ")[0])
+            if use_main:
+                # 원고에만 부제가 붙은 경우를 살린다 — 주서명끼리도 대조
+                sim = max(sim, _sim(q_main, _nlk_main_title(raw)))
+            # 발행예정일이 비어 있는 자료가 있어 실제 발행일로 보완한다
+            d_year = re.sub(r"\D", "", (d.get("PUBLISH_PREDATE") or "")
+                            or (d.get("REAL_PUBLISH_DATE") or ""))[:4]
+            # 같은 서명의 판이 여럿이면(예: '디지털도서관 운영론' 2008·2026)
+            # 제목 유사도만으로는 구분되지 않는다. 원고 연도와 맞는 판을 골라야
+            # 맞게 쓴 발행연도를 다른 판의 연도로 '교정'하라고 하지 않는다.
+            key = (round(sim, 3), 1 if want_year and d_year == want_year else 0)
+            if key > best_key:
+                best_key = key
+                best = {
+                    "title": raw, "authors": [d.get("AUTHOR") or ""],
+                    "publisher": d.get("PUBLISHER") or "", "year": d_year,
+                    "isbn": (d.get("EA_ISBN") or "") or (d.get("SET_ISBN") or ""),
+                    "source": "국립중앙도서관",
+                }
+        return best, best_key[0]
+
+    for i, q in enumerate(_nlk_queries(title)):
+        params = {"cert_key": key, "result_style": "json", "page_no": 1,
+                  "page_size": 20, "title": q[:60]}
+        if au and i == 0:
+            params["author"] = au
+        docs = _nlk_docs(client, params)
+        if docs is None:
+            return None
+        if not docs and au and i == 0:          # 저자 표기 차이 — 저자를 빼고 재시도
+            docs = _nlk_docs(client, {k: v for k, v in params.items() if k != "author"})
+            if docs is None:
+                return None
+        best, best_sim = pick(docs)
+        if best and best_sim >= 0.80:
+            best["sim"] = best_sim
+            return best
     return None
 
 
@@ -240,9 +410,12 @@ def nanet_search(client: httpx.Client, title: str) -> dict | None:
         return None
     # 검색식이 '필드,검색어' 형식이므로 제목의 콤마는 공백으로 치환
     q_title = title[:60].replace(",", " ").strip()
-    r = _get(client, "http://apis.data.go.kr/9720000/searchservice/basic",
+    # 검색항목은 '전체'가 아니라 '자료명'을 쓴다. '전체'는 느슨하게 매칭되어
+    # 짧은 서명일수록 수만 건이 걸리고 정답이 상위 10건에 들지 못한다
+    # (예: '참고정보서비스론' → 전체 58,024건·매칭 실패 / 자료명 3건·매칭 성공).
+    r = _get(client, "https://apis.data.go.kr/9720000/searchservice/basic",
              {"serviceKey": key, "pageno": 1, "displaylines": 10,
-              "search": f"전체,{q_title}"})
+              "search": f"자료명,{q_title}"})
     if r is None:
         return None
     root = _xml_root(r.text)
@@ -256,12 +429,21 @@ def nanet_search(client: httpx.Client, title: str) -> dict | None:
             value = (item.findtext("value") or "").strip()
             if name:
                 fields[name] = value
-        t = fields.get("자료명") or fields.get("서명") or ""
+        # 제목 필드명이 자료 유형마다 다르다(2026-08 실측): 학술기사 '기사명',
+        # 학위논문 '논문명', 도서 '자료명'. 도서만 걸리던 기존 코드로는
+        # 기사·학위논문이 전부 매칭 실패했다.
+        t = (fields.get("기사명") or fields.get("논문명")
+             or fields.get("자료명") or fields.get("서명") or "")
+        # '국문제목 = English title' 대역 제목과 도서의 저자사항 구분자 '/'를 떼어낸다
+        t = t.split(" = ")[0].split(" /")[0].strip().rstrip("/").strip()
         sim = _sim(title, t)
         if sim > best_sim:
             best_sim = sim
             best = {"title": t, "authors": [fields.get("저자명", "")],
-                    "year": re.sub(r"\D", "", fields.get("발행년도", "") or fields.get("발행년", ""))[:4],
+                    # 학위논문은 '학위년도'로 온다
+                    "year": re.sub(r"\D", "", fields.get("발행년도", "")
+                                   or fields.get("학위년도", "")
+                                   or fields.get("발행년", ""))[:4],
                     "publisher": fields.get("발행자", ""), "source": "국회도서관"}
     if best and best_sim >= 0.80:
         best["sim"] = best_sim

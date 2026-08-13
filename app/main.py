@@ -37,7 +37,7 @@ app = FastAPI(title="파일 기반 참고문헌 표준화·검증 에이전트")
 # 화면(index.html)과 프로그램의 버전이 어긋난 채 배포되면 새 기능이 조용히 무시된다.
 # 두 파일에 같은 값을 두고 /api/status에서 대조해 관리자 화면에 경고를 띄운다.
 # 기능을 추가·변경할 때 main.py와 index.html의 APP_VERSION을 함께 올릴 것.
-APP_VERSION = "2026.08.08-14"
+APP_VERSION = "2026.08.12-1"
 
 APP_DIR = Path(__file__).parent
 JOBS: dict[str, dict] = {}
@@ -96,6 +96,8 @@ def _access_code() -> str:
 
 ROLE_LABEL = {"user": "이용자", "editor": "편집위원", "chair": "편집위원장"}
 ROLE_RANK = {"": 0, "user": 1, "editor": 2, "chair": 3}
+# 역할별 입장 쿠키 수명 — 권한이 높을수록 짧게(공용 PC에 위원장 권한이 오래 남지 않도록)
+ACCESS_TTL = {"user": 4 * 24 * 3600, "editor": 2 * 24 * 3600, "chair": 24 * 3600}
 
 
 def _org_access_codes() -> dict[str, str]:
@@ -241,8 +243,9 @@ def enter_access(code: str = Form(""), role_code: str = Form("")):
         token, (org_name, role) = found
         resp = JSONResponse({"ok": True, "org": org_name, "role": role,
                              "role_label": ROLE_LABEL.get(role, "이용자")})
-        resp.set_cookie("access_token", token, httponly=True,
-                        samesite="lax", max_age=30 * 24 * 3600, secure=_cookie_secure())
+        resp.set_cookie("access_token", token, httponly=True, samesite="lax",
+                        max_age=ACCESS_TTL.get(role, ACCESS_TTL["user"]),
+                        secure=_cookie_secure())
         return resp
     time.sleep(0.8)  # 무차별 대입 지연
     msg = ("학회 코드와 역할 코드가 맞지 않습니다. 역할 코드는 소속 학회의 코드와 함께 입력해 주세요."
@@ -1932,8 +1935,11 @@ def admin_kci_references(request: Request, title: str = "", author: str = "", ye
     if len(title.strip()) < 4:
         raise HTTPException(400, "논문명을 4자 이상 입력해 주세요.")
     import httpx
-    with httpx.Client(headers={"User-Agent": "refstd-agent"}) as client:
-        refs = verify_kr.kci_reference_search(client, title.strip(), author.strip(), year.strip())
+    try:
+        with httpx.Client(headers={"User-Agent": "refstd-agent"}) as client:
+            refs = verify_kr.kci_reference_search(client, title.strip(), author.strip(), year.strip())
+    except verify_kr.LookupUnavailable as e:
+        raise HTTPException(502, f"KCI 조회에 실패했습니다(인증키·허용 IP·서비스 신청 항목 확인). {e}")
     if not refs:
         raise HTTPException(404, "KCI에서 이 논문의 참고문헌을 찾지 못했습니다. "
                                  "논문명을 정확히 입력했는지 확인하거나 발행본 파일을 올려 주세요.")
@@ -1949,8 +1955,11 @@ def admin_compare_kci(request: Request, history_id: str = Form(...), title: str 
     if not verify_kr.kr_api_status().get("kci"):
         raise HTTPException(400, "KCI 인증키가 설정되지 않았습니다. 서버 .env의 KCI_API_KEY를 설정해 주세요.")
     import httpx
-    with httpx.Client(headers={"User-Agent": "refstd-agent"}) as client:
-        refs = verify_kr.kci_reference_search(client, title.strip(), author.strip(), year.strip())
+    try:
+        with httpx.Client(headers={"User-Agent": "refstd-agent"}) as client:
+            refs = verify_kr.kci_reference_search(client, title.strip(), author.strip(), year.strip())
+    except verify_kr.LookupUnavailable as e:
+        raise HTTPException(502, f"KCI 조회에 실패했습니다(인증키·허용 IP·서비스 신청 항목 확인). {e}")
     if not refs:
         raise HTTPException(404, "KCI에서 이 논문의 참고문헌을 찾지 못했습니다.")
     job = _new_job("compare")

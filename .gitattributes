@@ -1,0 +1,32 @@
+# 줄바꿈(개행) 규칙 — 파일이 "실행되는 곳"의 규칙을 따르게 한다.
+#
+# 이 설정이 없으면 내려받는 PC의 git 설정에 따라 개행이 바뀌어,
+# 실행 파일이 열리지 않는 문제가 생긴다(2026-08 실제 발생).
+
+# Windows 배치 파일 — 반드시 CRLF.
+# LF만 있으면 cmd.exe가 명령을 줄 단위로 끊어 읽지 못해
+# 폴더 이동(cd)이 실행되지 않고 "Could not import module" 오류로 이어진다.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# 리눅스 서버(가비아)에서 실행되는 스크립트 — 반드시 LF.
+# CRLF가 섞이면 bash가 '\r'까지 명령의 일부로 읽어 실패한다.
+*.sh text eol=lf
+deploy/Caddyfile text eol=lf
+deploy/refstd.service text eol=lf
+
+# 문서·이미지 등은 git이 내용을 손대지 않도록 이진 파일로 명시한다
+# (개행 변환이 끼어들면 파일이 깨진다)
+*.docx binary
+*.doc binary
+*.pdf binary
+*.hwp binary
+*.hwpx binary
+*.xlsx binary
+*.zip binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary

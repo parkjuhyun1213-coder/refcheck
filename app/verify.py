@@ -305,7 +305,8 @@ def _check_retraction(crossref_meta: dict) -> dict | None:
 _DOAJ_CACHE: dict[str, bool | None] = {}
 
 
-def _journal_reliability(client: httpx.Client, entry: dict) -> dict | None:
+def _journal_reliability(client: httpx.Client, entry: dict,
+                         kci_registration: str = "") -> dict | None:
     """학술지 신뢰성: KCI(국내) / DOAJ·OpenAlex(해외) 대조."""
     if entry.get("type") != "journal":
         return None
@@ -314,6 +315,10 @@ def _journal_reliability(client: httpx.Client, entry: dict) -> dict | None:
         return None
 
     if entry.get("lang") == "ko":
+        # KCI가 논문 상세로 알려준 등재 구분이 있으면 그대로 쓴다(학술지명 유사도 추정보다 정확)
+        if kci_registration:
+            flag = "ok" if "등재" in kci_registration else "warn"
+            return {"flag": flag, "detail": f"KCI {kci_registration} 학술지"}
         st = verify_kr.kci_journal_status(client, jname)
         if st == "listed":
             return {"flag": "ok", "detail": "KCI 조회 확인 학술지"}
@@ -516,12 +521,22 @@ def verify_entry(client: httpx.Client, entry: dict) -> dict:
             lookup_err |= e_k
         elif etype in ("book", "report"):
             kr, e_k = _safe(verify_kr.nlk_book_search, client, title,
-                            authors[0] if authors else "")
+                            authors[0] if authors else "", entry.get("year", ""))
             lookup_err |= e_k
             if not kr:
                 kr, e_k2 = _safe(verify_kr.nanet_search, client, title)
                 lookup_err |= e_k2
         if kr:
+            # KCI 검색 결과에는 DOI·페이지·등재구분이 빠져 있어 상세 조회로 보강한다
+            reg = ""
+            if kr.get("kci_id"):
+                detail, e_d = _safe(verify_kr.kci_article_detail, client, kr["kci_id"])
+                lookup_err |= e_d
+                if detail:
+                    reg = detail.get("kci_registration", "")
+                    for f in ("doi", "pages"):
+                        if detail.get(f) and not kr.get(f):
+                            kr[f] = detail[f]
             result.update(status="verified", source=kr.get("source", "국내DB"),
                           detail=f"{kr.get('source')} 대조 성공(제목 일치 {kr.get('sim', 0):.0%})",
                           meta=_meta_from_kr(kr))
@@ -529,7 +544,7 @@ def verify_entry(client: httpx.Client, entry: dict) -> dict:
                 result["found_doi"] = kr["doi"]
                 _enrich_from_crossref(client, result, kr["doi"])  # 철회 여부 보강
             if etype == "journal":
-                result["journal"] = _journal_reliability(client, entry)
+                result["journal"] = _journal_reliability(client, entry, reg)
             return result
         # 국내 학술지 논문은 Crossref에도 상당수 등재 — 이어서 시도
         if etype == "journal":

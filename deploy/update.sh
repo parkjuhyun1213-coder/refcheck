@@ -45,7 +45,8 @@ echo "== 서비스 재시작 =="
 systemctl restart refstd
 sleep 2
 if systemctl is-active --quiet refstd; then
-  echo "정상 실행 중 — 버전: $(grep -m1 APP_VERSION "$APP_DIR/app/main.py" | cut -d'"' -f2)"
+  # 줄 첫머리의 APP_VERSION만 — 그냥 APP_VERSION으로 찾으면 위쪽 주석줄이 먼저 걸린다
+  echo "정상 실행 중 — 버전: $(grep -m1 '^APP_VERSION' "$APP_DIR/app/main.py" | cut -d'"' -f2)"
   echo "브라우저에서 Ctrl+F5 로 새로고침한 뒤 확인하세요."
 else
   echo "⚠ 앱이 시작되지 않았습니다. 아래 로그를 확인하세요:"
