@@ -37,7 +37,7 @@ app = FastAPI(title="파일 기반 참고문헌 표준화·검증 에이전트")
 # 화면(index.html)과 프로그램의 버전이 어긋난 채 배포되면 새 기능이 조용히 무시된다.
 # 두 파일에 같은 값을 두고 /api/status에서 대조해 관리자 화면에 경고를 띄운다.
 # 기능을 추가·변경할 때 main.py와 index.html의 APP_VERSION을 함께 올릴 것.
-APP_VERSION = "2026.08.13-2"
+APP_VERSION = "2026.08.13-3"
 
 APP_DIR = Path(__file__).parent
 JOBS: dict[str, dict] = {}
@@ -665,11 +665,20 @@ def _process_file(filename: str, data: bytes, options: dict, progress) -> dict:
 
     # 8) 영문 변환 목록(문편협 기준 9·10항 — AI 모드)
     if options.get("english") and builtin:
-        ko_entries = [e for e in entries if e.get("lang") == "ko"]
+        ko_idx = [i for i, e in enumerate(entries) if e.get("lang") == "ko"]
+        ko_entries = [entries[i] for i in ko_idx]
+        # 검증 단계에서 KCI가 확인해 준 공식 영문 제목·저자명을 번역 근거로 넘긴다.
+        # 이게 없으면 AI가 로마자 표기를 지어내 저자가 등록한 표기와 어긋난다.
+        official = {}
+        for n, i in enumerate(ko_idx):
+            meta = (verify_results[i] or {}).get("meta") if verify_results else None
+            if meta and (meta.get("title_en") or meta.get("authors_en")):
+                official[n] = {"title_en": meta.get("title_en", ""),
+                               "authors_en": meta.get("authors_en") or []}
         if ko_entries and use_ai:
             progress(f"영문 변환 목록 생성 ({len(ko_entries)}건)", filename)
             try:
-                eng = aiengine.translate_to_english_ai(ko_entries)
+                eng = aiengine.translate_to_english_ai(ko_entries, official)
                 lines = sorted((r.get("formatted", "") for r in eng if r.get("formatted")),
                                key=str.lower)
                 result["english_list"] = lines

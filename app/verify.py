@@ -281,6 +281,9 @@ def _meta_from_kr(m: dict) -> dict:
         # 단행본은 출판사가 서지의 핵심 요소다(문편협 기준 필수 항목).
         # ISBN은 원고에 적지 않는 항목이라 교정 대상이 아니라 확인용으로만 싣는다.
         "publisher": m.get("publisher", ""), "isbn": m.get("isbn", ""),
+        # KCI에 저자가 등록한 공식 영문 제목·저자명 — 영문화 목록을 지어내지 않게 한다.
+        # 화면 대조표는 META_FIELDS만 읽으므로 여기 실어도 표시에 영향이 없다.
+        "title_en": m.get("title_en", ""), "authors_en": m.get("authors_en") or [],
         "source": m.get("source", ""),
     }
 

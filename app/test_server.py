@@ -254,6 +254,83 @@ def check_kr_matching() -> bool:
     return ok
 
 
+# 규정 문서에 실린 '올바른 표기' 예시를 그대로 정답으로 삼는다(f:\…\규정).
+#   · 문편협 공통기준 v7 (4개 학회 공통)
+#   · 한국도서관·정보학회 참고문헌 주요 오류 유형 v2
+#   · 도서관정보학회지 원고형식(학회가 직접 작성한 참고문헌 예시)
+# 서지요소를 직접 넣어 형식 변환만 검사하므로 AI·네트워크 없이 언제나 돌아간다.
+STANDARD_CASES = [
+    ("공통기준 Ⅱ-1)(3) 서양 인명은 성, 두문자",
+     {"type": "book", "lang": "west", "authors": ["Caplan, P."], "year": "2003",
+      "title": "Metadata Fundamentals for All Librarians", "place": "Chicago",
+      "publisher": "American Library Association"},
+     "Caplan, P. (2003). Metadata Fundamentals for All Librarians. Chicago: American Library Association."),
+    ("공통기준 Ⅱ-1)(4) 저자 전원 기재·마지막 앞 &",
+     {"type": "journal", "lang": "west",
+      "authors": ["Hoffer, J. A.", "George, J.", "Valacich, J. S."], "year": "1996",
+      "title": "Modern Systems Analysis and Design", "container": "Systems Review"},
+     "Hoffer, J. A., George, J., & Valacich, J. S. (1996). Modern systems analysis and design. Systems Review."),
+    ("공통기준 Ⅱ-1)(5) 학술지 논문명은 Sentence case",
+     {"type": "journal", "lang": "west", "authors": ["Ram, S."], "year": "1987",
+      "title": "A Model of Innovation Resistance", "container": "Advances in Consumer Research",
+      "volume": "13", "pages": "208-212"},
+     "Ram, S. (1987). A model of innovation resistance. Advances in Consumer Research, 13, 208-212."),
+    ("공통기준 Ⅱ-2)(1) 단행본은 출판지: 출판사",
+     {"type": "book", "lang": "ko", "authors": ["이수상"], "year": "2008",
+      "title": "디지털도서관운영론", "place": "서울", "publisher": "한국도서관협회"},
+     "이수상 (2008). 디지털도서관운영론. 서울: 한국도서관협회."),
+    ("공통기준 Ⅱ-2)(1) 서양 단행본 서명은 Title Case·판사항",
+     {"type": "book", "lang": "west", "authors": ["Rubin, R. E."], "year": "2010",
+      "title": "foundations of library and information science", "edition": "3rd ed.",
+      "place": "New York", "publisher": "Neal-Schuman Publishers"},
+     "Rubin, R. E. (2010). Foundations of Library and Information Science (3rd ed.). New York: Neal-Schuman Publishers."),
+    ("학회 원고형식 — 온라인 발표집의 URL이 살아 있어야",
+     {"type": "conference", "lang": "ko", "authors": ["국립중앙도서관 국가서지과"], "year": "2023",
+      "title": "국가서지 2030 국제회의 발표집",
+      "url": "https://www.oak.go.kr/nl-ir/handle/2020.oak/981"},
+     "국립중앙도서관 국가서지과 (2023). 국가서지 2030 국제회의 발표집. https://www.oak.go.kr/nl-ir/handle/2020.oak/981"),
+    ("학회 원고형식 — 단체저자는 인명처럼 뒤집지 않는다",
+     {"type": "report", "lang": "west", "authors": ["IFLA Study Group on the FRBR"],
+      "year": "2009", "title": "Functional Requirements for Bibliographic Records: Final Report",
+      "url": "http://www.ifla.org/VII/s13/frbr"},
+     "IFLA Study Group on the FRBR (2009). Functional Requirements for Bibliographic Records: Final Report. http://www.ifla.org/VII/s13/frbr"),
+    ("주요 오류 유형 5 — 국문 웹자료는 '출처:' 접두어",
+     {"type": "web", "lang": "ko", "authors": ["국립중앙도서관"], "date": "2020. 10. 2.",
+      "title": "국가서지", "url": "http://x.kr/a"},
+     "국립중앙도서관 (2020. 10. 2.). 국가서지. 출처: http://x.kr/a"),
+    ("주요 오류 유형 5 — 영문 웹자료는 'Available:' 접두어",
+     {"type": "web", "lang": "west", "authors": ["Smith, J."], "date": "2020, October 2",
+      "title": "A title here", "url": "http://x.org/a"},
+     "Smith, J. (2020, October 2). A title here. Available: http://x.org/a"),
+]
+# 단행본은 출판지·출판사가 모두 있어야 한다(공통기준 4.2 · 주요 오류 유형 체크리스트)
+STANDARD_VALIDATIONS = [
+    ({"type": "book", "lang": "ko", "authors": ["이수상"], "year": "2008",
+      "title": "디지털도서관운영론", "publisher": "한국도서관협회"}, "출판지"),
+    ({"type": "book", "lang": "ko", "authors": ["이수상"], "year": "2008",
+      "title": "디지털도서관운영론", "place": "서울"}, "출판사"),
+]
+
+
+def check_standard_rules() -> bool:
+    """규정 문서의 표기 예시대로 변환되는지 — AI·네트워크 없이 형식 변환만 검사."""
+    import formatter
+    ok = True
+    for label, entry, want in STANDARD_CASES:
+        got = formatter.format_entry(entry)
+        if got != want:
+            print(f"15) {label}\n     기대: {want}\n     실제: {got}")
+            ok = False
+    for entry, must_mention in STANDARD_VALIDATIONS:
+        issues = " ".join(formatter.validate_entry(entry))
+        if must_mention not in issues:
+            print(f"15) 단행본 {must_mention} 누락을 잡지 못함: {issues or '(지적 없음)'}")
+            ok = False
+    if ok:
+        print(f"15) 규정 표기 예시 {len(STANDARD_CASES)}건 + 단행본 필수요소 점검 통과")
+    return ok
+
+
 def job_id_of(r, step: str) -> str:
     """처리 요청 응답에서 job_id를 꺼낸다. 실패 시 서버가 알려준 이유를 그대로 보여준다."""
     if r.status_code != 200 or "job_id" not in r.json():
@@ -275,6 +352,9 @@ def wait_job(c, job_id, timeout=300):
 def main():
     # 서버를 부르기 전에 — 소스만 봐도 알 수 있는 문제부터 걸러 낸다
     if not check_versions():
+        sys.exit(1)
+    if not check_standard_rules():
+        print("\n== 규정 표기 점검 실패 ==")
         sys.exit(1)
     with httpx.Client(timeout=60) as c:
         # 서버 기동 대기 — 끝내 못 붙으면 원인을 분명히 알리고 끝낸다

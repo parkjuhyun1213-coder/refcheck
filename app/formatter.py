@@ -8,10 +8,37 @@ _SMALL_WORDS = {"a", "an", "the", "and", "or", "of", "in", "on", "for", "to",
                 "with", "at", "by", "from", "as", "but", "nor", "vs"}
 
 
+# 단체·기관 저자를 알아보는 단서. 공통기준 Ⅰ-6)은 단체명을 그대로 기재하도록 하며
+# (예: Public Library Association), 인명처럼 뒤집으면 'IFLA Study Group on the FRBR'이
+# 'FRBR, I. S. G. O. T.'가 되어 버린다.
+_ORG_FUNCTION_WORDS = {"of", "on", "the", "for", "and", "in", "at", "&"}
+_ORG_WORDS = {
+    "association", "society", "institute", "institution", "university", "college",
+    "school", "library", "libraries", "group", "committee", "council", "department",
+    "division", "ministry", "agency", "bureau", "center", "centre", "foundation",
+    "organization", "organisation", "board", "commission", "office", "museum",
+    "archives", "federation", "union", "corporation", "company", "press",
+    "national", "international", "federal", "administration", "network",
+    "consortium", "academy", "authority", "service", "services", "project",
+}
+
+
+def _is_org_name(name: str) -> bool:
+    """단체·기관 저자인지 — 인명 뒤집기를 건너뛸지 판단한다."""
+    words = [w for w in re.split(r"[\s,]+", name.strip()) if w]
+    if len(words) < 2:
+        return False  # 한 낱말은 원래 뒤집지 않는다(IFLA 등)
+    low = {w.lower().strip(".") for w in words}
+    # 인명에는 들어가지 않는 기능어(of·on·the…)나 기관 명칭어가 있으면 단체로 본다
+    return bool(low & _ORG_FUNCTION_WORDS) or bool(low & _ORG_WORDS)
+
+
 def _west_author(name: str) -> str:
-    """서양 저자명 → 'Last, F. M.' 형식."""
+    """서양 저자명 → 'Last, F. M.' 형식. 단체·기관명은 그대로 둔다."""
     name = name.strip().rstrip(".")
     if not name:
+        return name
+    if _is_org_name(name):
         return name
     if "," in name:  # 이미 Last, First 형태
         last, first = [p.strip() for p in name.split(",", 1)]
@@ -111,7 +138,9 @@ def format_entry(e: dict) -> str:
         if t == "journal":
             title = sentence_case(title)
             container = title_case(container)
-        elif t in ("book", "report"):
+        elif t in ("book", "report", "thesis"):
+            # 단독으로 간행되는 저작의 서명은 Title Case(공통기준 Ⅱ-1)(5)).
+            # 학위논문도 단행본과 같이 다룬다.
             title = title_case(title)
         elif t in ("newspaper", "web", "conference"):
             title = sentence_case(title)
@@ -254,6 +283,12 @@ def format_entry(e: dict) -> str:
             parts.append(f"{place}{e['publisher']}.")
         if e.get("url"):
             parts.append(e["url"])
+
+    # 온라인 자료의 URL 보전 — 학위논문·보고서·발표집·단행본 등은 유형별 분기에 URL
+    # 출력이 없어서, 원고에 적힌 주소가 변환 과정에서 통째로 사라지고 있었다.
+    # (학술지 논문은 공통기준 Ⅱ-1)(6)에 따라 DOI가 있으면 DOI만 쓴다)
+    if e.get("url") and not e.get("doi") and not any(e["url"] in p for p in parts):
+        parts.append(e["url"])
 
     s = " ".join(p for p in parts if p and p.strip())
     s = re.sub(r"\s{2,}", " ", s)

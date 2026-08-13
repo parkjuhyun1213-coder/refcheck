@@ -123,14 +123,22 @@ def kci_article_search(client: httpx.Client, title: str, author: str = "") -> di
                 if el is not None and (el.text or "").strip():
                     return el.text.strip()
             return ""
+        # 첫 <article-title>은 lang="original"(국문). 영문 제목은 lang="english"로 따로 온다.
         art_title = g(".//article-title", ".//articleTitle", ".//title")
         sim = _sim(title, art_title)
         if sim > best_sim:
             authors = [a.text.strip() for a in rec.iter("author") if a.text and a.text.strip()]
+            # 저자가 KCI에 등록한 공식 영문 표기. 영문화 목록을 지어내지 않고 이것을 쓴다.
+            authors_en = [a.get("english", "").strip() for a in rec.iter("author")
+                          if a.get("english", "").strip()]
+            title_en = next((t.text.strip() for t in rec.iter("article-title")
+                             if t.get("lang") == "english" and (t.text or "").strip()), "")
             best_sim = sim
             best = {
                 "title": art_title,
                 "authors": authors,
+                "title_en": title_en,
+                "authors_en": authors_en,
                 "container": g(".//journal-name", ".//journalName"),
                 "year": re.sub(r"\D", "", g(".//pub-year", ".//pubYear", ".//issue-date"))[:4],
                 "volume": g(".//volume"),

@@ -837,13 +837,21 @@ def draft_rules_from_diffs_ai(pairs: list[dict]) -> dict[int, dict]:
     return out
 
 
-def translate_to_english_ai(entries: list[dict]) -> list[dict]:
+def translate_to_english_ai(entries: list[dict], official: dict[int, dict] | None = None) -> list[dict]:
     """국문 참고문헌 → 영문 변환 목록(문편협 기준 9·10항).
+
+    official은 {entries 인덱스: {"title_en", "authors_en"}} — KCI에서 확인한 공식 영문
+    서지다. 번역으로 지어낸 제목·로마자 표기는 저자가 실제로 등록한 것과 달라지므로
+    (예: 'Kim, Junghyun' ↔ 공식 'Kim, Jeong Hyen'), 있으면 반드시 그것을 쓰게 한다.
+
     입력 entries 인덱스 기준 [{index, formatted}] 반환."""
     system = (
         "당신은 한국 학술지 참고문헌의 영문 변환 전문가입니다. 문편협 공통기준 9항·10항에 따라 "
         "국문 참고문헌을 영문 목록으로 변환하세요.\n"
         "규칙:\n"
+        "- '공식영문제목'·'공식영문저자'가 주어진 항목은 반드시 그 값을 쓰세요. 저자가 학술지에 "
+        "등록한 공식 표기이므로 다시 번역하거나 로마자 표기를 바꾸지 마세요. 다만 저자명은 "
+        "'성, 이름' 순으로 맞추세요(예: 'Youngmi Jung' → 'Jung, Youngmi').\n"
         "- 해외문헌 기술요소와 형식을 따르되, 저자 이름은 두문자가 아닌 전체 이름을 로마자로 기재 "
         "(예: 홍길동 → Hong, Gildong).\n"
         "- 학술지명·서명·기관명의 공식 영문명을 알고 있으면 그것을 사용하고, 확인할 수 없으면 "
@@ -852,7 +860,16 @@ def translate_to_english_ai(entries: list[dict]) -> list[dict]:
         "- 단행본: Author, Fullname (Year). Translated Title. Place: Publisher.\n"
         "- 원문에 없는 서지요소를 만들지 마세요."
     )
-    payload = [{"index": i, "참고문헌": e.get("raw", "")} for i, e in enumerate(entries)]
+    official = official or {}
+    payload = []
+    for i, e in enumerate(entries):
+        item = {"index": i, "참고문헌": e.get("raw", "")}
+        off = official.get(i) or {}
+        if off.get("title_en"):
+            item["공식영문제목"] = off["title_en"]
+        if off.get("authors_en"):
+            item["공식영문저자"] = off["authors_en"]
+        payload.append(item)
     out: list[dict] = []
     cache = len(payload) > BATCH_SIZE
     for i in range(0, len(payload), BATCH_SIZE):
