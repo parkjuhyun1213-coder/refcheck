@@ -406,6 +406,21 @@ def main():
         assert "참고문헌" in r.text
         print("2) 메인 페이지 OK,", len(r.text), "bytes")
 
+        # 이용 안내는 학회에 주소만 적어 보내는 문서라 접근 코드 없이 열려야 한다.
+        # 쿠키를 쓰지 않는 새 클라이언트로 확인한다.
+        with httpx.Client(timeout=30) as anon:
+            g = anon.get(BASE + "/guide")
+        if g.status_code != 200 or "refcheck.kr" not in g.text:
+            print(f"2-1) 이용 안내 페이지 실패: HTTP {g.status_code}")
+            sys.exit(1)
+        idx = r.text
+        if "'/guide'" not in idx or 'href="/guide"' not in idx:
+            # 접근 코드 대화상자는 모달이라, 그 안에 길이 없으면 코드 없는 사람은
+            # 머릿글 버튼에 손이 닿지 않는다
+            print("2-1) 이용 안내로 가는 링크가 머릿글 또는 코드 입력창에 없습니다.")
+            sys.exit(1)
+        print("2-1) 이용 안내 페이지 공개 OK,", len(g.text), "bytes (머릿글·코드창 링크 확인)")
+
         r = c.get(BASE + "/api/styles").json()
         print("3) 기준 목록:", [s["name"] for s in r["styles"]])
 

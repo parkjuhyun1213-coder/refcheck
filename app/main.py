@@ -37,7 +37,7 @@ app = FastAPI(title="파일 기반 참고문헌 표준화·검증 에이전트")
 # 화면(index.html)과 프로그램의 버전이 어긋난 채 배포되면 새 기능이 조용히 무시된다.
 # 두 파일에 같은 값을 두고 /api/status에서 대조해 관리자 화면에 경고를 띄운다.
 # 기능을 추가·변경할 때 main.py와 index.html의 APP_VERSION을 함께 올릴 것.
-APP_VERSION = "2026.08.14-2"
+APP_VERSION = "2026.08.14-3"
 
 APP_DIR = Path(__file__).parent
 JOBS: dict[str, dict] = {}
@@ -1096,6 +1096,17 @@ def _job_public(job: dict) -> dict:
 @app.get("/", response_class=HTMLResponse)
 def index():
     return (APP_DIR / "static" / "index.html").read_text(encoding="utf-8")
+
+
+@app.get("/guide", response_class=HTMLResponse)
+def guide():
+    """이용 안내 — 접근 코드 없이 볼 수 있다.
+
+    학회에 서비스를 안내할 때 주소만 적어 보내면 되도록 공개해 둔다.
+    코드를 아직 받지 못한 분이 먼저 읽어 보는 것이 이 문서의 쓸모다.
+    접속 코드 자체는 문서에 담지 않는다(빈칸으로 두고 학회가 따로 안내).
+    """
+    return (APP_DIR / "static" / "guide.html").read_text(encoding="utf-8")
 
 
 @app.get("/api/status")

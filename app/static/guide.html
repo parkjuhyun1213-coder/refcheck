@@ -1,0 +1,410 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>이용 안내 — 참고문헌 표준화·검증 에이전트</title>
+<meta name="description" content="문헌정보학 4개 학회 공동 이용. 참고문헌을 문편협 공통기준에 맞게 정리하고 실존 여부까지 검증합니다.">
+<style>
+  :root{
+    --paper:#ffffff; --ground:#e9eef4;
+    --ink:#17232f; --ink2:#48596a; --ink3:#7c8b9b;
+    --line:#d5dee8; --rule:#b6c6d6;
+    --navy:#1f4e79; --navy-deep:#16385a; --navy-soft:#e8f0f8;
+    --amber:#7d5400; --amber-soft:#fbf2df; --amber-line:#e6d3a8;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --paper:#151d25; --ground:#0c1218;
+      --ink:#e7eef5; --ink2:#a9bacb; --ink3:#7c8b9b;
+      --line:#2b3a49; --rule:#3b4d5f;
+      --navy:#89b8e4; --navy-deep:#b3d3f0; --navy-soft:#182a3c;
+      --amber:#e0b45f; --amber-soft:#2a2416; --amber-line:#4a3d1c;
+    }
+  }
+  :root[data-theme="dark"]{
+    --paper:#151d25; --ground:#0c1218;
+    --ink:#e7eef5; --ink2:#a9bacb; --ink3:#7c8b9b;
+    --line:#2b3a49; --rule:#3b4d5f;
+    --navy:#89b8e4; --navy-deep:#b3d3f0; --navy-soft:#182a3c;
+    --amber:#e0b45f; --amber-soft:#2a2416; --amber-line:#4a3d1c;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--ground); color:var(--ink);
+    font-family:"Pretendard","Malgun Gothic","맑은 고딕","Apple SD Gothic Neo",system-ui,sans-serif;
+    font-size:10.6pt; line-height:1.62; -webkit-font-smoothing:antialiased;
+  }
+
+  /* 화면에서만 보이는 도구 막대 */
+  .bar{
+    position:sticky; top:0; z-index:5; background:var(--navy); color:#fff;
+    padding:9px 16px; display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+    font-size:13px;
+  }
+  .bar b{font-weight:700; letter-spacing:-.01em}
+  .bar .sp{flex:1}
+  .bar a, .bar button{
+    font:inherit; color:#fff; background:rgba(255,255,255,.14);
+    border:1px solid rgba(255,255,255,.3); border-radius:6px;
+    padding:5px 11px; cursor:pointer; text-decoration:none;
+  }
+  .bar a:hover, .bar button:hover{background:rgba(255,255,255,.26)}
+  .bar a:focus-visible, .bar button:focus-visible{outline:2px solid #fff; outline-offset:2px}
+
+  .sheet{
+    background:var(--paper); width:210mm; min-height:297mm;
+    margin:8mm auto; padding:16mm 17mm 14mm;
+    box-shadow:0 2px 14px rgba(20,40,60,.14);
+    display:flex; flex-direction:column; gap:9mm;
+  }
+  h1,h2,h3{
+    font-family:"Nanum Myeongjo","Batang","바탕","Apple SD Gothic Neo",serif;
+    margin:0; text-wrap:balance; letter-spacing:-.01em;
+  }
+  h1{font-size:21pt; line-height:1.25; color:var(--navy-deep); font-weight:700}
+  h2{
+    font-size:13pt; color:var(--navy-deep); font-weight:700;
+    padding-bottom:2.5mm; border-bottom:1.6px solid var(--rule); margin-bottom:3.5mm;
+  }
+  h3{font-size:11pt; color:var(--ink); font-weight:700; margin-bottom:1.5mm}
+  p{margin:0 0 2.5mm}
+  p:last-child{margin-bottom:0}
+  strong{font-weight:700; color:var(--navy-deep)}
+  .lede{font-size:10.9pt; color:var(--ink2); max-width:62ch}
+
+  .masthead{display:flex; gap:6mm; align-items:flex-start; border-bottom:3px solid var(--navy); padding-bottom:5mm}
+  .mark{
+    flex:none; width:15mm; height:15mm; border-radius:3px; background:var(--navy);
+    color:#fff; display:grid; place-items:center; font-size:15pt; font-weight:700;
+    font-family:"Nanum Myeongjo","Batang","바탕",serif; letter-spacing:-.02em;
+  }
+  .eyebrow{
+    font-size:8.4pt; letter-spacing:.14em; color:var(--navy); font-weight:700;
+    text-transform:uppercase; margin-bottom:1.5mm;
+  }
+  .addr{font-size:9.4pt; color:var(--ink2); margin-top:2.5mm}
+  .addr b{color:var(--navy-deep); font-size:10.4pt; letter-spacing:.01em}
+
+  section{break-inside:avoid}
+  .rail{display:grid; grid-template-columns:4mm 1fr; gap:0 5mm}
+  .rail::before{content:""; background:var(--navy-soft); border-left:2px solid var(--navy); border-radius:1px}
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:4mm 7mm}
+  .grid3{display:grid; grid-template-columns:repeat(3,1fr); gap:4mm 5mm}
+
+  .card{border:1px solid var(--line); border-radius:4px; padding:3.5mm 4mm; background:var(--paper)}
+  .card h3{margin-bottom:1mm}
+  .card p{font-size:9.7pt; color:var(--ink2); margin:0}
+
+  table{border-collapse:collapse; width:100%; font-size:9.7pt}
+  th,td{text-align:left; padding:2.2mm 3mm; border-bottom:1px solid var(--line); vertical-align:top}
+  thead th{
+    background:var(--navy-soft); color:var(--navy-deep); font-weight:700;
+    font-size:8.8pt; letter-spacing:.03em; border-bottom:1.5px solid var(--rule);
+  }
+  tbody th{font-weight:700; color:var(--ink); white-space:nowrap}
+  .tw{overflow-x:auto}
+
+  ol.steps{list-style:none; margin:0; padding:0; display:grid; gap:3mm; counter-reset:s}
+  ol.steps li{display:grid; grid-template-columns:7mm 1fr; gap:4mm; align-items:start; counter-increment:s}
+  ol.steps li::before{
+    content:counter(s); font-family:"Nanum Myeongjo","Batang","바탕",serif;
+    font-size:11pt; font-weight:700; color:#fff; background:var(--navy);
+    width:7mm; height:7mm; border-radius:50%; display:grid; place-items:center;
+    line-height:1; margin-top:.4mm;
+  }
+  ol.steps p{font-size:9.9pt; color:var(--ink2); margin:.8mm 0 0}
+
+  ul.tight{margin:0; padding-left:4.5mm; font-size:9.7pt; color:var(--ink2)}
+  ul.tight li{margin-bottom:1mm}
+  ul.tight li:last-child{margin-bottom:0}
+
+  .chips{display:flex; flex-wrap:wrap; gap:1.6mm}
+  .chip{
+    font-size:8.7pt; padding:.9mm 2.4mm; border-radius:2.5px;
+    background:var(--navy-soft); color:var(--navy-deep); border:1px solid var(--line);
+  }
+  .chip.kr{background:var(--navy); color:#fff; border-color:var(--navy)}
+
+  .blank{
+    display:inline-block; min-width:26mm; border-bottom:1.4px solid var(--rule);
+    color:var(--ink3); text-align:center; font-size:9.6pt;
+  }
+  code{
+    font-family:"Consolas","D2Coding",ui-monospace,monospace; font-size:9.3pt;
+    background:var(--navy-soft); color:var(--navy-deep); padding:.4mm 1.4mm; border-radius:2px;
+  }
+
+  .callout{
+    background:var(--amber-soft); border:1px solid var(--amber-line);
+    border-left:3px solid var(--amber); border-radius:3px; padding:3.5mm 4.5mm;
+  }
+  .callout h3{color:var(--amber); font-size:10.4pt}
+  .callout p{color:var(--ink2); font-size:9.7pt}
+
+  .quiet{background:var(--navy-soft); border-radius:3px; padding:3.5mm 4.5mm; font-size:9.6pt; color:var(--ink2)}
+
+  footer{
+    margin-top:auto; padding-top:4mm; border-top:1px solid var(--line);
+    font-size:8.8pt; color:var(--ink3); display:flex; justify-content:space-between; gap:5mm;
+  }
+
+  @media print{
+    :root{
+      --paper:#ffffff; --ground:#ffffff;
+      --ink:#17232f; --ink2:#48596a; --ink3:#7c8b9b;
+      --line:#d5dee8; --rule:#b6c6d6;
+      --navy:#1f4e79; --navy-deep:#16385a; --navy-soft:#e8f0f8;
+      --amber:#7d5400; --amber-soft:#fbf2df; --amber-line:#e6d3a8;
+    }
+    @page{size:A4; margin:0}
+    body{background:#fff}
+    .bar{display:none}
+    .sheet{margin:0; box-shadow:none; width:auto; min-height:0; padding:14mm 16mm; break-after:page}
+    .sheet:last-child{break-after:auto}
+    *{-webkit-print-color-adjust:exact; print-color-adjust:exact}
+  }
+  @media (max-width:230mm){
+    .sheet{width:auto; margin:0; padding:8mm 6mm; min-height:0}
+    .grid3, .grid2{grid-template-columns:1fr}
+  }
+  @media (prefers-reduced-motion:reduce){*{animation:none!important; transition:none!important}}
+</style>
+</head>
+<body>
+
+<div class="bar">
+  <b>📚 이용 안내</b>
+  <span class="sp"></span>
+  <button type="button" onclick="window.print()">🖨 인쇄 · PDF 저장</button>
+  <a href="/">서비스로 이동 →</a>
+</div>
+
+<div class="sheet">
+  <div class="masthead">
+    <div class="mark">참</div>
+    <div style="flex:1">
+      <div class="eyebrow">문헌정보학 4개 학회 공동 이용</div>
+      <h1>참고문헌 표준화·검증 에이전트<br>도입 안내</h1>
+      <div class="addr">
+        <b>refcheck.kr</b> &nbsp;·&nbsp; 한국도서관·정보학회 · 한국문헌정보학회 · 한국비블리아학회 · 한국정보관리학회
+      </div>
+    </div>
+  </div>
+
+  <section>
+    <p class="lede">
+      원고 파일을 올리면 참고문헌을 뽑아 <strong>「인용 및 참고문헌의 기술요소와 형식에 관한 공통기준」(2024. 6. 17. 개정)</strong>에
+      맞게 정리하고, 그 문헌이 <strong>실제로 존재하는지</strong>까지 대조해 돌려드립니다.
+      네 학회가 같은 공통기준을 쓰는 만큼, 투고 논문의 참고문헌을 <strong>한 곳에서 이어서 관리</strong>하기 위해 만들었습니다.
+    </p>
+  </section>
+
+  <section class="rail">
+    <div>
+      <h2>왜 통합 서비스인가</h2>
+      <div class="grid2">
+        <div>
+          <h3>같은 기준, 다른 결과</h3>
+          <p style="font-size:9.9pt;color:var(--ink2)">
+            네 학회가 동일한 공통기준을 채택했지만, 기준에 명시되지 않은 부분은 학회마다 편집 관행이 다릅니다.
+            그 차이는 어느 규정집에도 적혀 있지 않고 <strong>발행본에만 남습니다</strong>.
+          </p>
+        </div>
+        <div>
+          <h3>흩어지면 쌓이지 않는다</h3>
+          <p style="font-size:9.9pt;color:var(--ink2)">
+            학회별로 따로 점검하면 그 판단이 기록되지 않아 매 호 같은 지적이 반복됩니다.
+            한곳에 모으면 <strong>편집위원회의 판단이 다음 원고에 자동으로 반영</strong>됩니다.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>원고 한 편에 해 주는 일</h2>
+    <div class="grid3">
+      <div class="card">
+        <h3>형식 정리</h3>
+        <p>유형별 기술형식, 저자 표기, 영문 대소문자, 국내→서양→동양 배열, 동일 저자·연도 a·b·c 부기까지 자동 정리.</p>
+      </div>
+      <div class="card">
+        <h3>실존 검증</h3>
+        <p>아홉 곳의 서지 데이터베이스와 대조합니다. 어디에서도 찾지 못한 문헌은 <strong>실존 의심</strong>으로 표시해, 생성형 AI가 지어낸 인용을 걸러냅니다.</p>
+      </div>
+      <div class="card">
+        <h3>철회 논문 경고</h3>
+        <p>인용한 문헌이 철회·정정·우려표명된 논문이면 경고합니다. 게재 후에 발견되면 되돌리기 어려운 문제입니다.</p>
+      </div>
+      <div class="card">
+        <h3>서지 자동 교정</h3>
+        <p>공식 서지와 다른 발행연도·권·호·면수, 단행본 출판사를 찾아 고칠 내용을 제안하거나 바로 반영합니다.</p>
+      </div>
+      <div class="card">
+        <h3>본문 ↔ 목록 대조</h3>
+        <p>본문에 인용됐는데 목록에 없는 문헌, 목록에만 있고 본문에 없는 문헌을 찾아냅니다.</p>
+      </div>
+      <div class="card">
+        <h3>영문화 목록</h3>
+        <p>국문 참고문헌의 영문 병기 목록을 만듭니다. 저자가 KCI에 등록한 <strong>공식 영문 제목·성명</strong>을 그대로 씁니다.</p>
+      </div>
+    </div>
+    <div style="margin-top:4mm">
+      <div style="font-size:8.8pt;letter-spacing:.1em;color:var(--navy);font-weight:700;margin-bottom:1.8mm">대조하는 정보원 아홉 곳</div>
+      <div class="chips">
+        <span class="chip kr">KCI</span>
+        <span class="chip kr">국립중앙도서관</span>
+        <span class="chip kr">국회도서관</span>
+        <span class="chip">Crossref</span>
+        <span class="chip">OpenAlex</span>
+        <span class="chip">Semantic Scholar</span>
+        <span class="chip">DataCite</span>
+        <span class="chip">DOAJ</span>
+        <span class="chip">URL 접속 확인</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>바로 써 보기</h2>
+    <ol class="steps">
+      <li>
+        <div>
+          <h3>refcheck.kr 접속</h3>
+          <p>설치할 것이 없습니다. 인터넷 창에서 <code>refcheck.kr</code>을 여시면 됩니다.</p>
+        </div>
+      </li>
+      <li>
+        <div>
+          <h3>코드 입력</h3>
+          <p>
+            첫 화면에서 아래 코드를 입력하십시오. <strong>편집위원·(부)편집위원장은 두 칸을 모두 채워야</strong> 권한이 확인됩니다.
+          </p>
+          <div class="quiet" style="margin-top:2mm">
+            학회 코드 <span class="blank">〇〇〇</span>
+            &nbsp;&nbsp; 역할 코드 <span class="blank">〇〇〇</span>
+            <span style="color:var(--ink3);font-size:8.9pt"> — 소속 학회 편집위원회에서 안내</span>
+          </div>
+        </div>
+      </li>
+      <li>
+        <div>
+          <h3>원고 올리기</h3>
+          <p>
+            HWPX · DOCX · PDF · TXT (논문당 10MB 이내, 구형 HWP는 HWPX로 저장 후). 여러 편을 한 번에 올려도 됩니다.
+            정리된 목록과 검증 결과를 화면에서 확인하고 DOCX·TXT·RIS·BibTeX으로 내려받습니다.
+          </p>
+        </div>
+      </li>
+    </ol>
+  </section>
+
+  <footer>
+    <span>참고문헌 표준화·검증 에이전트 도입 안내</span>
+    <span>1 / 2</span>
+  </footer>
+</div>
+
+<div class="sheet">
+  <section>
+    <h2>권한별로 할 수 있는 일</h2>
+    <div class="tw">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:42%">기능</th>
+            <th style="width:19%">이용자<br><span style="font-weight:400;color:var(--ink2)">투고자·연구자</span></th>
+            <th style="width:19%">편집위원</th>
+            <th style="width:20%">(부)편집위원장</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><th>원고 처리·결과 내려받기</th><td>○</td><td>○</td><td>○</td></tr>
+          <tr><th>우리 학회 처리 통계</th><td>—</td><td>○</td><td>○</td></tr>
+          <tr><th>우리 학회 원고 관리·열람</th><td>—</td><td>○</td><td>○</td></tr>
+          <tr><th>발행본 비교 <span style="font-weight:400;color:var(--ink2)">(투고 원고 ↔ 처리 결과 ↔ 최종 발행본)</span></th><td>—</td><td>○</td><td>○</td></tr>
+          <tr><th>차이 발견 시 채택 요청</th><td>—</td><td>○</td><td>○</td></tr>
+          <tr><th><strong>채택 요청 승인 → 우리 학회 기준으로 등록</strong></th><td>—</td><td>—</td><td><strong>○</strong></td></tr>
+          <tr><th>보관 자료 삭제</th><td>—</td><td>—</td><td>○</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p style="font-size:9.6pt;color:var(--ink2);margin-top:3mm">
+      <strong>(부)편집위원장께 부탁드리는 일은 하나입니다.</strong>
+      편집위원이 발행본 비교에서 찾아 올린 <strong>채택 요청을 승인</strong>해 주시는 것입니다.
+      승인된 내용은 그 학회 이용자에게만 <strong>‘○○학회 제안’</strong>으로 표시되어, 다음 투고자부터 같은 지적을 받지 않습니다.
+      규정에 적히지 않은 편집 관행이 이 과정으로 쌓입니다.
+    </p>
+  </section>
+
+  <section>
+    <h2>발행본 비교 — 이 서비스의 핵심</h2>
+    <div class="grid2">
+      <div>
+        <p style="font-size:9.9pt;color:var(--ink2)">
+          투고 단계의 원고, 에이전트가 정리한 결과, 학회지 최종 발행본을 <strong>세 단으로 나란히</strong> 놓고 항목별로 대조합니다.
+          편집위원회가 실제로 무엇을 고쳤는지가 그대로 드러납니다.
+        </p>
+      </div>
+      <div>
+        <ul class="tight">
+          <li><strong>발행본 파일을 올리는 방법</strong> — 구두점·배열 같은 형식 관행까지 확인됩니다.</li>
+          <li><strong>KCI에서 자동으로 가져오는 방법</strong> — 파일 없이 논문명만으로. 서지요소 대조에 적합합니다.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>원고 보관과 개인정보</h2>
+    <div class="quiet">
+      <p>
+        올라온 원고 원본은 발행본 비교를 위해 서버에 보관되며, <strong>소속 학회의 편집위원·(부)편집위원장만</strong> 열람할 수 있습니다.
+        다른 학회의 자료는 서로 보이지 않습니다. 이 사실은 이용자가 원고를 올리는 화면에도 그대로 고지됩니다.
+      </p>
+      <p style="margin-top:2mm">
+        보관 자료는 <strong>학회 참고문헌 기술을 개선하는 목적으로만</strong> 활용하며, 심사·편집 목적 외로 이용하거나 외부에 제공하지 않습니다.
+        보관을 원하지 않는 이용자를 위해 <strong>‘참고문헌만 붙여넣기’</strong> 방식을 함께 제공합니다 — 이 경우 원고 파일이 서버에 남지 않습니다.
+        보관이 끝난 자료는 (부)편집위원장이 언제든 삭제할 수 있습니다.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>이용 비용</h2>
+    <div class="callout">
+      <h3>2026년은 무료입니다</h3>
+      <p>올해는 네 학회 모두 비용 없이 이용하실 수 있습니다. 편집위원회에서 충분히 써 보시고 판단해 주시기 바랍니다.</p>
+      <p style="margin-top:2mm">
+        2027년부터는 <strong>학회지별 실제 사용량에 따른 실비</strong>로 운영할 계획입니다.
+        현재 <strong>학회지당 연 20만 원 안팎</strong>으로 예상하고 있으나, 올해 사용량을 집계한 뒤 각 학회와 협의해 확정하겠습니다.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>문의</h2>
+    <div class="grid2">
+      <div>
+        <p style="font-size:9.9pt;color:var(--ink2)">
+          <strong>전남대학교 문헌정보학과 박주현 교수</strong><br>
+          <a href="mailto:park51566@jnu.ac.kr" style="color:var(--navy)">park51566@jnu.ac.kr</a>
+        </p>
+      </div>
+      <div>
+        <p style="font-size:9.9pt;color:var(--ink2)">
+          접속 코드 발급·변경, 편집위원 계정 추가, 학회별 기준 등록에 관한 사항은 위 연락처로 문의해 주십시오.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <span>참고문헌 표준화·검증 에이전트 도입 안내 &nbsp;·&nbsp; refcheck.kr</span>
+    <span>2 / 2</span>
+  </footer>
+</div>
+
+</body>
+</html>

@@ -120,6 +120,8 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
   <span class="hspace"></span>
   <button onclick="resetAll()" title="처리 결과와 선택 파일을 지웁니다 (학회 코드·로그인은 유지)">🗒 새 논문</button>
   <button onclick="openPast()" title="이전에 처리한 결과를 다시 보고 내려받습니다">📂 지난 결과</button>
+  <!-- 이용 안내는 접근 코드 없이도 열린다 — 코드를 못 받은 분이 먼저 읽어볼 수 있어야 한다 -->
+  <button onclick="window.open('/guide','_blank','noopener')" title="서비스 소개·권한별 기능·이용 비용 안내 (새 창)">📄 이용 안내</button>
   <span id="aiBadge" class="badge" onclick="openModels()" style="cursor:pointer" title="사용 중인 AI 엔진과 선택 가능한 모드를 봅니다">엔진 확인 중…</span>
   <span id="roleBadge" class="badge" style="display:none"></span>
   <button id="kbBtn" onclick="openKb()" style="display:none">📋 기준·제안 관리</button>
@@ -438,6 +440,12 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
       <b>편집위원·편집위원장</b> 코드로 입장하면 학회 통계·원고 관리·발행본 비교를 이용할 수 있습니다.
       코드가 없다면 소속 학회 편집위원회 또는 관리자에게 문의해 주세요.
     </div>
+    <!-- 이 대화상자는 모달이라 코드가 없으면 머릿글의 '이용 안내'에 손이 닿지 않는다.
+         정작 안내가 필요한 사람이 못 보게 되므로 여기에도 길을 낸다. -->
+    <div class="hint" style="margin-bottom:10px">
+      처음 오셨나요? <a href="/guide" target="_blank" rel="noopener"><b>이용 안내 보기</b></a>
+      — 어떤 서비스인지, 코드는 어떻게 받는지 코드 없이도 읽으실 수 있습니다.
+    </div>
     <div id="accessCurrent" class="hint" style="display:none;background:var(--accent-soft);border-radius:8px;padding:7px 11px;margin-bottom:10px"></div>
     <div class="field">
       <label>학회 코드</label>
@@ -644,7 +652,7 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
 // main.py의 APP_VERSION과 반드시 같아야 한다. 서버에 index.html이 덜 복사됐는지
 // 알아내려고 일부러 손으로 박아 두는 값이라 자동 주입하지 않는다.
 // (test_server.py가 두 값이 어긋나면 실패시킨다)
-const UI_VERSION='2026.08.14-2';
+const UI_VERSION='2026.08.14-3';
 const $=id=>document.getElementById(id);
 let pickedFiles=[], styles=[], currentJob=null, pollTimer=null, etaTimer=null;
 
