@@ -52,6 +52,10 @@ textarea{resize:vertical}
 .chip.warn{background:#fdecea;color:var(--warn)}
 .chip.ok{background:#e7f4e8;color:var(--ok)}
 .chip.amber{background:#fff4d6;color:var(--amber)}
+/* 필터 칩 — 누르면 그 항목들만 추려 보인다. active는 켜진 필터 표시 */
+.fchip{cursor:pointer;user-select:none}
+.fchip:hover{filter:brightness(.93)}
+.chip.active{outline:2px solid currentColor;outline-offset:1px}
 .result-file{border:1px solid var(--line);border-radius:12px;margin-bottom:14px;overflow:hidden}
 .result-file>.head{padding:12px 16px;background:#f8fafc;display:flex;align-items:center;gap:10px;cursor:pointer;flex-wrap:wrap}
 .result-file>.head b{font-size:13.5px}
@@ -699,7 +703,7 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
 // main.py의 APP_VERSION과 반드시 같아야 한다. 서버에 index.html이 덜 복사됐는지
 // 알아내려고 일부러 손으로 박아 두는 값이라 자동 주입하지 않는다.
 // (test_server.py가 두 값이 어긋나면 실패시킨다)
-const UI_VERSION='2026.08.16-1';
+const UI_VERSION='2026.08.16-2';
 const $=id=>document.getElementById(id);
 let pickedFiles=[], styles=[], currentJob=null, pollTimer=null, etaTimer=null;
 
@@ -1301,22 +1305,70 @@ function metaRows(it){
   return rows.some(r=>r.bad)?rows:null;
 }
 
-function fileChips(res){
+// 요약 칩 = 필터 단추. 누르면 해당 항목만 목록에 추려 보이고, 같은 칩을 다시 누르면 전체로.
+// (교정·작성 제안 칩의 숫자는 '건수 합계'라, 추려진 '문헌 수'와 다를 수 있다 — 필터 안내줄이 알려준다)
+function fileChips(res,idx){
   if(res.error) return '<span class="chip warn">오류</span>';
   const s=res.summary||{};
-  return `<span class="chip">문헌 ${s.total||0}건</span>
-    <span class="chip ${s.changed?'':'ok'}">형식 수정 ${s.changed||0}</span>
-    <span class="chip ${s.needs_check?'warn':'ok'}">확인 필요 ${s.needs_check||0}</span>`
-    +(res.verify_enabled?`<span class="chip ok">실존 확인 ${s.verified||0}</span>`:'')
-    +(s.retracted?`<span class="chip warn">⚠ 철회 인용 ${s.retracted}</span>`:'')
-    +(s.suspect?`<span class="chip warn">실존 의심 ${s.suspect}</span>`:'')
-    +(s.suggestions?`<span class="chip amber">교정 ${s.suggestions}건</span>`:'')
-    +(s.tips?`<span class="chip amber">💡 작성 제안 ${s.tips}건</span>`:'')
-    +(res.crosscheck?`<span class="chip ${s.crosscheck_issues?'warn':'ok'}">본문 대조 이슈 ${s.crosscheck_issues||0}</span>`:'');
+  const c=(key,cls,label,tip)=>`<span class="chip ${cls} fchip" data-fchip="${idx}" data-fkey="${key}" onclick="chipFilter(event,'${idx}','${key}')" title="${tip||'이 항목들만 추려 봅니다 (다시 누르면 전체)'}">${label}</span>`;
+  return c('','',`문헌 ${s.total||0}건`,'전체 보기')
+    +c('changed', s.changed?'':'ok', `형식 수정 ${s.changed||0}`)
+    +c('issues', s.needs_check?'warn':'ok', `확인 필요 ${s.needs_check||0}`)
+    +(res.verify_enabled?c('verified','ok',`실존 확인 ${s.verified||0}`):'')
+    +(s.retracted?c('retracted','warn',`⚠ 철회 인용 ${s.retracted}`):'')
+    +(s.suspect?c('suspect','warn',`실존 의심 ${s.suspect}`):'')
+    +(s.suggestions?c('sugg','amber',`교정 ${s.suggestions}건`):'')
+    +(s.tips?c('tips','amber',`💡 작성 제안 ${s.tips}건`):'')
+    +(res.crosscheck?`<span class="chip ${s.crosscheck_issues?'warn':'ok'} fchip" onclick="gotoCross(event,'${idx}')" title="본문 대조 결과로 이동">본문 대조 이슈 ${s.crosscheck_issues||0}</span>`:'');
+}
+
+const FILTER_LABEL={changed:'형식이 수정된 문헌',issues:'확인이 필요한 문헌',verified:'실존 확인된 문헌',
+  sugg:'교정 제안이 있는 문헌',tips:'작성 제안이 붙은 문헌',retracted:'철회 인용 문헌',
+  suspect:'실존 의심 문헌',warn:'미확인·불일치 문헌',bad:'의심·철회 문헌',
+  pass:'실존 통과 문헌',skip:'대조를 생략한 문헌'};
+function chipFilter(ev,idx,key){
+  if(ev) ev.stopPropagation();               // 칩 클릭이 결과 접기/펼치기로 번지지 않게
+  window._refFilter=window._refFilter||{};
+  window._refFilter[idx]=(key&&window._refFilter[idx]!==key)?key:'';
+  const rf=ev&&ev.target.closest('.result-file');
+  if(rf) rf.classList.add('open');           // 접힌 결과라면 펼쳐서 필터 결과를 보여준다
+  applyRefFilter(idx);
+  if(window._refFilter[idx]){
+    const list=$('reflist'+idx);
+    if(list) list.scrollIntoView({behavior:'smooth',block:'nearest'});
+  }
+}
+function applyRefFilter(idx){
+  const key=(window._refFilter||{})[idx]||'';
+  const list=$('reflist'+idx); if(!list) return;
+  let shown=0,total=0;
+  list.querySelectorAll('.refitem').forEach(el=>{
+    total++;
+    const on=!key||(el.dataset.k||'').split(' ').includes(key);
+    el.style.display=on?'':'none'; if(on) shown++;
+  });
+  // 필터 중에는 언어권 묶음 표제를 숨긴다 — 빈 묶음 표제만 남아 혼란을 준다
+  list.querySelectorAll('.group-label').forEach(el=>{ el.style.display=key?'none':''; });
+  const note=$('refFilterNote'+idx);
+  if(note){
+    note.style.display=key?'':'none';
+    if(key) note.innerHTML=`🔍 <b>${FILTER_LABEL[key]||''} ${shown}건</b>만 표시 중 (전체 ${total}건) — `
+      +`<a href="#" onclick="chipFilter(event,'${idx}','');return false">전체 보기</a>`;
+  }
+  document.querySelectorAll(`[data-fchip="${idx}"]`).forEach(el=>{
+    el.classList.toggle('active', !!key&&el.dataset.fkey===key);
+  });
+}
+function gotoCross(ev,idx){
+  if(ev) ev.stopPropagation();
+  const rf=ev&&ev.target.closest('.result-file');
+  if(rf) rf.classList.add('open');
+  const el=$('cross'+idx); if(el) el.scrollIntoView({behavior:'smooth'});
 }
 // 3색 검증 요약 + 이 처리가 해 준 일(가치 지표) — items에서 직접 세므로 옛 이력에도 적용된다
-function valueStrip(res){
+function valueStrip(res,idx){
   const items=res.items||[]; if(!items.length) return '';
+  const c=(key,cls,label)=>`<span class="chip ${cls} fchip" data-fchip="${idx}" data-fkey="${key}" onclick="chipFilter(event,'${idx}','${key}')" title="이 항목들만 추려 봅니다 (다시 누르면 전체)">${label}</span>`;
   const st=x=>(x.verify||{}).status||'';
   // 철회된 문헌은 검증 자체는 성공해도 '통과'가 아니다 — 한쪽에만 센다
   const isBad=it=>st(it)==='suspect'||(((it.verify||{}).retraction)||{}).severe;
@@ -1328,13 +1380,13 @@ function valueStrip(res){
   const nApplied=items.filter(it=>(it.suggestions||[]).some(sg=>sg.applied)).length;
   const nChanged=items.filter(it=>it.changed).length;
   let h='<div class="valstrip"><b>이 처리에서 한 일:</b>';
-  h+=`<span class="chip">형식 정리 ${nChanged}건</span>`;
-  if(nSugg) h+=`<span class="chip amber">서지 교정 ${nSugg}건${nApplied?` (자동 적용 ${nApplied}건)`:' 제안'}</span>`;
+  h+=c('changed','',`형식 정리 ${nChanged}건`);
+  if(nSugg) h+=c('sugg','amber',`서지 교정 ${nSugg}건${nApplied?` (자동 적용 ${nApplied}건)`:' 제안'}`);
   if(res.verify_enabled){
-    h+=`<span class="chip ok">✓ 실존 통과 ${pass}</span>`;
-    h+=`<span class="chip ${warn?'amber':'ok'}">미확인·불일치 ${warn}</span>`;
-    h+=`<span class="chip ${bad?'warn':'ok'}">의심·철회 ${bad}</span>`;
-    if(skip) h+=`<span class="chip">대조 생략 ${skip}</span>`;
+    h+=c('pass','ok',`✓ 실존 통과 ${pass}`);
+    h+=c('warn',warn?'amber':'ok',`미확인·불일치 ${warn}`);
+    h+=c('bad',bad?'warn':'ok',`의심·철회 ${bad}`);
+    if(skip) h+=c('skip','',`대조 생략 ${skip}`);
     h+=`<span class="hint">‘미확인’은 DB 미수록(ISBN 없는 자료 등)일 수도 있습니다 — 허위라는 뜻이 아닙니다</span>`;
   }
   return h+'</div>';
@@ -1345,7 +1397,7 @@ function fileBodyHtml(job,idx,viewHid){
   const s=res.summary||{};
   let h='';
     for(const w of res.warnings||[]) h+=`<div class="warnbox">⚠ ${esc(w)}</div>`;
-    h+=valueStrip(res);
+    h+=valueStrip(res,idx);
 
     // 다운로드
     if(viewHid){
@@ -1381,14 +1433,30 @@ function fileBodyHtml(job,idx,viewHid){
     if(s.retracted) h+=`<div class="errbox" style="margin-bottom:8px"><b>⚠ 철회(Retraction)된 문헌을 인용하고 있습니다 (${s.retracted}건).</b> 아래 목록의 붉은 표시 항목을 확인하고 인용 유지 여부를 재검토하세요.</div>`;
     if(s.suspect) h+=`<div class="warnbox">⚠ 다중 DB(Crossref·OpenAlex·Semantic Scholar)에서 찾지 못한 실존 의심 문헌이 ${s.suspect}건 있습니다. AI 생성 인용이나 서지 오류 가능성을 확인하세요.</div>`;
 
-    // 최종 목록
-    h+='<h3>정리된 참고문헌 목록 <span class="hint">(각 항목의 ✏로 편집 요구를 보낼 수 있습니다)</span></h3><div class="reflist">';
+    // 최종 목록 — 항목마다 해당하는 필터 키를 data-k로 달아 요약 칩이 추려 볼 수 있게 한다
+    h+='<h3>정리된 참고문헌 목록 <span class="hint">(위 요약 단추를 누르면 해당 항목만 추려 보입니다 · 각 항목의 ✏로 편집 요구)</span></h3>'
+      +`<div class="hint" id="refFilterNote${idx}" style="display:none;margin:0 0 6px"></div>`
+      +`<div class="reflist" id="reflist${idx}">`;
     let g=null;
     res.items.forEach((it,ii)=>{
       if(it.group&&it.group!==g){ g=it.group; h+=`<div class="group-label">[${esc(g)}]</div>`; }
       const v=it.verify||null;
       const lb=v? VLABEL[v.status]||null : null;
       const ret=v&&v.retraction;
+      const vst=v?v.status:'';
+      const keys=[];
+      if(it.changed) keys.push('changed');
+      if((it.issues||[]).length) keys.push('issues');
+      if(['verified','link_ok'].includes(vst)) keys.push('verified');
+      if((it.suggestions||[]).length) keys.push('sugg');
+      if((it.tips||[]).length) keys.push('tips');
+      if(ret&&ret.severe) keys.push('retracted');
+      if(vst==='suspect') keys.push('suspect');
+      if(['mismatch','not_found','link_dead'].includes(vst)) keys.push('warn');
+      if(vst==='suspect'||(ret&&ret.severe)) keys.push('bad');
+      if(['verified','link_ok'].includes(vst)&&!(ret&&ret.severe)) keys.push('pass');
+      if(!vst||vst==='skipped') keys.push('skip');
+      h+=`<div class="refitem" data-k="${keys.join(' ')}">`;
       h+=`<p>${esc(it.formatted)}`
         +(lb?`<span class="vbadge ${lb[1]}" title="${esc(vDetailFull(v))}">${lb[0]}${v.source?' · '+esc(v.source):''}</span>`:'')
         +(ret?`<span class="vbadge v-bad" style="font-weight:700">⚠ ${esc(ret.label)}</span>`:'')
@@ -1415,6 +1483,7 @@ function fileBodyHtml(job,idx,viewHid){
           h+=`<div class="issue" style="color:var(--amber)">💡 <b>[${esc(tp.label)}]</b> ${esc(tp.rule)}${tp.example?` <span class="hint">예: ${esc(tp.example)}</span>`:''}</div>`;
       }
       if(it.issues&&it.issues.length) h+=`<div class="issue">⚠ ${esc(it.issues.join(' / '))}</div>`;
+      h+='</div>';  // .refitem
     });
     h+='</div>';
 
@@ -1424,7 +1493,7 @@ function fileBodyHtml(job,idx,viewHid){
       <h3 style="margin:0">변경 전·후 대비표</h3>
       <span style="flex:1"></span>
       <label class="hint" style="display:flex;gap:5px;align-items:center;cursor:pointer;color:var(--ink)">
-        <input type="checkbox" id="onlyChanged${idx}" onchange="filterChanged(${idx})" ${nChanged?'checked':''}>
+        <input type="checkbox" id="onlyChanged${idx}" onchange="filterChanged('${idx}')" ${nChanged?'checked':''}>
         변경된 항목만 보기</label>
     </div>
     <div class="hint" style="margin-bottom:4px">전체 ${res.items.length}건 중 <b>${nChanged}건</b>이 변경되었습니다 ·
@@ -1471,7 +1540,7 @@ function fileBodyHtml(job,idx,viewHid){
     // 본문 대조
     if(res.crosscheck){
       const cc=res.crosscheck;
-      h+=`<h3>본문 인용 ↔ 목록 대조 <span class="hint">(본문 인용 ${cc.citations_found}건 탐지)</span></h3>`;
+      h+=`<h3 id="cross${idx}">본문 인용 ↔ 목록 대조 <span class="hint">(본문 인용 ${cc.citations_found}건 탐지)</span></h3>`;
       if(cc.cited_not_listed.length){
         h+='<div><b style="color:var(--warn)">본문에 인용됐지만 목록에 없음</b>';
         for(const c of cc.cited_not_listed)
@@ -1530,12 +1599,13 @@ function renderResults(job,opts){
   const res=job.results[0];
   if(!res) return;
   const div=document.createElement('div'); div.className='result-file open';
-  div.innerHTML=`<div class="head"><b>📄 ${esc(res.filename)}</b>${fileChips(res)}
+  div.innerHTML=`<div class="head"><b>📄 ${esc(res.filename)}</b>${fileChips(res,0)}
     <span style="flex:1"></span><span class="hint">${esc(res.style_name||'')} · ${esc(res.engine_label||'')}</span></div>
     <div class="body"></div>`;
   div.querySelector('.head').onclick=()=>div.classList.toggle('open');
   div.querySelector('.body').innerHTML=fileBodyHtml(job,0);
   root.appendChild(div);
+  applyRefFilter(0);  // 재렌더(재조회 등) 후에도 켜 둔 필터를 유지한다
   // 재조회 등 제자리 갱신에서는 스크롤을 건드리지 않는다 — 보던 항목을 잃지 않도록
   if(!(opts&&opts.keepView)) $('resultCard').scrollIntoView({behavior:'smooth'});
 }
@@ -1576,10 +1646,11 @@ function renderOpenTab(job){
     return;
   }
   if(window._renderedTab===i) return;  // 이미 결과 렌더링됨
-  panel.innerHTML=`<div class="row" style="margin:2px 0 10px"><b>📄 ${esc(res.filename)}</b>${fileChips(res)}
+  panel.innerHTML=`<div class="row" style="margin:2px 0 10px"><b>📄 ${esc(res.filename)}</b>${fileChips(res,i)}
     <span style="flex:1"></span><span class="hint">${esc(res.style_name||'')} · ${esc(res.engine_label||'')}</span></div>`
     +fileBodyHtml(job,i);
   window._renderedTab=i;
+  applyRefFilter(i);  // 탭을 다시 그린 뒤에도 켜 둔 필터를 유지한다
 }
 function openFileTab(i){
   window._openTab=i; window._renderedTab=-1;
@@ -1772,10 +1843,13 @@ async function openPastView(hid){
   const d=await r.json();
   window._viewRes=d.result;
   const pseudo={id:'',mode:'view',results:[d.result]};
+  // idx는 'P'로 구분 — 본화면 결과(idx 0)와 대화상자가 동시에 떠 있어도 id가 겹치지 않게
   $('pastView').innerHTML=`<hr style="border:none;border-top:1px solid var(--line);margin:6px 0 10px">
-    <div class="row" style="margin:4px 0 10px"><b>📄 ${esc(d.result.filename)}</b>${fileChips(d.result)}
+    <div class="row" style="margin:4px 0 10px"><b>📄 ${esc(d.result.filename)}</b>${fileChips(d.result,'P')}
     <span style="flex:1"></span><span class="hint">${esc(d.meta.time)} · ${esc(d.meta.user||'익명')}(${esc(d.meta.org||'-')})</span></div>`
-    +fileBodyHtml(pseudo,0,hid);
+    +fileBodyHtml(pseudo,'P',hid);
+  window._refFilter=window._refFilter||{}; window._refFilter['P']='';  // 이전 열람의 필터를 물려받지 않는다
+  applyRefFilter('P');
   $('pastView').scrollIntoView({behavior:'smooth',block:'nearest'});
 }
 function copyView(){
