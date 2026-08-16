@@ -25,6 +25,7 @@ import extract
 import feedback as feedback_mod
 import formatter
 import history as history_mod
+import hwpx_export
 import parsing
 import quick as quick_mod
 import report
@@ -38,7 +39,7 @@ app = FastAPI(title="파일 기반 참고문헌 표준화·검증 에이전트")
 # 화면(index.html)과 프로그램의 버전이 어긋난 채 배포되면 새 기능이 조용히 무시된다.
 # 두 파일에 같은 값을 두고 /api/status에서 대조해 관리자 화면에 경고를 띄운다.
 # 기능을 추가·변경할 때 main.py와 index.html의 APP_VERSION을 함께 올릴 것.
-APP_VERSION = "2026.08.16-2"
+APP_VERSION = "2026.08.16-3"
 
 APP_DIR = Path(__file__).parent
 JOBS: dict[str, dict] = {}
@@ -450,7 +451,10 @@ def _process_file(filename: str, data: bytes, options: dict, progress) -> dict:
     """실제 처리 파이프라인. options: {style_id, verify, crosscheck, english}"""
     result = {"filename": filename, "error": "", "warnings": [], "items": [],
               "summary": {}, "verify_enabled": bool(options.get("verify")),
-              "crosscheck": None, "english_list": None}
+              "crosscheck": None, "english_list": None,
+              # 검사 확인서(DOCX 1쪽)와 HWPX 꼬리말에 실리는 검사 정보
+              "checked_at": time.strftime("%Y-%m-%d %H:%M"),
+              "app_version": APP_VERSION}
 
     style = styles_mod.get_style(options.get("style_id") or "munpyeonhyeop")
     if not style:
@@ -1104,6 +1108,67 @@ def index():
     return (APP_DIR / "static" / "index.html").read_text(encoding="utf-8")
 
 
+@app.get("/guide/style", response_class=HTMLResponse)
+def style_guide():
+    """참고문헌 작성법 가이드 — 접근 코드 없이 공개.
+
+    문편협 공통기준의 자료 유형별 표기법 해설. '한국문헌정보학회 참고문헌
+    작성법' 류의 검색 유입을 받는 페이지이자, 끝의 단건 검증 안내가
+    서비스 체험으로 이어지는 전환 장치다. 예시는 formatter가 실제로
+    만들어 내는 출력과 일치하도록 작성·검증한다(test_server 15번 참조).
+    """
+    return (APP_DIR / "static" / "style_guide.html").read_text(encoding="utf-8")
+
+
+# 학회 이름(코드 키) ↔ 학회지 이름 — suggestions.json의 journal 필드와 대조용
+ORG_JOURNAL = {
+    "한국도서관정보학회": "한국도서관·정보학회지",
+    "한국문헌정보학회": "한국문헌정보학회지",
+    "한국비블리아학회": "한국비블리아학회지",
+    "한국정보관리학회": "정보관리학회지",
+}
+
+
+@app.get("/api/org_preview")
+def org_preview(org: str = ""):
+    """학회 전환 미리보기 — 그 학회에서 확인된 편집 관행 목록.
+
+    네 학회는 같은 문편협 공통기준을 쓰므로 기본 형식은 동일하다.
+    다른 것은 규정에 명시되지 않은 편집 관행뿐이라, '전환'은 형식 재변환이
+    아니라 그 학회의 관행·제안을 현재 목록에 겹쳐 보여주는 일이다.
+    """
+    org = org.strip()
+    if org not in ORG_JOURNAL:
+        raise HTTPException(400, "지원하는 학회가 아닙니다.")
+    journal = ORG_JOURNAL[org]
+    data = suggestions_mod.all_suggestions()
+    tips, common = [], []
+    for source in ("case", "prof", "org"):
+        for s in data[source]:
+            if not s.get("enabled"):
+                continue
+            src_journal = s.get("journal", "")
+            if source == "org":
+                if src_journal != org:
+                    continue
+                bucket = tips
+            elif source == "prof":
+                bucket = common  # 교수 제안은 전 학회 공통
+            elif "공통" in src_journal:
+                bucket = common
+            elif journal in src_journal:
+                bucket = tips
+            else:
+                continue
+            bucket.append({"source": source,
+                           "label": suggestions_mod.source_label(source, s.get("journal", "")),
+                           "topic": s.get("topic", ""), "rule": s.get("rule", ""),
+                           "example": s.get("example", ""), "types": s.get("types") or []})
+    return {"org": org, "journal": journal, "specific": tips, "common": common,
+            "note": "네 학회 모두 같은 문편협 공통기준을 사용합니다 — 기본 형식은 동일하고, "
+                    "아래 편집 관행만 학회지별로 다릅니다."}
+
+
 @app.get("/guide", response_class=HTMLResponse)
 def guide():
     """이용 안내 — 접근 코드 없이 볼 수 있다.
@@ -1490,6 +1555,11 @@ def _result_download_response(res: dict, fmt: str) -> Response:
         return Response(content, media_type="application/x-bibtex",
                         headers={"Content-Disposition":
                                  f"attachment; filename*=UTF-8''{_quote(stem + '.bib')}"})
+    if fmt == "hwpx":
+        content = hwpx_export.build_result_hwpx(res)
+        return Response(content, media_type="application/hwp+zip",
+                        headers={"Content-Disposition":
+                                 f"attachment; filename*=UTF-8''{_quote(stem + '_참고문헌목록.hwpx')}"})
     content = report.build_result_docx(res)
     return Response(
         content,
@@ -1569,6 +1639,7 @@ def download_zip(job_id: str, request: Request):
                 continue
             stem = Path(res.get("filename", "결과")).stem
             zf.writestr(f"{stem}_참고문헌정리.docx", report.build_result_docx(res))
+            zf.writestr(f"{stem}_참고문헌목록.hwpx", hwpx_export.build_result_hwpx(res))
             zf.writestr(f"{stem}_refs.txt", report.build_result_txt(res).encode("utf-8-sig"))
             zf.writestr(f"{stem}.ris", report.build_ris(res).encode("utf-8-sig"))
             zf.writestr(f"{stem}.bib", report.build_bibtex(res).encode("utf-8"))

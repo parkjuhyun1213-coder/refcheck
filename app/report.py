@@ -82,9 +82,90 @@ def _verify_detail_full(v: dict) -> str:
     return " · ".join(x for x in parts if x)
 
 
+def _certificate_page(doc: Document, result: dict):
+    """검사 확인서 1쪽 — 투고 시 첨부할 수 있는 요약 표지.
+
+    KCI 문헌 유사도 검사 결과서처럼 '검사를 거쳤다'는 사실을 한 장으로
+    증빙하는 용도다. 상세 내역은 다음 쪽부터의 본 보고서가 담당한다.
+    """
+    s = result.get("summary", {})
+    items = result.get("items", [])
+
+    title = doc.add_paragraph()
+    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    title.paragraph_format.space_before = Pt(48)
+    run = title.add_run("참고문헌 검사 확인서")
+    run.bold = True
+    run.font.size = Pt(22)
+    run.font.color.rgb = _ACCENT
+    sub = doc.add_paragraph()
+    sub.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    sub.add_run("Reference Check Certificate — refcheck.kr").font.size = Pt(10)
+    doc.add_paragraph()
+
+    rows = [
+        ("원고 파일", result.get("filename", "")),
+        ("검사 일시", result.get("checked_at", "") or time.strftime("%Y-%m-%d %H:%M")),
+        ("적용 기준", result.get("style_name", "")),
+        ("처리 엔진", result.get("engine_label", "")),
+        ("검사 도구", "refcheck.kr 참고문헌 표준화·검증 에이전트"
+                     + (f" (버전 {result['app_version']})" if result.get("app_version") else "")),
+    ]
+    tbl = doc.add_table(rows=len(rows), cols=2)
+    tbl.style = "Light Grid Accent 1"
+    for i, (k, v) in enumerate(rows):
+        kr = tbl.rows[i].cells[0].paragraphs[0].add_run(k)
+        kr.bold = True
+        tbl.rows[i].cells[1].paragraphs[0].add_run(v)
+    doc.add_paragraph()
+
+    _h(doc, "검사 결과 요약", level=2)
+    verified = s.get("verified", 0)
+    warn = sum(1 for it in items
+               if (it.get("verify") or {}).get("status") in ("mismatch", "not_found", "link_dead"))
+    skipped = sum(1 for it in items
+                  if not (it.get("verify") or {}).get("status")
+                  or (it.get("verify") or {}).get("status") == "skipped")
+    rows2 = [
+        ("추출 참고문헌", f"{s.get('total', 0)}건"),
+        ("형식 정리(변경)", f"{s.get('changed', 0)}건"),
+        ("실존 확인(통과)", f"{verified}건"),
+        ("미확인·불일치 (서지 오류 또는 DB 미수록 — 허위 아님)", f"{warn}건"),
+        ("실존 의심 (다중 국제 DB 미발견)", f"{s.get('suspect', 0)}건"),
+        ("철회(Retraction) 문헌 인용", f"{s.get('retracted', 0)}건"),
+        ("서지 교정 제안", f"{s.get('suggestions', 0)}건"),
+        ("검증 대조 생략", f"{skipped}건"),
+    ]
+    tbl2 = doc.add_table(rows=len(rows2), cols=2)
+    tbl2.style = "Light Grid Accent 1"
+    for i, (k, v) in enumerate(rows2):
+        tbl2.rows[i].cells[0].paragraphs[0].add_run(k)
+        vr = tbl2.rows[i].cells[1].paragraphs[0].add_run(v)
+        vr.bold = True
+    doc.add_paragraph()
+
+    if result.get("verify_enabled"):
+        p = doc.add_paragraph()
+        p.add_run("검증 정보원 — 국내: KCI(한국학술지인용색인) · 국립중앙도서관 서지정보 · "
+                  "국회도서관 국가학술정보 / 해외: Crossref · OpenAlex · Semantic Scholar · "
+                  "DataCite · DOAJ · URL 접속 확인").font.size = Pt(8.5)
+    note = doc.add_paragraph()
+    nr = note.add_run(
+        "이 확인서는 refcheck.kr(참고문헌 표준화·검증 에이전트)이 위 원고의 참고문헌을 "
+        "자동 검사한 결과의 요약입니다. '미확인'은 대조한 데이터베이스에서 찾지 못했다는 "
+        "뜻이며 문헌이 존재하지 않는다는 판정이 아닙니다. 항목별 상세 내역은 다음 쪽의 "
+        "본 보고서를 참조하십시오.")
+    nr.font.size = Pt(8.5)
+    nr.font.color.rgb = RGBColor(0x7C, 0x8B, 0x9B)
+    doc.add_page_break()
+
+
 def build_result_docx(result: dict) -> bytes:
     doc = Document()
     _setup(doc)
+
+    # 1쪽: 검사 확인서(투고 첨부용 요약) — 상세는 2쪽부터
+    _certificate_page(doc, result)
 
     title = doc.add_paragraph()
     title.alignment = WD_ALIGN_PARAGRAPH.CENTER

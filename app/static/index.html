@@ -181,6 +181,8 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
       <button class="btn" id="quickBtn" onclick="runQuick('')">검증</button>
     </div>
     <div class="qout" id="quickOut"></div>
+    <div class="hint" style="margin-top:7px">표기 규칙이 궁금하시면
+      <a href="/guide/style" target="_blank" rel="noopener">참고문헌 작성법 가이드(문편협 공통기준)</a>를 참고하세요.</div>
   </div>
 
   <!-- 기준 & 옵션 -->
@@ -703,7 +705,7 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
 // main.py의 APP_VERSION과 반드시 같아야 한다. 서버에 index.html이 덜 복사됐는지
 // 알아내려고 일부러 손으로 박아 두는 값이라 자동 주입하지 않는다.
 // (test_server.py가 두 값이 어긋나면 실패시킨다)
-const UI_VERSION='2026.08.16-2';
+const UI_VERSION='2026.08.16-3';
 const $=id=>document.getElementById(id);
 let pickedFiles=[], styles=[], currentJob=null, pollTimer=null, etaTimer=null;
 
@@ -1365,6 +1367,55 @@ function gotoCross(ev,idx){
   if(rf) rf.classList.add('open');
   const el=$('cross'+idx); if(el) el.scrollIntoView({behavior:'smooth'});
 }
+
+// ---------- 학회 전환 미리보기 — 그 학회지에서 확인된 편집 관행을 현재 목록에 겹쳐 본다
+function _resOf(idx){
+  if(idx==='P') return window._viewRes;
+  const job=window._lastJob;
+  return job&&job.results&&job.results[idx];
+}
+async function orgPreview(idx){
+  const sel=$('orgPrev'+idx), box=$('orgPrevBox'+idx);
+  if(!sel||!box) return;
+  const org=sel.value;
+  if(!org){ box.style.display='none'; box.innerHTML=''; return; }
+  box.style.display='';
+  box.innerHTML='<div class="hint">불러오는 중…</div>';
+  try{
+    const r=await fetch('/api/org_preview?org='+encodeURIComponent(org));
+    if(!r.ok){ box.innerHTML='<div class="errbox">학회 관행을 불러오지 못했습니다.</div>'; return; }
+    const d=await r.json();
+    const res=_resOf(idx), items=(res&&res.items)||[];
+    // 유형이 맞는 문헌 수를 세어 '내 목록에 몇 건 해당'을 보여준다
+    const nMatch=tp=>{
+      if(!tp.types||!tp.types.length) return items.length;
+      return items.filter(it=>tp.types.includes(it.type||'')).length;
+    };
+    const row=tp=>{
+      const n=nMatch(tp);
+      return `<div class="dirline">💡 <div><b>[${esc(tp.topic||tp.label)}]</b> ${esc(tp.rule)}`
+        +(tp.example?` <span class="hint">예: ${esc(tp.example)}</span>`:'')
+        +` <span class="hint">— 내 목록에서 해당 유형 ${n}건</span></div></div>`;
+    };
+    let h=`<div style="border:1px solid var(--line);border-radius:10px;padding:11px 14px;background:#f8fafc">`
+      +`<div class="hint" style="margin-bottom:6px">ℹ ${esc(d.note)}</div>`;
+    if(d.specific.length){
+      h+=`<b style="font-size:13px">「${esc(d.journal)}」에서만 확인된 관행 ${d.specific.length}건</b>`;
+      for(const tp of d.specific) h+=row(tp);
+    }else{
+      h+=`<div class="hint">「${esc(d.journal)}」만의 관행은 아직 등록된 것이 없습니다 — 발행본 비교로 채워집니다.</div>`;
+    }
+    if(d.common.length){
+      h+=`<div style="margin-top:8px"><b style="font-size:13px">네 학회지 공통 관행 ${d.common.length}건</b>`
+        +`<span class="hint"> (현재 결과에 이미 반영·표시되는 내용입니다)</span></div>`;
+      for(const tp of d.common) h+=row(tp);
+    }
+    h+='</div>';
+    box.innerHTML=h;
+  }catch(e){
+    box.innerHTML='<div class="errbox">서버에 연결하지 못했습니다.</div>';
+  }
+}
 // 3색 검증 요약 + 이 처리가 해 준 일(가치 지표) — items에서 직접 세므로 옛 이력에도 적용된다
 function valueStrip(res,idx){
   const items=res.items||[]; if(!items.length) return '';
@@ -1403,6 +1454,7 @@ function fileBodyHtml(job,idx,viewHid){
     if(viewHid){
       h+=`<div class="row" style="margin-bottom:10px">
         <button class="btn small" onclick="location='/api/results/${viewHid}/download?fmt=docx'">결과 DOCX</button>
+        <button class="btn small" onclick="location='/api/results/${viewHid}/download?fmt=hwpx'" title="내어쓰기가 적용된 최종 목록을 한글(HWPX) 문서로 받습니다">한글 HWPX</button>
         <button class="btn ghost small" onclick="location='/api/results/${viewHid}/download?fmt=txt'">TXT</button>
         <button class="btn ghost small" onclick="location='/api/results/${viewHid}/download?fmt=ris'">RIS (EndNote·Zotero)</button>
         <button class="btn ghost small" onclick="location='/api/results/${viewHid}/download?fmt=bib'">BibTeX</button>
@@ -1413,6 +1465,7 @@ function fileBodyHtml(job,idx,viewHid){
     } else if(job.mode==='upload'){
       h+=`<div class="row" style="margin-bottom:10px">
         <button class="btn small" onclick="location='/api/jobs/${job.id}/download/${idx}?fmt=docx'">결과 DOCX</button>
+        <button class="btn small" onclick="location='/api/jobs/${job.id}/download/${idx}?fmt=hwpx'" title="내어쓰기가 적용된 최종 목록을 한글(HWPX) 문서로 받습니다">한글 HWPX</button>
         <button class="btn ghost small" onclick="location='/api/jobs/${job.id}/download/${idx}?fmt=txt'">TXT</button>
         <button class="btn ghost small" onclick="location='/api/jobs/${job.id}/download/${idx}?fmt=ris'">RIS (EndNote·Zotero)</button>
         <button class="btn ghost small" onclick="location='/api/jobs/${job.id}/download/${idx}?fmt=bib'">BibTeX</button>
@@ -1433,6 +1486,16 @@ function fileBodyHtml(job,idx,viewHid){
     if(s.retracted) h+=`<div class="errbox" style="margin-bottom:8px"><b>⚠ 철회(Retraction)된 문헌을 인용하고 있습니다 (${s.retracted}건).</b> 아래 목록의 붉은 표시 항목을 확인하고 인용 유지 여부를 재검토하세요.</div>`;
     if(s.suspect) h+=`<div class="warnbox">⚠ 다중 DB(Crossref·OpenAlex·Semantic Scholar)에서 찾지 못한 실존 의심 문헌이 ${s.suspect}건 있습니다. AI 생성 인용이나 서지 오류 가능성을 확인하세요.</div>`;
 
+    // 학회 전환 미리보기 — 네 학회는 같은 공통기준이라 형식은 동일하고,
+    // 학회지별로 다른 것은 편집 관행뿐이다. 그 차이를 겹쳐 보여준다.
+    h+=`<div class="row" style="margin:2px 0 8px">
+      <span class="hint" style="color:var(--ink)"><b>다른 학회지에 낸다면?</b></span>
+      <select id="orgPrev${idx}" onchange="orgPreview('${idx}')" style="max-width:220px">
+        <option value="">학회지 선택 — 그 학회의 편집 관행 보기</option>
+        <option>한국도서관정보학회</option><option>한국문헌정보학회</option>
+        <option>한국비블리아학회</option><option>한국정보관리학회</option>
+      </select></div>
+      <div id="orgPrevBox${idx}" style="display:none;margin-bottom:10px"></div>`;
     // 최종 목록 — 항목마다 해당하는 필터 키를 data-k로 달아 요약 칩이 추려 볼 수 있게 한다
     h+='<h3>정리된 참고문헌 목록 <span class="hint">(위 요약 단추를 누르면 해당 항목만 추려 보입니다 · 각 항목의 ✏로 편집 요구)</span></h3>'
       +`<div class="hint" id="refFilterNote${idx}" style="display:none;margin:0 0 6px"></div>`

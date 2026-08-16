@@ -110,7 +110,8 @@ def save_result(result: dict, options: dict) -> str:
         "items": result.get("items", []),
         "result_extra": {k: result.get(k) for k in
                          ("summary", "warnings", "crosscheck", "health",
-                          "english_list", "verify_enabled") if result.get(k) is not None},
+                          "english_list", "verify_enabled",
+                          "checked_at", "app_version") if result.get(k) is not None},
     }
     with _LOCK:
         HISTORY_DIR.mkdir(exist_ok=True)
