@@ -417,6 +417,32 @@ def _nlk_queries(title: str) -> list[str]:
     return out[:3]
 
 
+def nlk_book_by_isbn(client: httpx.Client, isbn: str) -> dict | None:
+    """SEOJI ISBN 직접 조회 — 단건 검증(quick)·미매칭 재조회용.
+
+    제목 검색과 달리 ISBN은 유일키라 유사도 판정이 필요 없다.
+    붙임표·공백이 섞인 입력을 받으므로 숫자만 남겨 보낸다.
+    """
+    key = env_get("NLK_CERT_KEY")
+    isbn = re.sub(r"[^0-9Xx]", "", isbn or "")
+    if not key or len(isbn) not in (10, 13):
+        return None
+    docs = _nlk_docs(client, {"cert_key": key, "result_style": "json",
+                              "page_no": 1, "page_size": 5, "isbn": isbn})
+    if not docs:
+        return None
+    d = docs[0]
+    year = re.sub(r"\D", "", (d.get("PUBLISH_PREDATE") or "")
+                  or (d.get("REAL_PUBLISH_DATE") or ""))[:4]
+    return {
+        "title": (d.get("TITLE") or "").strip(),
+        "authors": [d.get("AUTHOR") or ""],
+        "publisher": d.get("PUBLISHER") or "", "year": year,
+        "isbn": (d.get("EA_ISBN") or "") or (d.get("SET_ISBN") or ""),
+        "source": "국립중앙도서관", "sim": 1.0,
+    }
+
+
 def nlk_book_search(client: httpx.Client, title: str, author: str = "",
                     year: str = "") -> dict | None:
     key = env_get("NLK_CERT_KEY")

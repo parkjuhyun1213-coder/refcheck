@@ -26,6 +26,7 @@ import feedback as feedback_mod
 import formatter
 import history as history_mod
 import parsing
+import quick as quick_mod
 import report
 import rules
 import styles as styles_mod
@@ -37,7 +38,7 @@ app = FastAPI(title="파일 기반 참고문헌 표준화·검증 에이전트")
 # 화면(index.html)과 프로그램의 버전이 어긋난 채 배포되면 새 기능이 조용히 무시된다.
 # 두 파일에 같은 값을 두고 /api/status에서 대조해 관리자 화면에 경고를 띄운다.
 # 기능을 추가·변경할 때 main.py와 index.html의 APP_VERSION을 함께 올릴 것.
-APP_VERSION = "2026.08.14-3"
+APP_VERSION = "2026.08.16-1"
 
 APP_DIR = Path(__file__).parent
 JOBS: dict[str, dict] = {}
@@ -694,21 +695,26 @@ def _process_file(filename: str, data: bytes, options: dict, progress) -> dict:
     result["health"] = _health_report(entries, options.get("user_name", ""))
 
     # 요약
-    result["summary"] = {
+    result["summary"] = _summary_from(items, result.get("crosscheck"))
+
+    return result
+
+
+def _summary_from(items: list[dict], crosscheck: dict | None) -> dict:
+    """결과 요약 집계 — 처리 직후와 미매칭 재조회 후 양쪽에서 같은 계산을 쓴다."""
+    return {
         "total": len(items),
-        "changed": sum(1 for it in items if it["changed"]),
-        "needs_check": sum(1 for it in items if it["issues"]),
+        "changed": sum(1 for it in items if it.get("changed")),
+        "needs_check": sum(1 for it in items if it.get("issues")),
         "verified": sum(1 for it in items if (it.get("verify") or {}).get("status") in ("verified", "link_ok")),
         "retracted": sum(1 for it in items
                          if ((it.get("verify") or {}).get("retraction") or {}).get("severe")),
         "suspect": sum(1 for it in items if (it.get("verify") or {}).get("status") == "suspect"),
         "suggestions": sum(len(it.get("suggestions") or []) for it in items),
         "tips": sum(len(it.get("tips") or []) for it in items),
-        "crosscheck_issues": (len(result["crosscheck"]["cited_not_listed"]) +
-                              len(result["crosscheck"]["listed_not_cited"])) if result.get("crosscheck") else 0,
+        "crosscheck_issues": (len(crosscheck["cited_not_listed"]) +
+                              len(crosscheck["listed_not_cited"])) if crosscheck else 0,
     }
-
-    return result
 
 
 # ================================================================ 사용 기록(통계)
@@ -932,7 +938,7 @@ def _run_folder_job(job: dict, folder: Path, options: dict):
                    and not p.name.startswith("~$")]
         if not targets:
             job["status"] = "error"
-            job["error"] = "폴더에서 지원 형식(HWPX·DOCX·PDF·TXT) 파일을 찾지 못했습니다."
+            job["error"] = "폴더에서 지원 형식(HWP·HWPX·DOCX·PDF·TXT) 파일을 찾지 못했습니다."
             return
         out_dir = folder / "참고문헌_정리결과"
         out_dir.mkdir(exist_ok=True)
@@ -1216,6 +1222,93 @@ def test_settings(request: Request, api_key: str = Form(""), model: str = Form(a
         return {"ok": False, "message": "API 키를 입력해 주세요."}
     ok, msg = aiengine.test_key(key, model)
     return {"ok": ok, "message": msg}
+
+
+# ---------------------------------------------------------------- 단건 검증(옴니박스)
+# 접근 코드 없이 공개한다 — 코드가 없는 방문자의 체험 경로이자 유입 장치.
+# 외부 무료 DB만 조회하고 AI를 호출하지 않으므로 비용이 들지 않지만,
+# 무한정 두드리지 못하도록 IP당 분당 횟수만 가볍게 막는다.
+_QUICK_HITS: dict[str, list[float]] = {}
+_QUICK_LOCK = threading.Lock()
+_QUICK_PER_MIN = 12
+
+
+def _quick_throttled(ip: str) -> bool:
+    now = time.time()
+    with _QUICK_LOCK:
+        hits = [t for t in _QUICK_HITS.get(ip, []) if now - t < 60]
+        if len(hits) >= _QUICK_PER_MIN:
+            _QUICK_HITS[ip] = hits
+            return True
+        hits.append(now)
+        _QUICK_HITS[ip] = hits
+        if len(_QUICK_HITS) > 2000:  # 메모리 무한 증가 방지
+            for k in [k for k, v in _QUICK_HITS.items() if not v or now - v[-1] > 120][:1000]:
+                _QUICK_HITS.pop(k, None)
+    return False
+
+
+@app.post("/api/quick")
+def quick_check(request: Request, q: str = Form("")):
+    """참고문헌 1건 즉석 표준화·검증 — DOI·ISBN·URL·제목 자동 판별."""
+    ip = request.client.host if request.client else "?"
+    if _quick_throttled(ip):
+        return JSONResponse({"ok": False, "message": "요청이 너무 잦습니다. 1분 뒤 다시 시도해 주세요."},
+                            status_code=429)
+    q = q.strip()
+    if len(q) < 4:
+        return JSONResponse({"ok": False, "message": "DOI·ISBN·URL 또는 제목을 4자 이상 입력해 주세요."},
+                            status_code=400)
+    return quick_mod.quick_lookup(q[:300])
+
+
+@app.post("/api/jobs/{job_id}/reverify")
+def reverify_item(job_id: str, request: Request, file_idx: int = Form(...),
+                  item_idx: int = Form(...), identifier: str = Form(...)):
+    """미매칭 항목의 수동 구제 — DOI·ISBN을 직접 받아 그 항목만 재검증한다.
+
+    제목 검색이 실패한(미확인·불일치·실존 의심) 항목을 이용자가 스스로
+    해소하는 통로다. 성공하면 잡 결과와 처리 이력 양쪽에 반영한다.
+    """
+    require_access(request)
+    res = _get_result(job_id, file_idx)
+    items = res.get("items") or []
+    if item_idx < 0 or item_idx >= len(items):
+        raise HTTPException(404, "해당 항목을 찾을 수 없습니다.")
+    it = items[item_idx]
+    entry = dict(it.get("entry") or {})
+    entry["type"] = it.get("type", "") or entry.get("type", "")
+
+    v, err = quick_mod.verify_with_identifier(entry, identifier.strip()[:200])
+    if not v:
+        return JSONResponse({"ok": False, "message": err}, status_code=400)
+
+    it["verify"] = v
+    # 확인된 식별자를 항목에 반영 — RIS·BibTeX 내보내기와 이력에 실리는 통로
+    if v.get("status") == "verified" and v.get("found_doi") \
+            and not (it.get("entry") or {}).get("doi"):
+        it.setdefault("entry", {})["doi"] = v["found_doi"]
+        # 문편협 기준 결과는 DOI가 들어간 형식을 다시 만든다(화면·DOCX에도 보이도록).
+        # 사용자 정의 기준은 AI가 형식을 만들므로 여기서 재생성하지 않는다.
+        if res.get("style_name") == styles_mod.BUILTIN_STYLE["name"]:
+            e2 = dict(it["entry"])
+            e2["type"] = it.get("type", "")
+            nf = formatter.format_entry(e2)
+            if nf:
+                it["formatted"] = nf
+                it["changed"] = _norm_for_compare(it.get("raw")) != _norm_for_compare(nf)
+    # 교정 제안 재계산 — 자동 적용은 하지 않고 제안으로만 보여준다(이용자 통제)
+    if v.get("status") == "verified":
+        sugg_entry = dict(it.get("entry") or {})
+        sugg_entry["type"] = it.get("type", "")
+        it["suggestions"] = _build_suggestions(sugg_entry, v.get("meta"))
+    res["summary"] = _summary_from(items, res.get("crosscheck"))
+    if res.get("history_id"):
+        try:
+            history_mod.update_result_items(res["history_id"], items, res["summary"])
+        except Exception:
+            pass  # 이력 반영 실패가 화면 갱신을 막지 않도록
+    return {"ok": True, "item": it, "summary": res["summary"]}
 
 
 @app.get("/api/styles")

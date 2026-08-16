@@ -238,6 +238,15 @@ def _s2_match(client: httpx.Client, entry: dict) -> dict | None:
 def _meta_from_crossref(m: dict) -> dict:
     parts = (m.get("issued") or {}).get("date-parts") or [[None]]
     isbns = m.get("ISBN") or []
+    # 저자는 교정 제안 대상이 아니라 단건 검증(quick)의 서지 완성용 — 화면 대조표는
+    # META_FIELDS만 읽으므로 여기 실어도 기존 표시에는 영향이 없다.
+    authors = []
+    # 대형 공동연구는 저자가 수천 명이다 — 서지 완성 용도로는 앞쪽이면 충분하다
+    for a in (m.get("author") or [])[:30]:
+        if a.get("family"):
+            authors.append(", ".join(x for x in (a.get("family"), a.get("given")) if x))
+        elif a.get("name"):  # 단체 저자
+            authors.append(a["name"])
     return {
         "title": " ".join(m.get("title") or []),
         "container": " ".join(m.get("container-title") or []),
@@ -248,6 +257,7 @@ def _meta_from_crossref(m: dict) -> dict:
         "doi": m.get("DOI", "") or "",
         "publisher": m.get("publisher", "") or "",
         "isbn": (isbns[0] if isbns else ""),
+        "authors": authors,
         "source": "Crossref",
     }
 
@@ -268,6 +278,9 @@ def _meta_from_openalex(w: dict) -> dict:
         "doi": (w.get("doi") or "").replace("https://doi.org/", ""),
         # OpenAlex의 host_organization은 학술지 발행처라 단행본 출판사와 뜻이 달라 쓰지 않는다
         "publisher": "", "isbn": "",
+        "authors": [(au.get("author") or {}).get("display_name", "")
+                    for au in (w.get("authorships") or [])[:30]
+                    if (au.get("author") or {}).get("display_name")],
         "source": "OpenAlex",
     }
 
@@ -284,6 +297,9 @@ def _meta_from_kr(m: dict) -> dict:
         # KCI에 저자가 등록한 공식 영문 제목·저자명 — 영문화 목록을 지어내지 않게 한다.
         # 화면 대조표는 META_FIELDS만 읽으므로 여기 실어도 표시에 영향이 없다.
         "title_en": m.get("title_en", ""), "authors_en": m.get("authors_en") or [],
+        "authors": m.get("authors") or [],
+        # KCI 논문 상세 페이지 링크용 Control Number — 화면이 '근거 레코드' 링크를 만든다
+        "kci_id": m.get("kci_id", ""),
         "source": m.get("source", ""),
     }
 

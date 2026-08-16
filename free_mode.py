@@ -140,7 +140,7 @@ def run_file(path: Path, verify: bool, outdir: Path | None):
 
 def main():
     ap = argparse.ArgumentParser(description="참고문헌 에이전트를 무료(규칙 기반) 모드로 실행")
-    ap.add_argument("--file", help="처리할 원고 파일 (HWPX·DOCX·PDF·TXT). 생략하면 웹 UI 서버 실행")
+    ap.add_argument("--file", help="처리할 원고 파일 (HWP·HWPX·DOCX·PDF·TXT). 생략하면 웹 UI 서버 실행")
     ap.add_argument("--outdir", help="결과 저장 폴더 (기본: 원고와 같은 폴더)")
     ap.add_argument("--no-verify", action="store_true", help="외부 DB 실존 검증 생략 (형식 정리만)")
     args = ap.parse_args()

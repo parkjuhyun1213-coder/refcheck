@@ -73,6 +73,22 @@ def save_compare(hid: str, cmp_result: dict) -> bool:
     return _update_record(hid, {"last_compare": cmp_result})
 
 
+def update_result_items(hid: str, items: list, summary: dict | None = None) -> bool:
+    """미매칭 재조회 등으로 바뀐 items·summary를 이력에 반영.
+
+    이걸 하지 않으면 화면에서는 '실존 확인'인데 지난 결과·재다운로드에서는
+    옛 판정이 나와 서로 어긋난다.
+    """
+    rec = get_history(hid)
+    if not rec:
+        return False
+    extra = dict(rec.get("result_extra") or {})
+    if summary is not None:
+        extra["summary"] = summary
+    return _update_record(hid, {"items": items, "result_extra": extra,
+                                "total": len(items)})
+
+
 def save_result(result: dict, options: dict) -> str:
     """처리 결과 1건(파일 단위)을 전체 저장하고 id를 반환.
 

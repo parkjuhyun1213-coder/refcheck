@@ -1,12 +1,16 @@
 # -*- coding: utf-8 -*-
-"""refcheck 도입 안내문 HWPX 생성.
+"""refcheck 도입 안내문 HWPX 생성 — 4개 학회 (부)편집위원장용 개별 버전.
 
 학회 원고형식(도서관정보학회지_원고형식.hwpx)을 구조 템플릿으로 삼는다.
 header.xml의 글꼴·테두리 정의를 그대로 물려받고, 필요한 글자모양·문단모양·테두리를
 뒤에 덧붙인 뒤 section0.xml만 새로 쓴다. 빈 문서를 처음부터 만드는 것보다
 한글에서 열릴 확률이 훨씬 높다.
+
+학회마다 달라지는 것: 표제 수신처, 학회 코드 안내, ‘○○학회 제안’ 표시 문구,
+그리고 그 학회지 발행본에서 실측해 이미 등록해 둔 편집 관행 목록(suggestions.json).
 """
 import html
+import json
 import re
 import shutil
 import zipfile
@@ -14,7 +18,44 @@ from pathlib import Path
 
 TPL = Path(r"f:\UseAI\writing_reference_agent\규정\한국도서관정보학회 규정\도서관정보학회지_원고형식.hwpx")
 WORK = Path(__file__).parent / "hwpx_build"
-OUT = Path(__file__).parent / "refcheck_도입안내.hwpx"
+OUT_DIR = Path(__file__).parent
+SUGGESTIONS = Path(__file__).resolve().parent.parent / "app" / "suggestions.json"
+
+DOC_TITLE = "참고문헌 표준화·검증 에이전트 도입 안내"
+
+# org = 앱의 DEFAULT_ORGS 키(학회 코드가 매인 이름), name = 문서에 쓰는 표기
+SOCIETIES = [
+    {"org": "한국도서관정보학회", "name": "한국도서관·정보학회", "journal": "한국도서관·정보학회지"},
+    {"org": "한국문헌정보학회", "name": "한국문헌정보학회", "journal": "한국문헌정보학회지"},
+    {"org": "한국비블리아학회", "name": "한국비블리아학회", "journal": "한국비블리아학회지"},
+    {"org": "한국정보관리학회", "name": "한국정보관리학회", "journal": "정보관리학회지"},
+]
+
+
+# 본문은 석 장이다(1·2쪽 소개 + 3쪽 비교·비용·문의). 표는 요약이 원칙 —
+# 여기 없는 항목은 규칙을 잘라 쓰므로, suggestions.json에 새 관행이 붙으면 한 줄을 추가할 것.
+SHORT = {
+    "sg_seed_org_homepage": "기관 홈페이지 자체는 연도 없이 ‘기관명. 출처: URL’",
+    "sg_seed_translated": "원서 서지 뒤에 ‘역자 옮김(연도). 번역서명.’을 이어 씀",
+    "sg_seed_recite": "원문을 못 본 문헌은 뒤에 ‘재인용: …’ 출처를 밝힘",
+    "sg_seed_press": "웹 문서 형식에 제목 뒤 ‘[보도자료]’ 라벨을 붙임",
+}
+
+
+def house_rules(journal: str) -> tuple[list[tuple[str, str]], int]:
+    """(그 학회지에서만 확인된 관행 [(주제, 한 줄 요약)…], 4개 학회지 공통 관행 수)."""
+    data = json.loads(SUGGESTIONS.read_text(encoding="utf-8"))
+    mine, common = [], 0
+    for s in data.get("case", []):
+        if not s.get("enabled", True):
+            continue
+        src = s.get("journal", "")
+        if "공통" in src:
+            common += 1
+        elif journal in src:
+            rule = SHORT.get(s["id"]) or (s["rule"][:38] + "…")
+            mine.append((s["topic"], rule))
+    return mine, common
 
 HWPUNIT_MM = 283.465
 def mm(v): return int(round(v * HWPUNIT_MM))
@@ -175,7 +216,7 @@ def cell(text_parts, col, row, w, h, border, para_pr, colspan=1, rowspan=1):
             f'<hp:cellMargin left="141" right="141" top="141" bottom="141"/></hp:tc>')
 
 
-def table(rows, widths, row_h=mm(5.5)):
+def table(rows, widths, row_h=mm(5.0)):
     """rows: [[(charPrId, text, paraPr), …], …] — 첫 행은 머리행"""
     trs = []
     for r, row in enumerate(rows):
@@ -258,15 +299,18 @@ W4 = [int(TEXT_W * .43), int(TEXT_W * .19), int(TEXT_W * .19)]
 W4.append(TEXT_W - sum(W4))
 
 
-def content() -> str:
+def content(soc: dict) -> str:
     b = []
     a = b.append
+    name, journal = soc["name"], soc["journal"]
+    others = " · ".join(s["name"] for s in SOCIETIES if s["name"] != name)
 
     # 표제
-    a(para(P["title"], [(T["title"], "참고문헌 표준화·검증 에이전트 도입 안내")]))
-    a(para(P["foot"], [(T["small"], "문헌정보학 4개 학회 공동 이용  ·  refcheck.kr")]))
+    a(para(P["title"], [(T["title"], DOC_TITLE)]))
+    a(para(P["foot"], [(T["small"],
+        f"「{journal}」 (부)편집위원장께  ·  refcheck.kr")]))
     a(para(P["body_end"], [(T["small"],
-        "한국도서관·정보학회 · 한국문헌정보학회 · 한국비블리아학회 · 한국정보관리학회")]))
+        f"문헌정보학 4개 학회 공동 이용 — {name} · {others}")]))
 
     a(para(P["body_end"], [
         (T["lede"], "원고 파일을 올리면 참고문헌을 뽑아 "),
@@ -320,36 +364,39 @@ def content() -> str:
     a(para(P["li"], [(T["b"], "2  코드 입력.  "),
                      (T["body"], "첫 화면에서 아래 코드를 입력하십시오. 편집위원·(부)편집위원장은 "
                                  "두 칸을 모두 채워야 권한이 확인됩니다.")]))
-    a(para(P["li"], [(T["body"], "        학회 코드 〇〇〇〇〇〇        역할 코드 〇〇〇〇〇〇        "),
-                     (T["small"], "— 소속 학회 편집위원회에서 안내")]))
+    a(para(P["li"], [(T["body"], f"        {name} 코드 〇〇〇〇〇〇        "
+                                 f"(부)편집위원장 코드 〇〇〇〇〇〇        "),
+                     (T["small"], "— 별도 안내")]))
     a(para(P["body_end"], [(T["b"], "3  원고 올리기.  "),
-                           (T["body"], "HWPX · DOCX · PDF · TXT(논문당 10MB 이내, 구형 HWP는 "
-                                       "HWPX로 저장 후). 여러 편을 한 번에 올려도 됩니다. 정리된 목록과 "
+                           (T["body"], "HWP · HWPX · DOCX · PDF · TXT(논문당 10MB 이내). "
+                                       "여러 편을 한 번에 올려도 됩니다. 정리된 목록과 "
                                        "검증 결과를 화면에서 확인하고 DOCX·TXT·RIS·BibTeX으로 내려받습니다.")]))
 
-    a(para(P["foot"], [(T["foot"], "참고문헌 표준화·검증 에이전트 도입 안내          1 / 2")]))
+    a(para(P["foot"], [(T["foot"], f"{DOC_TITLE}  ·  {name}          1 / 3")]))
 
     # ── 2쪽
     a(para(P["h2"], [(T["h2"], "권한별로 할 수 있는 일")], page_break=True))
     rows = [[(T["th"], "기능", P["cl"]), (T["th"], "이용자", P["cc"]),
              (T["th"], "편집위원", P["cc"]), (T["th"], "(부)편집위원장", P["cc"])]]
-    for name, u, e, c in [
+    for label, u, e, c in [
         ("원고 처리·결과 내려받기", "○", "○", "○"),
-        ("우리 학회 처리 통계", "—", "○", "○"),
-        ("우리 학회 원고 관리·열람", "—", "○", "○"),
+        (f"{name} 처리 통계", "—", "○", "○"),
+        (f"{name} 원고 관리·열람", "—", "○", "○"),
         ("발행본 비교 (투고 원고 ↔ 처리 결과 ↔ 최종 발행본)", "—", "○", "○"),
         ("차이 발견 시 채택 요청", "—", "○", "○"),
-        ("채택 요청 승인 → 우리 학회 기준으로 등록", "—", "—", "○"),
+        (f"채택 요청 승인 → {name} 기준으로 등록", "—", "—", "○"),
         ("보관 자료 삭제", "—", "—", "○"),
     ]:
-        rows.append([(T["tdb"], name, P["cl"]), (T["td"], u, P["cc"]),
+        rows.append([(T["tdb"], label, P["cl"]), (T["td"], u, P["cc"]),
                      (T["td"], e, P["cc"]), (T["td"], c, P["cc"])])
     a(table(rows, W4))
     a(para(P["body_end"], [
         (T["b"], "(부)편집위원장께 부탁드리는 일은 하나입니다.  "),
         (T["body"], "편집위원이 발행본 비교에서 찾아 올린 채택 요청을 승인해 주시는 것입니다. "
-                    "승인된 내용은 그 학회 이용자에게만 ‘○○학회 제안’으로 표시되어, 다음 투고자부터 "
-                    "같은 지적을 받지 않습니다. 규정에 적히지 않은 편집 관행이 이 과정으로 쌓입니다."),
+                    # 화면 표시는 org 키 그대로다(가운뎃점 없는 '한국도서관정보학회') —
+                    # 문서용 표기(name)로 쓰면 실제 화면과 문구가 어긋난다
+                    f"승인된 내용은 ‘{soc['org']} 제안’으로 표시되어 다른 학회에는 나타나지 않고, "
+                    "다음 투고자부터 같은 지적을 받지 않습니다."),
     ]))
 
     a(para(P["h2"], [(T["h2"], "발행본 비교 — 이 서비스의 핵심")]))
@@ -361,21 +408,84 @@ def content() -> str:
     a(para(P["body_end"], [(T["b"], "· KCI에서 자동으로 가져오는 방법  "),
                            (T["body"], "파일 없이 논문명만으로. 서지요소 대조에 적합합니다.")]))
 
+    # 그 학회지 발행본에서 실측해 이미 넣어 둔 관행
+    mine, common = house_rules(journal)
+    a(para(P["h2"], [(T["h2"], f"「{journal}」에서 이미 확인한 것")]))
+    if mine:
+        a(para(P["body"], [(T["body"],
+            f"2025년 발행본을 읽어 확인한 표기입니다. 네 학회지 공통 {common}건 외에 "
+            f"「{journal}」에서 확인된 것은 아래와 같습니다. 사실과 다른 것이 있으면 "
+            "알려 주십시오 — 바로 내리겠습니다.")]))
+        for topic, rule in mine:
+            a(para(P["li"], [(T["b"], f"· {topic}  "), (T["body"], rule)]))
+        b[-1] = b[-1].replace(f'paraPrIDRef="{P["li"]}"', f'paraPrIDRef="{P["body_end"]}"', 1)
+    else:
+        a(para(P["body_end"], [(T["body"],
+            f"2025년 발행본을 읽어 네 학회지 공통 관행 {common}건을 미리 넣어 두었습니다. "
+            f"「{journal}」만의 표기는 아직 없습니다 — 발행본 비교로 채워집니다.")]))
+
     a(para(P["h2"], [(T["h2"], "원고 보관과 개인정보")]))
     a(para(P["body"], [(T["body"],
         "올라온 원고 원본은 발행본 비교를 위해 서버에 보관되며, 소속 학회의 편집위원·"
         "(부)편집위원장만 열람할 수 있습니다. 다른 학회의 자료는 서로 보이지 않습니다. "
         "이 사실은 이용자가 원고를 올리는 화면에도 그대로 고지됩니다.")]))
     a(para(P["body_end"], [(T["body"],
-        "보관 자료는 학회 참고문헌 기술을 개선하는 목적으로만 활용하며, 심사·편집 목적 외로 "
-        "이용하거나 외부에 제공하지 않습니다. 보관을 원하지 않는 이용자를 위해 "
-        "‘참고문헌만 붙여넣기’ 방식을 함께 제공합니다 — 이 경우 원고 파일이 서버에 남지 않습니다. "
-        "보관이 끝난 자료는 (부)편집위원장이 언제든 삭제할 수 있습니다.")]))
+        "보관 자료는 참고문헌 기술을 개선하는 목적으로만 쓰며 외부에 제공하지 않습니다. "
+        "원하지 않는 이용자를 위해 ‘참고문헌만 붙여넣기’를 함께 제공합니다 — 이 경우 원고 파일이 "
+        "서버에 남지 않습니다. 보관 자료는 (부)편집위원장이 언제든 삭제할 수 있습니다.")]))
+
+    a(para(P["foot"], [(T["foot"], f"{DOC_TITLE}  ·  {name}          2 / 3")]))
+
+    # ── 3쪽: 왜 refcheck인가 — 널리 쓰이는 도구들과의 비교(2026. 8. 조사)
+    a(para(P["h2"], [(T["h2"], "왜 refcheck인가 — 널리 쓰이는 도구들과의 비교")], page_break=True))
+    a(para(P["body"], [
+        (T["body"], "2026년 8월, 세계에서 가장 널리 쓰이는 참고문헌 도구 10곳"
+                    "(Zotero · Mendeley · EndNote류 관리 도구와 Scribbr · MyBib류 생성기)과 "
+                    "국내 도구를 조사해 비교했습니다. 결론은 분명합니다. "),
+        (T["b"], "이들은 참고문헌을 ‘만들어’ 주지만, 완성된 원고를 받아 실존과 규정 준수를 "
+                 "‘검사’해 주는 도구는 사실상 없습니다."),
+    ]))
+    rows = [[(T["th"], "기능", P["cl"]), (T["th"], "해외 도구¹", P["cc"]),
+             (T["th"], "국내 도구²", P["cc"]), (T["th"], "refcheck", P["cc"])]]
+    for label, o, k, r in [
+        ("완성 원고에서 참고문헌 자동 추출", "—", "—", "○"),
+        ("실존 검증 — 국내·해외 9개 DB 대조", "—", "—", "○"),
+        ("철회·정정 논문 경고", "△³", "—", "○"),
+        ("한글(HWP·HWPX) 원고 직접 처리", "—", "△", "○"),
+        ("학회 투고규정 형식 적용", "—", "△", "○"),
+        ("발행본 비교로 학회 편집 관행 축적", "—", "—", "○"),
+        ("국문 참고문헌의 영문 목록(KCI 공식 표기)", "—", "—", "○"),
+    ]:
+        rows.append([(T["tdb"], label, P["cl"]), (T["td"], o, P["cc"]),
+                     (T["td"], k, P["cc"]), (T["td"], r, P["cc"])])
+    a(table(rows, W4))
+    a(para(P["body_end"], [(T["small"],
+        "¹ Zotero · Mendeley · EndNote · Scribbr · MyBib 등 (EndNote·Zotero는 한글(HWP) 미지원)   "
+        "² 국내 서지관리 프로그램 — 집필 중의 인용 보조이지 완성 원고의 검사가 아님   "
+        "³ Zotero만, 해외 문헌 한정 — refcheck는 국내 문헌까지 확인")]))
+    a(para(P["body"], [
+        (T["b"], "지금 필요한 이유 — 생성형 AI가 지어낸 인용.  "),
+        (T["body"], "존재하지 않는 참고문헌이 해외 유수 학술지에까지 실리는 일이 보고되고 "
+                    "있습니다. 표절 검사(유사도 검사)가 투고 전 필수 절차로 자리 잡았듯, "
+                    "참고문헌 실존 검증도 같은 자리에 놓일 때가 되었습니다. 온라인 투고 시스템에는 "
+                    "이 기능이 없어 지금은 편집위원회의 수작업 몫입니다 — refcheck의 검사 결과가 "
+                    "그 빈자리를 채웁니다."),
+    ]))
+    a(para(P["body"], [
+        (T["b"], "운영 원칙.  "),
+        (T["body"], "광고를 싣지 않고, 이미 처리한 결과의 열람을 막지 않으며, 원고 보관은 "
+                    "화면에 투명하게 고지합니다. 학회가 믿고 공식 도구로 삼을 수 있어야 하기 때문입니다."),
+    ]))
+    a(para(P["body_end"], [
+        (T["b"], "바로 체험.  "),
+        (T["body"], "코드 없이도 refcheck.kr 첫 화면에서 참고문헌 1건 검증(DOI·ISBN·제목 한 줄)을 "
+                    "해볼 수 있습니다. 위원들께 소개하실 때 활용하십시오."),
+    ]))
 
     a(para(P["h2"], [(T["h2"], "이용 비용")]))
     a(para(P["body"], [(T["amber"], "2026년은 무료입니다.  "),
                        (T["body"], "올해는 네 학회 모두 비용 없이 이용하실 수 있습니다. "
-                                   "편집위원회에서 충분히 써 보시고 판단해 주시기 바랍니다.")]))
+                                   f"{name} 편집위원회에서 충분히 써 보시고 판단해 주시기 바랍니다.")]))
     a(para(P["body_end"], [(T["body"],
         "2027년부터는 학회지별 실제 사용량에 따른 실비로 운영할 계획입니다. 현재 "),
         (T["b"], "학회지당 연 20만 원 안팎"),
@@ -386,9 +496,8 @@ def content() -> str:
         (T["b"], "전남대학교 문헌정보학과 박주현 교수      park51566@jnu.ac.kr"),
     ]))
     a(para(P["body_end"], [(T["small"],
-        "접속 코드 발급·변경, 편집위원 계정 추가, 학회별 기준 등록에 관한 사항은 "
-        "위 연락처로 문의해 주십시오.")]))
-    a(para(P["foot"], [(T["foot"], "참고문헌 표준화·검증 에이전트 도입 안내          2 / 2")]))
+        "접속 코드 발급·변경, 편집위원 계정 추가, 학회 기준 등록도 위 연락처로 문의해 주십시오.")]))
+    a(para(P["foot"], [(T["foot"], f"{DOC_TITLE}  ·  {name}          3 / 3")]))
 
     # 첫 문단에 구역 설정을 실어야 한다
     # 첫 문단에 구역 설정을 싣고, 그 뒤에 단(段) 정의를 붙인다.
@@ -420,26 +529,32 @@ def main():
         (WORK / "BinData").rmdir()
     except OSError:
         pass
-    hpf = (WORK / "Contents" / "content.hpf").read_text(encoding="utf-8")
-    hpf = re.sub(r'<opf:item id="image1"[^>]*/>', "", hpf)
-    hpf = hpf.replace("<opf:title/>", "<opf:title>참고문헌 표준화·검증 에이전트 도입 안내</opf:title>")
-    (WORK / "Contents" / "content.hpf").write_text(hpf, encoding="utf-8")
+    hpf_base = (WORK / "Contents" / "content.hpf").read_text(encoding="utf-8")
+    hpf_base = re.sub(r'<opf:item id="image1"[^>]*/>', "", hpf_base)
 
+    # 글꼴·문단모양 정의는 네 문서가 똑같다 — 한 번만 덧붙인다
     hdr = (WORK / "Contents" / "header.xml").read_text(encoding="utf-8")
     (WORK / "Contents" / "header.xml").write_text(build_header(hdr), encoding="utf-8")
 
-    sec = SEC_HEAD + content() + "</hs:sec>"
-    (WORK / "Contents" / "section0.xml").write_text(sec, encoding="utf-8")
-    (WORK / "Preview" / "PrvText.txt").write_text(plain_text(sec), encoding="utf-8")
+    for soc in SOCIETIES:
+        out = OUT_DIR / f"refcheck_도입안내_{soc['org']}.hwpx"
+        (WORK / "Contents" / "content.hpf").write_text(
+            hpf_base.replace("<opf:title/>",
+                             f"<opf:title>{esc(DOC_TITLE)} — {esc(soc['name'])}</opf:title>"),
+            encoding="utf-8")
 
-    OUT.unlink(missing_ok=True)
-    with zipfile.ZipFile(OUT, "w", zipfile.ZIP_DEFLATED) as z:
-        # mimetype은 압축하지 않고 맨 앞에 — OCF 규약
-        z.writestr(zipfile.ZipInfo("mimetype"), "application/hwp+zip", zipfile.ZIP_STORED)
-        for p in sorted(WORK.rglob("*")):
-            if p.is_file() and p.name != "mimetype":
-                z.write(p, p.relative_to(WORK).as_posix())
-    print("생성:", OUT, f"({OUT.stat().st_size:,} bytes)")
+        sec = SEC_HEAD + content(soc) + "</hs:sec>"
+        (WORK / "Contents" / "section0.xml").write_text(sec, encoding="utf-8")
+        (WORK / "Preview" / "PrvText.txt").write_text(plain_text(sec), encoding="utf-8")
+
+        out.unlink(missing_ok=True)
+        with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
+            # mimetype은 압축하지 않고 맨 앞에 — OCF 규약
+            z.writestr(zipfile.ZipInfo("mimetype"), "application/hwp+zip", zipfile.ZIP_STORED)
+            for p in sorted(WORK.rglob("*")):
+                if p.is_file() and p.name != "mimetype":
+                    z.write(p, p.relative_to(WORK).as_posix())
+        print("생성:", out.name, f"({out.stat().st_size:,} bytes)")
 
 
 if __name__ == "__main__":
