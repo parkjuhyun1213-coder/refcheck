@@ -168,6 +168,15 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
     <div id="dashBody" class="hint" style="margin-top:8px">불러오는 중…</div>
   </div>
 
+  <!-- 코드 없이 들어온 이용자 안내 — 첫 화면은 누구나 볼 수 있고, 접근 코드는
+       학회 기능(원고 정리·지난 결과 등)을 이용하려는 순간에만 묻는다 -->
+  <div class="notebox" id="guestNote" style="display:none">
+    👋 <b>코드 없이 둘러보고 계십니다.</b>
+    아래 <b>⚡ 참고문헌 1건 바로 검증</b>은 지금 바로 쓰실 수 있습니다.
+    원고 파일 정리·지난 결과 열람 등 학회 기능은 이용하려고 누르실 때 학회 접근 코드를 여쭙습니다.
+    <button class="btn ghost small" onclick="openAccessDlg()" style="margin-left:6px">🎫 지금 코드 입력</button>
+  </div>
+
   <!-- 단건 검증(옴니박스) — 원고 없이 참고문헌 1건을 바로 확인하는 가장 빠른 길 -->
   <div class="card">
     <div class="row" style="margin-bottom:8px">
@@ -256,7 +265,7 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
     <div id="paneUp">
       <!-- 원고 보관 고지 — 로그인(코드 입장·관리자)한 경우에만, 역할에 맞는 내용으로 -->
       <div class="notebox" id="keepNotice" style="display:none"></div>
-      <div class="drop" id="drop" onclick="document.getElementById('fileInput').click()">
+      <div class="drop" id="drop" onclick="if(ensureAccess())document.getElementById('fileInput').click()">
         <div style="font-size:30px">📄</div>
         <b>원고 파일을 끌어다 놓거나 클릭해서 선택하세요</b>
         <div class="hint">HWP · HWPX · DOCX · PDF · TXT — 여러 편 동시 선택 가능, 논문당 10MB 이하 (암호·배포용으로 잠긴 HWP는 HWPX/PDF로 저장 후 사용)</div>
@@ -472,17 +481,16 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
   </div>
 </dialog>
 
-<!-- 접근 코드 대화상자 (외부 운영) -->
+<!-- 접근 코드 대화상자 (외부 운영) — 첫 화면을 막는 관문이 아니라, 학회 기능을
+     이용하려는 순간에 뜨는 검문이다. 언제든 '취소'로 닫고 계속 둘러볼 수 있다 -->
 <dialog id="dlgAccess">
   <div class="dhead">학회 접근 코드</div>
   <div class="dbody">
     <div class="hint" style="margin-bottom:10px">
-      학회에서 안내받은 코드를 입력하면 소속 학회가 자동으로 확인되고, 학회 관련 기능이 열립니다.
+      이 기능은 학회 접근 코드가 필요합니다. 학회에서 안내받은 코드를 입력하면 소속 학회가
+      자동으로 확인되고, 원고 파일 정리·지난 결과 열람 등 학회 관련 기능이 열립니다.
       <b>편집위원·편집위원장</b> 코드로 입장하면 학회 통계·원고 관리·발행본 비교를 이용할 수 있습니다.
-      코드가 없다면 소속 학회 편집위원회 또는 관리자에게 문의해 주세요.
     </div>
-    <!-- 이 대화상자는 모달이라 코드가 없으면 머릿글의 '이용 안내'에 손이 닿지 않는다.
-         정작 안내가 필요한 사람이 못 보게 되므로 여기에도 길을 낸다. -->
     <div class="hint" style="margin-bottom:10px">
       처음 오셨나요? <a href="/guide" target="_blank" rel="noopener"><b>이용 안내 보기</b></a>
       — 어떤 서비스인지, 코드는 어떻게 받는지 코드 없이도 읽으실 수 있습니다.
@@ -491,7 +499,7 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
     <div class="field">
       <label>학회 코드</label>
       <input type="password" id="accessCode" onkeydown="if(event.key==='Enter')submitAccess()">
-      <div class="hint">소속 학회에서 안내받은 코드입니다.</div>
+      <div class="hint">소속 학회에서 안내받은 코드입니다. 코드가 없다면 소속 학회 편집위원회 또는 관리자에게 문의해 주세요.</div>
     </div>
     <div class="field">
       <label>역할 코드 <span class="hint" style="font-weight:400">— 편집위원·편집위원장만 입력 (없으면 비워 두세요)</span></label>
@@ -499,21 +507,13 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
       <div class="hint">위 학회 코드와 함께 입력해야 해당 학회의 편집위원·편집위원장으로 확인됩니다.</div>
     </div>
     <div class="msg" id="accessMsg"></div>
-    <!-- 코드가 없어도 체험할 수 있는 길 — 이 대화상자는 모달이라 본화면의 검증 바에
-         손이 닿지 않으므로, 같은 기능을 여기에도 둔다 -->
-    <div style="border-top:1px solid var(--line);margin-top:14px;padding-top:12px">
-      <div class="hint" style="margin-bottom:6px"><b>코드가 아직 없으신가요?</b>
-        참고문헌 1건 검증은 코드 없이 바로 해보실 수 있습니다 — DOI·ISBN·URL·제목 아무거나:</div>
-      <div class="row">
-        <input type="text" id="quickQA" style="flex:1;min-width:200px" placeholder="DOI · ISBN · 논문/도서 제목"
-               onkeydown="if(event.key==='Enter'){event.preventDefault();runQuick('A')}">
-        <button class="btn ghost" id="quickBtnA" onclick="runQuick('A')">검증</button>
-      </div>
-      <div class="qout" id="quickOutA"></div>
+    <div class="hint" style="border-top:1px solid var(--line);margin-top:14px;padding-top:10px">
+      <b>코드가 아직 없으신가요?</b> 이 창을 닫아도 첫 화면의
+      <b>⚡ 참고문헌 1건 바로 검증</b>(DOI·ISBN·URL·제목)은 코드 없이 계속 이용하실 수 있습니다.
     </div>
   </div>
   <div class="dfoot">
-    <button class="btn ghost" id="accessCancelBtn" onclick="dlgAccess.close()" style="display:none">취소</button>
+    <button class="btn ghost" onclick="dlgAccess.close()">취소</button>
     <button class="btn ghost" id="accessLeaveBtn" onclick="leaveAccess()" style="display:none">🚪 나가기</button>
     <button class="btn ghost" onclick="dlgLogin.showModal()">관리자 로그인</button>
     <button class="btn" onclick="submitAccess()">확인</button>
@@ -705,25 +705,28 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
 // main.py의 APP_VERSION과 반드시 같아야 한다. 서버에 index.html이 덜 복사됐는지
 // 알아내려고 일부러 손으로 박아 두는 값이라 자동 주입하지 않는다.
 // (test_server.py가 두 값이 어긋나면 실패시킨다)
-const UI_VERSION='2026.08.16-3';
+const UI_VERSION='2026.08.16-4';
 const $=id=>document.getElementById(id);
 let pickedFiles=[], styles=[], currentJob=null, pollTimer=null, etaTimer=null;
 
 // ---------- 초기화
+// 첫 화면은 코드 없이 누구에게나 열린다 — 접근 코드는 학회 기능을 이용하려는
+// 순간(ensureAccess)에만 묻는다. 단건 검증은 끝까지 코드 없이 쓸 수 있다.
 async function init(){
   await refreshStatus(); await refreshStyles(); await initOrgs();
-  checkAccess();
 }
-function checkAccess(){
-  const s=window._status;
-  if(s&&s.access_required&&!s.access_ok&&!dlgAccess.open) openAccessDlg();
+// 코드 필요 기능의 검문 — 통과하면 true, 아니면 코드 대화상자를 띄우고 false
+function ensureAccess(){
+  const s=window._status||{};
+  if(!s.access_required||s.access_ok) return true;
+  openAccessDlg();
+  return false;
 }
-// 코드 입력·변경 대화상자 (첫 입장이면 취소 불가, 이미 입장했으면 변경/해제 가능)
+// 코드 입력·변경 대화상자 (이미 입장했으면 변경/해제도 여기서)
 function openAccessDlg(){
   const s=window._status||{};
   $('accessMsg').textContent=''; $('accessCode').value=''; $('accessRoleCode').value='';
   const entered=!!s.access_ok;
-  $('accessCancelBtn').style.display=entered?'':'none';
   $('accessLeaveBtn').style.display=entered?'':'none';
   const cur=$('accessCurrent');
   if(entered&&s.access_org){
@@ -748,22 +751,21 @@ async function submitAccess(){
   else { $('accessMsg').textContent=d.message||'코드가 올바르지 않습니다.'; $('accessMsg').className='msg bad'; }
 }
 async function leaveAccess(){
-  if(!confirm('나가시겠습니까?\n\n학회 코드가 해제되고, 이 브라우저에 저장된 이름·소속도 지워집니다.\n계속 사용하려면 코드를 다시 입력해야 합니다.')) return;
+  if(!confirm('나가시겠습니까?\n\n학회 코드가 해제되고, 이 브라우저에 저장된 이름·소속도 지워집니다.\n참고문헌 1건 검증 외의 기능은 코드를 다시 입력해야 이용할 수 있습니다.')) return;
   await fetch('/api/access/logout',{method:'POST'});
   // 공용 PC를 염두에 둔다 — 코드만 풀고 이름·소속을 남기면 다음 사람 화면에 그대로 뜬다
   ['refstd_user','refstd_org','refstd_orgetc'].forEach(k=>localStorage.removeItem(k));
   if($('userName')) $('userName').value='';
   if($('orgEtc')) $('orgEtc').value='';
   // 단건 검증에 남긴 검색어·결과도 이전 이용자의 흔적이다 — 함께 지운다
-  for(const sfx of ['','A']){
-    const i=$('quickQ'+sfx), o=$('quickOut'+sfx);
-    if(i) i.value=''; if(o) o.innerHTML='';
-  }
+  const qi=$('quickQ'), qo=$('quickOut');
+  if(qi) qi.value=''; if(qo) qo.innerHTML='';
   window._quickLast={};
   const sel=$('orgSel');
   if(sel){ sel.disabled=false; sel.selectedIndex=0; orgChanged(); }   // '기타' 입력칸도 닫는다
+  if(dlgAccess.open) dlgAccess.close();
   await refreshStatus();
-  openAccessDlg();
+  toast('코드가 해제되었습니다 — 참고문헌 1건 검증은 계속 이용하실 수 있습니다');
 }
 async function initOrgs(){
   const d=await (await fetch('/api/orgs')).json();
@@ -862,6 +864,8 @@ async function refreshStatus(){
   else oh.style.display='none';
   $('codeBtn').style.display=(s.access_required&&!s.admin)?'':'none';
   $('codeBtn').textContent=s.access_ok?'🎫 코드 변경':'🎫 학회 코드 입력';
+  // 코드 없이 둘러보는 중 안내 — 무엇이 되고 무엇에 코드가 필요한지 첫 화면에서 알린다
+  $('guestNote').style.display=(s.access_required&&!s.access_ok)?'':'none';
   // 나가기 — 코드로 들어와 있을 때만. 관리자는 '로그아웃' 버튼이 따로 있다
   $('leaveBtn').style.display=(s.access_required&&s.access_ok&&!s.admin)?'':'none';
   $('addStyleBtn').style.display=s.admin?'':'none';
@@ -1030,6 +1034,7 @@ function pasteChanged(){
   $('pasteCount').textContent=n?`${n}건 인식됨`:'한 줄에 한 건씩 붙여넣어 주세요 (15자 이상)';
 }
 async function runPaste(){
+  if(!ensureAccess()) return;
   const lines=pasteLines();
   if(!lines.length){ alert('참고문헌을 붙여넣어 주세요.'); return; }
   const ui=userInfo(); if(!ui) return;
@@ -1058,7 +1063,7 @@ async function runPaste(){
 const drop=$('drop');
 drop.addEventListener('dragover',e=>{e.preventDefault();drop.classList.add('over')});
 drop.addEventListener('dragleave',()=>drop.classList.remove('over'));
-drop.addEventListener('drop',e=>{e.preventDefault();drop.classList.remove('over');addFiles(e.dataTransfer.files)});
+drop.addEventListener('drop',e=>{e.preventDefault();drop.classList.remove('over');if(ensureAccess())addFiles(e.dataTransfer.files)});
 $('fileInput').addEventListener('change',e=>addFiles(e.target.files));
 function addFiles(list){
   for(const f of list){
@@ -1099,6 +1104,7 @@ function opts(fd,ui){
   return fd;
 }
 async function runUpload(){
+  if(!ensureAccess()) return;
   if(!pickedFiles.length) return;
   const ui=userInfo(); if(!ui) return;
   const st=styles.find(s=>s.id===$('styleSel').value);
@@ -1117,6 +1123,7 @@ async function runUpload(){
   }catch(e){ alert('오류: '+e.message); setRunning(false); }
 }
 async function runFolder(){
+  if(!ensureAccess()) return;
   const p=$('folderPath').value.trim();
   if(!p){ alert('폴더 경로를 입력해 주세요.'); return; }
   const ui=userInfo(); if(!ui) return;
@@ -1772,7 +1779,8 @@ function toggleLegend(idx){
   if(el) el.style.display=el.style.display==='none'?'':'none';
 }
 
-// ---------- 단건 검증(옴니박스) — 본화면('')과 접근 코드 대화상자('A') 공용
+// ---------- 단건 검증(옴니박스) — 유일하게 접근 코드 없이 쓸 수 있는 기능
+// (sfx는 같은 칸을 여러 곳에 둘 때의 id 접미사 — 지금은 본화면('') 하나뿐)
 async function runQuick(sfx){
   const inp=$('quickQ'+sfx), out=$('quickOut'+sfx), btn=$('quickBtn'+sfx);
   const q=(inp.value||'').trim();
@@ -1813,7 +1821,8 @@ function renderQuick(d,sfx){
   if(d.detail) h+=`<div class="hint" style="margin-top:5px">${esc(d.detail)}</div>`;
   if(d.status==='not_found'||d.status==='suspect')
     h+=`<div class="hint">찾지 못했다고 해서 반드시 허위는 아닙니다 — ISBN 없는 자료 등 DB 미수록 문헌일 수 있습니다.</div>`;
-  h+=`<div class="hint" style="margin-top:6px">원고 전체를 검사하려면 ${sfx==='A'?'학회 코드로 입장한 뒤':''} 원고 파일을 업로드하세요 — 추출부터 검증·교정까지 한 번에 됩니다.</div>`;
+  const needCode=(window._status||{}).access_required&&!(window._status||{}).access_ok;
+  h+=`<div class="hint" style="margin-top:6px">원고 전체를 검사하려면 ${needCode?'학회 코드로 입장한 뒤 ':''}원고 파일을 업로드하세요 — 추출부터 검증·교정까지 한 번에 됩니다.</div>`;
   return h;
 }
 
@@ -1850,6 +1859,7 @@ async function reverifyItem(jobId,idx,ii){
 }
 // ---------- 지난 분석 결과 열람
 async function openPast(){
+  if(!ensureAccess()) return;
   if(!dlgPast.open) dlgPast.showModal();
   $('pastView').innerHTML=''; $('pastInfo').textContent='';
   $('pastList').innerHTML='불러오는 중…';
@@ -1960,8 +1970,8 @@ function resetAll(silent){
   $('progress').style.display='none';
   window._barPct=0;
   $('barFill').style.width='0'; $('stageText').textContent='';
-  // 열려 있는 대화상자 닫기 — 단, 접근 코드 창은 입장 조건이므로 건드리지 않는다
-  document.querySelectorAll('dialog[open]').forEach(d=>{ if(d.id!=='dlgAccess'){ try{ d.close(); }catch(e){} } });
+  // 열려 있는 대화상자 닫기 (접근 코드 창 포함 — 이제 첫 화면은 코드 없이도 열린다)
+  document.querySelectorAll('dialog[open]').forEach(d=>{ try{ d.close(); }catch(e){} });
   // 사용자 정보 초기화 — 저장해 둔 이름·기관도 함께 지운다
   $('userName').value=''; $('orgEtc').value='';
   localStorage.removeItem('refstd_user'); localStorage.removeItem('refstd_orgetc');
@@ -1983,7 +1993,7 @@ function resetAll(silent){
 }
 
 // ---------- 제목 클릭 — 처음 접속한 상태로 완전 초기화
-// 학회 접근 코드와 관리자 로그인까지 해제하므로, 끝나면 코드 입력창이 다시 뜬다.
+// 학회 접근 코드와 관리자 로그인까지 해제하고, 코드 없이 둘러보는 첫 화면으로 돌아간다.
 async function fullReset(){
   resetAll(true);                       // 작업 상태·입력값 정리(알림은 마지막에 한 번만)
   // 이 브라우저에 저장해 둔 이용자 정보 일체 제거
@@ -2004,7 +2014,6 @@ const dlgSettings=$('dlgSettings'), dlgStyle=$('dlgStyle'), dlgLogin=$('dlgLogin
       dlgStats=$('dlgStats'), dlgFeedback=$('dlgFeedback'), dlgFbAdmin=$('dlgFbAdmin'),
       dlgKb=$('dlgKb'), dlgAccess=$('dlgAccess'), dlgPast=$('dlgPast'),
       dlgCosts=$('dlgCosts'), dlgModels=$('dlgModels');
-dlgAccess.addEventListener('cancel',e=>e.preventDefault()); // Esc로 우회 방지
 
 // ---------- 편집 요구 (이용자)
 let _fbTarget=null;
