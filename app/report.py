@@ -306,7 +306,7 @@ def build_result_docx(result: dict) -> bytes:
                                      sg.get("suggested", ""), sg.get("source", "")]):
                 row.cells[c].paragraphs[0].add_run(val).font.size = Pt(9)
 
-    # ── 작성 제안 (논문 사례를 통한 제안 · 박주현 교수의 추가 제안)
+    # ── 작성 제안 (논문 사례를 통한 제안 · 발행본 검토 제안)
     all_tips = [(i, tp) for i, item in enumerate(items, 1)
                 for tp in (item.get("tips") or [])]
     if all_tips:
@@ -315,7 +315,7 @@ def build_result_docx(result: dict) -> bytes:
         doc.add_paragraph(
             "문편협 공통 기준이 일순위이며, 아래는 기준이 명시하지 않거나 애매한 부분에 대한 "
             "보조 제안입니다. '논문 사례를 통한 제안'은 4개 학회지의 2025년 이후 발행 논문 관행에서, "
-            "'박주현 교수의 추가 제안'은 발행본 대조 검토에서 추출한 것입니다."
+            "'발행본 검토 제안'은 학회지 발행본과의 대조 검토에서 추출한 것입니다."
         ).runs[0].font.size = Pt(9)
         tbl = doc.add_table(rows=1, cols=4)
         tbl.style = "Light Grid Accent 1"

@@ -548,12 +548,12 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
   <div class="dbody" style="max-height:76vh;overflow-y:auto">
     <div class="hint" id="kbIntro" style="margin-bottom:4px">
       적용 우선순위: ① <b>문편협 공통 기준</b>(항상 일순위) → ② <b>관리자 추가 기준</b>(변환에 반영,
-      문편협과 충돌 시 문편협 우선·공백만 보완) → ③ <b>논문 사례를 통한 제안</b> · ④ <b>박주현 교수의 추가 제안</b>
+      문편협과 충돌 시 문편협 우선·공백만 보완) → ③ <b>논문 사례를 통한 제안</b> · ④ <b>발행본 검토 제안</b>
       (변환 결과를 바꾸지 않고 이용자에게 참고용으로 표시).
     </div>
     <div class="tabs" style="margin-top:6px">
       <button id="kbTabC" class="active" onclick="kbTab('c')">논문 사례를 통한 제안</button>
-      <button id="kbTabP" onclick="kbTab('p')">박주현 교수의 추가 제안</button>
+      <button id="kbTabP" onclick="kbTab('p')">발행본 검토 제안</button>
       <button id="kbTabS" onclick="kbTab('s')">관리자 추가 기준</button>
       <button id="kbTabO" onclick="kbTab('o')">학회 제안</button>
       <button id="kbTabM" onclick="kbTab('m')">발행본 비교</button>
@@ -588,7 +588,7 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
 
     <div id="kbPaneP" style="display:none">
       <div class="hint">에이전트 결과와 학회지 발행본의 차이를 <b>'발행본 비교' 탭</b>에서 채택하면 여기에 쌓입니다.
-        문편협 공통 기준이 아니므로 이용자에게 '박주현 교수의 추가 제안'이라는 이름의 참고 정보로 표시됩니다.</div>
+        문편협 공통 기준이 아니므로 이용자에게 '발행본 검토 제안'이라는 이름의 참고 정보로 표시됩니다.</div>
       <h3>제안 목록</h3>
       <div id="kbListP">불러오는 중…</div>
       <h3>직접 추가</h3>
@@ -629,7 +629,7 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
 
     <div id="kbPaneM" style="display:none">
       <div class="hint">에이전트가 정리했던 결과(처리 이력)와 학회지 <b>최종 발행본</b>을 비교합니다.
-        차이 항목을 검토해 체크하면 '박주현 교수의 추가 제안'으로 등록되어 이후 처리 결과에 표시됩니다.</div>
+        차이 항목을 검토해 체크하면 '발행본 검토 제안'으로 등록되어 이후 처리 결과에 표시됩니다.</div>
       <div class="row" style="margin:8px 0">
         <select id="cmpHistory" style="flex:1.5;min-width:280px"></select>
       </div>
@@ -2805,7 +2805,7 @@ function renderCompare(res){
     const isAdmin=(window._status||{}).admin;
     h+=`<div class="row" style="margin:10px 0">
       ${isAdmin
-        ?`<button class="btn" onclick="adoptChecked()">체크한 항목을 '박주현 교수의 추가 제안'으로 등록</button>`
+        ?`<button class="btn" onclick="adoptChecked()">체크한 항목을 '발행본 검토 제안'으로 등록</button>`
         :`<button class="btn" onclick="requestChecked()">체크한 항목을 '채택 요청'으로 올리기</button>`}
       <span class="hint">${isAdmin?'':'편집위원장 승인 후 학회 제안으로 등록됩니다. '}'[서지 차이]'로 표시된 초안은 형식 규칙이 아닌 데이터 차이이므로 등록하지 않는 것이 좋습니다.</span>
     </div>`;
@@ -2856,7 +2856,7 @@ async function adoptChecked(){
     headers:{'Content-Type':'application/json'}, body:JSON.stringify({items})});
   const d=await r.json();
   if(d.ok){
-    $('cmpMsg').textContent=`'박주현 교수의 추가 제안'에 ${d.added}건 등록되었습니다`+(d.skipped?` (중복·미비 ${d.skipped}건 제외)`:'')+'. 이후 처리 결과부터 표시됩니다.';
+    $('cmpMsg').textContent=`'발행본 검토 제안'에 ${d.added}건 등록되었습니다`+(d.skipped?` (중복·미비 ${d.skipped}건 제외)`:'')+'. 이후 처리 결과부터 표시됩니다.';
     $('cmpMsg').className='msg ok';
     await renderKb();
   } else { $('cmpMsg').textContent='등록 실패'; $('cmpMsg').className='msg bad'; }

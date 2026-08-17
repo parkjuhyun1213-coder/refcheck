@@ -41,7 +41,7 @@ app = FastAPI(title="파일 기반 참고문헌 표준화·검증 에이전트",
 # 화면(index.html)과 프로그램의 버전이 어긋난 채 배포되면 새 기능이 조용히 무시된다.
 # 두 파일에 같은 값을 두고 /api/status에서 대조해 관리자 화면에 경고를 띄운다.
 # 기능을 추가·변경할 때 main.py와 index.html의 APP_VERSION을 함께 올릴 것.
-APP_VERSION = "2026.08.17-1"
+APP_VERSION = "2026.08.18-1"
 
 APP_DIR = Path(__file__).parent
 JOBS: dict[str, dict] = {}
@@ -2341,7 +2341,7 @@ def admin_compare_kci(request: Request, history_id: str = Form(...), title: str 
 
 @app.post("/api/admin/compare/adopt")
 async def admin_compare_adopt(request: Request):
-    """비교 결과에서 관리자가 체크한 차이를 '박주현 교수의 추가 제안'으로 등록."""
+    """비교 결과에서 관리자가 체크한 차이를 '발행본 검토 제안'으로 등록."""
     require_admin(request)
     try:
         payload = await request.json()
