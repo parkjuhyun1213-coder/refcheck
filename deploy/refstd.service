@@ -4,7 +4,9 @@ After=network.target
 
 [Service]
 WorkingDirectory=/opt/refstd/app
-ExecStart=/opt/refstd/venv/bin/python -m uvicorn main:app --host 127.0.0.1 --port 8765
+# --proxy-headers: Caddy가 붙인 X-Forwarded-For를 신뢰해 실제 접속 IP를 복원
+# (없으면 모든 요청이 127.0.0.1로 보여 IP별 로그인 제한이 전체 공용으로 묶인다)
+ExecStart=/opt/refstd/venv/bin/python -m uvicorn main:app --host 127.0.0.1 --port 8765 --proxy-headers --forwarded-allow-ips 127.0.0.1
 Restart=always
 RestartSec=3
 User=www-data

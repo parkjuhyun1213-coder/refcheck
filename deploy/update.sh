@@ -23,6 +23,15 @@ if [ ! -d "$APP_DIR" ]; then
   exit 1
 fi
 
+# 재시작하면 처리 중이던 작업이 통째로 사라진다(작업 상태가 메모리에만 있음).
+# 편집위원이 논문을 돌리는 중에 배포하지 않도록 확인하고 미룬다.
+BUSY=$(curl -s --max-time 3 http://127.0.0.1:8765/api/busy | grep -o '"running": *[0-9]*' | grep -o '[0-9]*' || true)
+if [ "${FORCE:-0}" != "1" ] && [ -n "${BUSY:-}" ] && [ "$BUSY" -gt 0 ]; then
+  echo "⚠ 지금 처리 중인 작업이 ${BUSY}건 있습니다. 재시작하면 그 작업이 사라집니다."
+  echo "  작업이 끝난 뒤 다시 실행하시거나, 그래도 진행하려면:  FORCE=1 bash $0"
+  exit 1
+fi
+
 echo "== 코드 파일 반영 =="
 # 파이썬 소스와 화면 파일만 복사(운영 데이터 보존)
 find "$SRC/app" -maxdepth 1 -name "*.py" -exec cp -f {} "$APP_DIR/app/" \;
@@ -41,6 +50,21 @@ if [ -f "$SRC/requirements.txt" ]; then
   "$APP_DIR/venv/bin/pip" install --quiet -r "$APP_DIR/requirements.txt" || true
 fi
 chown -R www-data:www-data "$APP_DIR/app" "$APP_DIR/deploy" 2>/dev/null || true
+
+# 서비스 정의가 바뀌었으면 systemd에 반영(예: --proxy-headers 추가)
+if ! cmp -s "$APP_DIR/deploy/refstd.service" /etc/systemd/system/refstd.service; then
+  cp -f "$APP_DIR/deploy/refstd.service" /etc/systemd/system/refstd.service
+  systemctl daemon-reload
+  echo "== 서비스 정의 갱신(daemon-reload) =="
+fi
+
+# 파일 복사·pip 사이에 새 작업이 시작됐을 수 있다 — 재시작 직전에 한 번 더 확인
+BUSY=$(curl -s --max-time 3 http://127.0.0.1:8765/api/busy | grep -o '"running": *[0-9]*' | grep -o '[0-9]*' || true)
+if [ "${FORCE:-0}" != "1" ] && [ -n "${BUSY:-}" ] && [ "$BUSY" -gt 0 ]; then
+  echo "⚠ 코드 복사 중에 새 작업이 ${BUSY}건 시작되었습니다. 재시작을 중단합니다."
+  echo "  (코드는 이미 복사되었으므로, 작업이 끝난 뒤  systemctl restart refstd  만 실행하면 됩니다)"
+  exit 1
+fi
 
 echo "== 서비스 재시작 =="
 systemctl restart refstd

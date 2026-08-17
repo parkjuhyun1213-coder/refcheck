@@ -322,12 +322,18 @@ def kci_reference_search(client: httpx.Client, title: str, author: str = "",
 
 
 _KCI_JOURNAL_CACHE: dict[str, str] = {}
+# journalSearch는 인증키에 승인된 apiCode가 아니면 매번 '등록되지 않은 서비스'로
+# 돌아온다. 실패('')는 캐시하지 않으므로 그대로 두면 등재구분 없는 국내 문헌마다
+# KCI 쿼터만 소모하는 헛호출이 반복된다 — 미승인이 확인되면 프로세스가 사는 동안
+# 호출을 멈춘다. (나중에 KCI에 journalSearch를 추가 신청·승인받으면 재시작만 하면 됨)
+_JOURNAL_SEARCH_OFF = False
 
 
 def kci_journal_status(client: httpx.Client, journal_name: str) -> str:
     """학술지의 KCI 조회 결과: 'listed'(검색됨) / 'unlisted'(미검색) / ''(조회 불가)."""
+    global _JOURNAL_SEARCH_OFF
     key = env_get("KCI_API_KEY")
-    if not key or not journal_name:
+    if not key or not journal_name or _JOURNAL_SEARCH_OFF:
         return ""
     jn = journal_name.strip()
     with _CACHE_LOCK:
@@ -341,12 +347,17 @@ def kci_journal_status(client: httpx.Client, journal_name: str) -> str:
                  {"apiCode": "journalSearch", "key": key, "title": jn[:60]})
         if r is not None:
             root = _xml_root(r.text)
-            if root is not None and not _kci_error_msgs(root):
-                names = [el.text.strip() for el in root.iter() if el.tag.lower().endswith("journalname")
-                         and el.text and el.text.strip()]
-                if not names:
-                    names = [el.text.strip() for el in root.iter("journal-name") if el.text]
-                result = "listed" if any(_sim(jn, n) >= 0.85 for n in names) else "unlisted"
+            if root is not None:
+                errs = _kci_error_msgs(root)
+                if any("등록되지 않은 서비스" in e for e in errs):
+                    _JOURNAL_SEARCH_OFF = True
+                    print("[KCI] journalSearch 미승인 apiCode — 이후 호출 생략(등재 확인은 articleDetail 값만 사용)")
+                elif not errs:
+                    names = [el.text.strip() for el in root.iter() if el.tag.lower().endswith("journalname")
+                             and el.text and el.text.strip()]
+                    if not names:
+                        names = [el.text.strip() for el in root.iter("journal-name") if el.text]
+                    result = "listed" if any(_sim(jn, n) >= 0.85 for n in names) else "unlisted"
     except LookupUnavailable:
         result = ""
     if result:  # 조회 실패('')는 캐시하지 않음 — 다음 기회에 재시도

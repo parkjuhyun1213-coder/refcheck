@@ -34,12 +34,14 @@ import styles as styles_mod
 import suggestions as suggestions_mod
 import verify as verify_mod
 
-app = FastAPI(title="파일 기반 참고문헌 표준화·검증 에이전트")
+# 외부 운영 서비스이므로 API 문서(/docs·/redoc·/openapi.json)는 노출하지 않는다
+app = FastAPI(title="파일 기반 참고문헌 표준화·검증 에이전트",
+              docs_url=None, redoc_url=None, openapi_url=None)
 
 # 화면(index.html)과 프로그램의 버전이 어긋난 채 배포되면 새 기능이 조용히 무시된다.
 # 두 파일에 같은 값을 두고 /api/status에서 대조해 관리자 화면에 경고를 띄운다.
 # 기능을 추가·변경할 때 main.py와 index.html의 APP_VERSION을 함께 올릴 것.
-APP_VERSION = "2026.08.16-4"
+APP_VERSION = "2026.08.17-1"
 
 APP_DIR = Path(__file__).parent
 JOBS: dict[str, dict] = {}
@@ -83,6 +85,64 @@ def is_admin(request: Request) -> bool:
 def _cookie_secure() -> bool:
     """HTTPS 정식 운영 환경에서는 .env의 COOKIE_SECURE=1 로 쿠키를 HTTPS 전용으로 보호."""
     return aiengine.env_get("COOKIE_SECURE") == "1"
+
+
+def _client_ip(request: Request) -> str:
+    """실제 접속 IP.
+
+    Caddy 뒤에서는 request.client.host가 127.0.0.1이 되므로 X-Forwarded-For를 본다.
+    맨 마지막 값이 Caddy가 붙인 실제 접속 IP다(앞쪽 값은 클라이언트가 위조할 수 있다).
+    """
+    host = request.client.host if request.client else "?"
+    if host in ("127.0.0.1", "::1"):
+        fwd = request.headers.get("x-forwarded-for", "")
+        if fwd:
+            return fwd.split(",")[-1].strip() or host
+    return host
+
+
+# 로그인 실패 횟수 제한 — 접근 코드·관리자 비밀번호 무차별 대입 방어.
+# 실패만 기록한다(성공까지 세면 정상 이용자가 잠길 수 있다).
+_LOGIN_FAILS: dict[str, list[float]] = {}
+_LOGIN_LOCK = threading.Lock()
+_LOGIN_WINDOW = 10 * 60          # 10분
+# 학회 사무국·대학은 여러 사람이 공인 IP 하나를 공유(NAT)하므로 이용자 한도는
+# 넉넉하게 잡는다 — 동료 몇 명의 오입력으로 기관 전체가 잠기면 안 된다.
+_ACCESS_MAX_FAILS = 15           # 이용자 접근 코드
+_ADMIN_MAX_FAILS = 5             # 관리자 로그인
+
+
+def _login_blocked(kind: str, ip: str, limit: int) -> bool:
+    now = time.time()
+    key = f"{kind}:{ip}"
+    with _LOGIN_LOCK:
+        hits = _LOGIN_FAILS.get(key)
+        if not hits:  # 실패 이력 없는 IP에 빈 엔트리를 만들지 않는다
+            return False
+        hits = [t for t in hits if now - t < _LOGIN_WINDOW]
+        if hits:
+            _LOGIN_FAILS[key] = hits
+        else:
+            _LOGIN_FAILS.pop(key, None)
+        return len(hits) >= limit
+
+
+def _login_failed(kind: str, ip: str):
+    now = time.time()
+    key = f"{kind}:{ip}"
+    with _LOGIN_LOCK:
+        _LOGIN_FAILS.setdefault(key, []).append(now)
+        if len(_LOGIN_FAILS) > 2000:  # 메모리 무한 증가 방지
+            for k in [k for k, v in _LOGIN_FAILS.items()
+                      if not v or now - v[-1] > _LOGIN_WINDOW][:1000]:
+                _LOGIN_FAILS.pop(k, None)
+
+
+def _login_ok(kind: str, ip: str):
+    """성공하면 그 IP의 실패 기록을 지운다 — 오타 끝에 성공한 정상 이용자가
+    직후의 오타 한 번으로 잠기지 않도록."""
+    with _LOGIN_LOCK:
+        _LOGIN_FAILS.pop(f"{kind}:{ip}", None)
 
 
 # ---------------------------------------------------------------- 이용자 접근 코드
@@ -236,12 +296,18 @@ def require_access(request: Request):
 
 
 @app.post("/api/access")
-def enter_access(code: str = Form(""), role_code: str = Form("")):
+def enter_access(request: Request, code: str = Form(""), role_code: str = Form("")):
     """학회 코드(+ 편집위원·위원장은 역할 코드)로 입장."""
     if not access_required():
         return {"ok": True, "org": "", "role": "", "role_label": ""}
+    ip = _client_ip(request)
+    if _login_blocked("access", ip, _ACCESS_MAX_FAILS):
+        return JSONResponse({"ok": False, "message":
+                             "코드 입력 실패가 너무 많습니다. 10분 뒤 다시 시도해 주세요."},
+                            status_code=429)
     found = _resolve_codes(code, role_code)
     if found:
+        _login_ok("access", ip)
         token, (org_name, role) = found
         resp = JSONResponse({"ok": True, "org": org_name, "role": role,
                              "role_label": ROLE_LABEL.get(role, "이용자")})
@@ -249,6 +315,7 @@ def enter_access(code: str = Form(""), role_code: str = Form("")):
                         max_age=ACCESS_TTL.get(role, ACCESS_TTL["user"]),
                         secure=_cookie_secure())
         return resp
+    _login_failed("access", ip)
     time.sleep(0.8)  # 무차별 대입 지연
     msg = ("학회 코드와 역할 코드가 맞지 않습니다. 역할 코드는 소속 학회의 코드와 함께 입력해 주세요."
            if role_code.strip() else "접근 코드가 올바르지 않습니다.")
@@ -269,22 +336,30 @@ def require_admin(request: Request):
 
 
 @app.post("/api/admin/login")
-def admin_login(admin_id: str = Form(""), password: str = Form("")):
+def admin_login(request: Request, admin_id: str = Form(""), password: str = Form("")):
     if not admin_configured():
         return JSONResponse(
             {"ok": False,
              "message": "관리자 계정이 아직 설정되지 않았습니다. .env 파일의 ADMIN_ID와 ADMIN_PASSWORD 값을 원하는 계정으로 바꾼 뒤 다시 시도해 주세요."},
             status_code=400)
+    ip = _client_ip(request)
+    if _login_blocked("admin", ip, _ADMIN_MAX_FAILS):
+        return JSONResponse({"ok": False, "message":
+                             "로그인 실패가 너무 많습니다. 10분 뒤 다시 시도해 주세요."},
+                            status_code=429)
     aid, pw = _admin_creds()
     # UTF-8 바이트 비교(compare_digest는 비ASCII 문자열을 지원하지 않음)
     if secrets.compare_digest(admin_id.strip().encode("utf-8"), aid.encode("utf-8")) \
             and secrets.compare_digest(password.encode("utf-8"), pw.encode("utf-8")):
+        _login_ok("admin", ip)
         tok = secrets.token_urlsafe(32)
         ADMIN_SESSIONS[tok] = time.time() + SESSION_TTL
         resp = JSONResponse({"ok": True})
         resp.set_cookie("admin_token", tok, httponly=True, samesite="lax",
                         max_age=SESSION_TTL, secure=_cookie_secure())
         return resp
+    _login_failed("admin", ip)
+    time.sleep(0.8)  # 무차별 대입 지연
     return JSONResponse({"ok": False, "message": "아이디 또는 비밀번호가 올바르지 않습니다."}, status_code=401)
 
 
@@ -860,10 +935,16 @@ def admin_stats(request: Request):
 _JOB_TTL = 2 * 3600  # 완료된 잡 보존 시간
 
 
-def _new_job(mode: str) -> dict:
+def _new_job(mode: str, org: str = "", admin_only: bool = False) -> dict:
+    """잡 생성. org = 만든 사람의 접근 코드가 식별한 학회 — 열람 경계로 쓴다.
+
+    안내문에서 '다른 학회의 자료는 서로 보이지 않습니다'라고 약속했으므로,
+    job_id를 알아도 다른 학회 코드로는 결과를 볼 수 없어야 한다.
+    """
     job = {"id": uuid.uuid4().hex[:12], "mode": mode, "status": "running",
            "stage": "대기", "current_file": "", "done_files": 0, "total_files": 0,
-           "results": [], "error": "", "output_dir": "", "created": time.time()}
+           "results": [], "error": "", "output_dir": "", "created": time.time(),
+           "org": org, "admin_only": admin_only}
     with _JOBS_LOCK:
         # 오래된 완료 잡 정리(메모리 무한 증가 방지)
         cutoff = time.time() - _JOB_TTL
@@ -874,7 +955,21 @@ def _new_job(mode: str) -> dict:
     return job
 
 
-MAX_PARALLEL = 4  # 동시 처리 논문 수 — API 호출 한도·서버 사양(1GB) 보호
+MAX_PARALLEL = 4  # 잡 하나 안에서 동시 처리하는 논문 수
+
+# 서버 전체 동시 처리 상한 — MAX_PARALLEL은 잡 단위라서, 여러 학회가 동시에 일괄
+# 업로드하면 잡 수만큼 배로 돌게 된다(3개 잡 = 12편 = 검증 스레드 72개). 전역
+# 세마포어로 서버 전체 in-flight 논문 수를 고정한다. .env의 MAX_CONCURRENT_FILES로
+# 조정(기동 시 1회 읽음 — 변경하려면 재시작).
+try:
+    _GLOBAL_MAX = max(1, int(aiengine.env_get("MAX_CONCURRENT_FILES") or "6"))
+except ValueError:
+    _GLOBAL_MAX = 6
+_GLOBAL_SLOTS = threading.BoundedSemaphore(_GLOBAL_MAX)
+
+# 붙여넣기 경로가 만드는 파일명 — 구버전 화면(no_store 플래그가 없는 캐시본)이
+# 남아 있어도 저장으로 새지 않도록 서버에서도 이름으로 한 번 더 거른다.
+_PASTE_NAME_RE = re.compile(r"^붙여넣기_\d+건\.txt$")
 
 
 def _run_parallel(job: dict, files: list[tuple[str, bytes]], options: dict,
@@ -887,36 +982,46 @@ def _run_parallel(job: dict, files: list[tuple[str, bytes]], options: dict,
 
     def work(i: int, name: str, data: bytes):
         st = job["files"][i]
-        st["status"] = "처리 중"
+        st["stage"] = "다른 작업 완료 대기"
+        # 이 잡이 아직 슬롯을 하나도 못 얻었으면 잡 수준 문구로도 알린다 —
+        # 3개 학회 동시 배치에서 세 번째 잡이 '멈춘 화면'으로 보이지 않게.
+        if not any(f["status"] == "처리 중" for f in job["files"]):
+            job["stage"] = "서버의 다른 작업이 끝나기를 기다리는 중 — 순서대로 자동 시작됩니다"
+        with _GLOBAL_SLOTS:  # 서버 전체 동시 처리 상한
+            st["status"] = "처리 중"
+            st["stage"] = ""
 
-        def progress(stage, filename):
-            st["stage"] = stage
-            done = sum(1 for r in job["results"] if r is not None)
-            running = sum(1 for f in job["files"] if f["status"] == "처리 중")
-            # 세부 단계를 함께 보여준다 — 이것이 없으면 1편 처리 시 화면이 멈춘 것처럼 보인다
-            job["stage"] = (stage if job["total_files"] == 1
-                            else f"{done}/{job['total_files']} 완료 · 동시 처리 {running}건 · {stage}")
-            job["current_file"] = filename
+            def progress(stage, filename):
+                st["stage"] = stage
+                done = sum(1 for r in job["results"] if r is not None)
+                running = sum(1 for f in job["files"] if f["status"] == "처리 중")
+                # 세부 단계를 함께 보여준다 — 이것이 없으면 1편 처리 시 화면이 멈춘 것처럼 보인다
+                job["stage"] = (stage if job["total_files"] == 1
+                                else f"{done}/{job['total_files']} 완료 · 동시 처리 {running}건 · {stage}")
+                job["current_file"] = filename
 
-        try:
-            res = process_file(name, data, options, progress)
-        except Exception as ex:
-            res = {"filename": name, "error": f"처리 중 오류: {ex}",
-                   "warnings": [], "items": [], "summary": {}}
-        job["results"][i] = res
-        st["status"] = "오류" if res.get("error") else "완료"
-        st["stage"] = ""
-        if res.get("history_id"):  # 원본 파일 보관(이력에 연결)
             try:
-                history_mod.attach_file(res["history_id"], name, data)
-            except Exception:
-                pass
-        if on_done:
-            try:
-                on_done(i, name, res)
-            except Exception:
-                pass
-        job["done_files"] = sum(1 for r in job["results"] if r is not None)
+                res = process_file(name, data, options, progress)
+            except Exception as ex:
+                res = {"filename": name, "error": f"처리 중 오류: {ex}",
+                       "warnings": [], "items": [], "summary": {}}
+            job["results"][i] = res
+            st["status"] = "오류" if res.get("error") else "완료"
+            st["stage"] = ""
+            # 원본 파일 보관(이력에 연결) — 붙여넣기 제출은 '서버에 남지 않습니다'
+            # 고지대로 파일을 저장하지 않는다(처리 이력 기록은 유지).
+            if res.get("history_id") and not options.get("no_store") \
+                    and not _PASTE_NAME_RE.match(name or ""):
+                try:
+                    history_mod.attach_file(res["history_id"], name, data)
+                except Exception:
+                    pass
+            if on_done:
+                try:
+                    on_done(i, name, res)
+                except Exception:
+                    pass
+            job["done_files"] = sum(1 for r in job["results"] if r is not None)
 
     with ThreadPoolExecutor(max_workers=MAX_PARALLEL) as pool:
         futures = [pool.submit(work, i, n, d) for i, (n, d) in enumerate(files)]
@@ -979,6 +1084,9 @@ def _run_case_job(job: dict, journal: str, files: list[tuple[str, bytes]]):
     '논문 사례를 통한 제안' 초안(미사용 상태)으로 축적한다."""
     def progress(stage, filename):
         job["stage"], job["current_file"] = stage, filename
+    # 전역 동시 처리 상한 공유 — 파일을 순차 처리하므로 잡 전체가 슬롯 1개.
+    job["stage"] = "서버의 다른 작업 완료 대기"
+    _GLOBAL_SLOTS.acquire()
     try:
         job["total_files"] = len(files)
         for name, data in files:
@@ -1028,6 +1136,8 @@ def _run_case_job(job: dict, journal: str, files: list[tuple[str, bytes]]):
     except Exception as ex:
         job["status"] = "error"
         job["error"] = f"사례 분석 중 오류: {ex}"
+    finally:
+        _GLOBAL_SLOTS.release()
 
 
 def _run_compare_job(job: dict, hid: str, filename: str, data: bytes,
@@ -1039,6 +1149,9 @@ def _run_compare_job(job: dict, hid: str, filename: str, data: bytes,
     """
     def progress(stage, fn):
         job["stage"], job["current_file"] = stage, fn
+    # 전역 동시 처리 상한 공유(파싱·AI 호출이 있는 작업이므로)
+    job["stage"] = "서버의 다른 작업 완료 대기"
+    _GLOBAL_SLOTS.acquire()
     try:
         job["total_files"] = 1
         rec = history_mod.get_history(hid)
@@ -1095,6 +1208,8 @@ def _run_compare_job(job: dict, hid: str, filename: str, data: bytes,
     except Exception as ex:
         job["status"] = "error"
         job["error"] = f"발행본 비교 중 오류: {ex}"
+    finally:
+        _GLOBAL_SLOTS.release()
 
 
 def _job_public(job: dict) -> dict:
@@ -1316,7 +1431,7 @@ def _quick_throttled(ip: str) -> bool:
 @app.post("/api/quick")
 def quick_check(request: Request, q: str = Form("")):
     """참고문헌 1건 즉석 표준화·검증 — DOI·ISBN·URL·제목 자동 판별."""
-    ip = request.client.host if request.client else "?"
+    ip = _client_ip(request)  # Caddy 뒤에서 client.host는 항상 127.0.0.1 — 실제 IP로 제한
     if _quick_throttled(ip):
         return JSONResponse({"ok": False, "message": "요청이 너무 잦습니다. 1분 뒤 다시 시도해 주세요."},
                             status_code=429)
@@ -1335,8 +1450,8 @@ def reverify_item(job_id: str, request: Request, file_idx: int = Form(...),
     제목 검색이 실패한(미확인·불일치·실존 의심) 항목을 이용자가 스스로
     해소하는 통로다. 성공하면 잡 결과와 처리 이력 양쪽에 반영한다.
     """
-    require_access(request)
-    res = _get_result(job_id, file_idx)
+    job = _job_for(job_id, request)
+    res = _get_result(job, file_idx)
     items = res.get("items") or []
     if item_idx < 0 or item_idx >= len(items):
         raise HTTPException(404, "해당 항목을 찾을 수 없습니다.")
@@ -1469,7 +1584,7 @@ async def process_upload(request: Request, files: list[UploadFile] = File(...),
                          style_id: str = Form("munpyeonhyeop"),
                          verify: str = Form("1"), crosscheck: str = Form("1"),
                          english: str = Form("0"), autofix: str = Form("0"),
-                         apply_extra: str = Form("1"),
+                         apply_extra: str = Form("1"), no_store: str = Form("0"),
                          user_name: str = Form(""), org: str = Form(""), org_etc: str = Form("")):
     require_access(request)
     payload = []
@@ -1484,11 +1599,13 @@ async def process_upload(request: Request, files: list[UploadFile] = File(...),
         raise HTTPException(400, "업로드된 파일이 없습니다.")
     options = _parse_options(style_id, verify, crosscheck, english, user_name, org, org_etc,
                              autofix, apply_extra)
+    options["no_store"] = no_store == "1"  # 붙여넣기 제출 — 원본 파일을 보관하지 않음
     a_org = access_org(request)
     if a_org:  # 학회별 접근 코드로 인증된 경우 — 코드가 식별한 학회를 우선(통계 신뢰성)
         options["org"] = a_org
     eta, eta_first, eta_basis = _estimate_secs(len(payload), options)
-    job = _new_job("upload")
+    job = _new_job("upload", org=a_org,
+                   admin_only=is_admin(request) and not a_org)
     threading.Thread(target=_run_upload_job, args=(job, payload, options), daemon=True).start()
     return {"job_id": job["id"], "eta_secs": eta, "eta_first": eta_first,
             "eta_basis": eta_basis, "n_files": len(payload)}
@@ -1514,25 +1631,47 @@ def process_folder(request: Request, path: str = Form(...), style_id: str = Form
     except OSError:
         n_files = 1
     eta, eta_first, eta_basis = _estimate_secs(n_files, options)
-    job = _new_job("folder")
+    job = _new_job("folder", admin_only=True)
     threading.Thread(target=_run_folder_job, args=(job, folder, options), daemon=True).start()
     return {"job_id": job["id"], "eta_secs": eta, "eta_first": eta_first,
             "eta_basis": eta_basis, "n_files": n_files}
 
 
-@app.get("/api/jobs/{job_id}")
-def job_status(job_id: str, request: Request):
+def _job_for(job_id: str, request: Request) -> dict:
+    """잡 조회 + 학회 경계 확인.
+
+    require_access만으로는 다른 학회 코드로 입장한 사람도 job_id만 알면 남의 학회
+    결과를 볼 수 있었다('다른 학회의 자료는 서로 보이지 않습니다' 약속 위반).
+    잡을 만든 코드의 학회와 열람자의 학회가 같아야만 통과시킨다.
+    """
     require_access(request)
     job = JOBS.get(job_id)
     if not job:
         raise HTTPException(404, "작업을 찾을 수 없습니다.")
-    return _job_public(job)
+    if is_admin(request):
+        return job
+    if job.get("admin_only"):
+        raise HTTPException(403, "관리자 전용 작업입니다.")
+    if (job.get("org") or "") != access_org(request):
+        raise HTTPException(403, "다른 학회의 작업입니다.")
+    return job
 
 
-def _get_result(job_id: str, index: int) -> dict:
-    job = JOBS.get(job_id)
-    if not job:
-        raise HTTPException(404, "작업을 찾을 수 없습니다.")
+@app.get("/api/jobs/{job_id}")
+def job_status(job_id: str, request: Request):
+    return _job_public(_job_for(job_id, request))
+
+
+@app.get("/api/busy")
+def busy_status():
+    """배포 스크립트용 — 진행 중 작업 수. 재시작하면 진행 중 작업이 사라지므로
+    update.sh가 이 값을 보고 배포를 미룬다. 건수만 노출하므로 인증은 걸지 않는다."""
+    with _JOBS_LOCK:
+        running = sum(1 for j in JOBS.values() if j.get("status") == "running")
+    return {"running": running}
+
+
+def _get_result(job: dict, index: int) -> dict:
     if index < 0 or index >= len(job["results"]) or job["results"][index] is None:
         raise HTTPException(404, "결과를 찾을 수 없습니다(아직 처리 중일 수 있습니다).")
     return job["results"][index]
@@ -1570,8 +1709,8 @@ def _result_download_response(res: dict, fmt: str) -> Response:
 
 @app.get("/api/jobs/{job_id}/download/{index}")
 def download_result(job_id: str, index: int, request: Request, fmt: str = "docx"):
-    require_access(request)
-    return _result_download_response(_get_result(job_id, index), fmt)
+    job = _job_for(job_id, request)
+    return _result_download_response(_get_result(job, index), fmt)
 
 
 # ================================================================ 지난 결과 열람
@@ -1628,10 +1767,7 @@ def download_saved_result(hid: str, request: Request, fmt: str = "docx"):
 
 @app.get("/api/jobs/{job_id}/download_zip")
 def download_zip(job_id: str, request: Request):
-    require_access(request)
-    job = JOBS.get(job_id)
-    if not job:
-        raise HTTPException(404, "작업을 찾을 수 없습니다.")
+    job = _job_for(job_id, request)
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for res in job["results"]:
@@ -1882,7 +2018,7 @@ async def admin_add_cases(request: Request, journal: str = Form(...),
         payload.append((f.filename, data))
     if not payload:
         raise HTTPException(400, "업로드된 파일이 없습니다.")
-    job = _new_job("cases")
+    job = _new_job("cases", admin_only=True)
     threading.Thread(target=_run_case_job, args=(job, journal, payload), daemon=True).start()
     return {"job_id": job["id"]}
 
@@ -1891,11 +2027,11 @@ async def admin_add_cases(request: Request, journal: str = Form(...),
 async def admin_compare(request: Request, history_id: str = Form(...),
                         file: UploadFile = File(...)):
     """발행본 비교 — 처리 이력과 학회지 발행본의 참고문헌 차이 분석(편집위원 이상)."""
-    _require_org_record(history_id, request)
+    rec, _role = _require_org_record(history_id, request)
     data = await file.read()
     if len(data) > 50 * 1024 * 1024:
         raise HTTPException(400, "파일이 너무 큽니다(50MB 이하).")
-    job = _new_job("compare")
+    job = _new_job("compare", org=rec.get("org") or "")
     threading.Thread(target=_run_compare_job,
                      args=(job, history_id, file.filename, data), daemon=True).start()
     return {"job_id": job["id"]}
@@ -2179,7 +2315,7 @@ def admin_compare_kci(request: Request, history_id: str = Form(...), title: str 
     논문을 먼저 찾아 Control Number를 얻은 뒤 articleDetail의 <referenceInfo>를 읽는다.
     referenceSearch는 '이 논문이 남에게 인용된 형태'를 주므로 쓸 수 없다.
     """
-    _require_org_record(history_id, request)
+    rec, _role = _require_org_record(history_id, request)
     import verify_kr
     if not verify_kr.kr_api_status().get("kci"):
         raise HTTPException(400, "KCI 인증키가 설정되지 않았습니다. 서버 .env의 KCI_API_KEY를 설정해 주세요.")
@@ -2196,7 +2332,7 @@ def admin_compare_kci(request: Request, history_id: str = Form(...), title: str 
     # KCI는 서지요소만 주므로 우리 형식으로 렌더해 붙인다 — 형식 차이가 아니라
     # 서지요소 차이만 드러나게 하려는 것이다(저자는 제1저자만이라 대조에서 뺀다).
     refs = [formatter.format_entry(e) for e in entries]
-    job = _new_job("compare")
+    job = _new_job("compare", org=rec.get("org") or "")
     threading.Thread(target=_run_compare_job,
                      args=(job, history_id, f"KCI: {title.strip()}", b"", refs, True),
                      daemon=True).start()

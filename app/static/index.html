@@ -705,9 +705,9 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
 // main.py의 APP_VERSION과 반드시 같아야 한다. 서버에 index.html이 덜 복사됐는지
 // 알아내려고 일부러 손으로 박아 두는 값이라 자동 주입하지 않는다.
 // (test_server.py가 두 값이 어긋나면 실패시킨다)
-const UI_VERSION='2026.08.16-4';
+const UI_VERSION='2026.08.17-1';
 const $=id=>document.getElementById(id);
-let pickedFiles=[], styles=[], currentJob=null, pollTimer=null, etaTimer=null;
+let pickedFiles=[], styles=[], currentJob=null, pollTimer=null, etaTimer=null, pollFails=0, poll404=0;
 
 // ---------- 초기화
 // 첫 화면은 코드 없이 누구에게나 열린다 — 접근 코드는 학회 기능을 이용하려는
@@ -1050,6 +1050,7 @@ async function runPaste(){
   fd.append('files',file);
   opts(fd,ui);
   fd.set('crosscheck','0');  // 본문이 없으므로 본문 대조는 의미가 없다
+  fd.set('no_store','1');    // '서버에 남지 않습니다' 고지대로 — 서버가 파일 보관을 건너뛴다
   setRunning(true);
   try{
     const r=await fetch('/api/process',{method:'POST',body:fd});
@@ -1173,7 +1174,9 @@ function startPolling(jobId,etaSecs,etaBasis,etaFirst,nFiles){
     n:nFiles||1,first:(nFiles>=5&&etaFirst&&etaFirst<etaSecs)?etaFirst:null}:null;
   updateEta();
   if(window._eta) etaTimer=setInterval(updateEta,1000);
-  pollTimer=setInterval(poll,1200); poll();
+  pollFails=0; poll404=0;
+  // 여러 편 일괄 처리는 응답이 커서(편당 결과 전체 포함) 폴링 간격을 늘려 서버를 아낀다
+  pollTimer=setInterval(poll,(nFiles>4)?3000:1200); poll();
 }
 function fmtDur(s){
   s=Math.max(0,Math.round(s));
@@ -1201,7 +1204,32 @@ function stopEta(){
   window._eta=null; $('etaText').textContent='';
 }
 async function poll(){
-  const j=await (await fetch('/api/jobs/'+currentJob)).json();
+  let r=null;
+  try{ r=await fetch('/api/jobs/'+currentJob); }catch(e){ /* 네트워크 순단 */ }
+  // 실행 중 잡이 404가 되는 경우는 서버 재시작뿐이다(완료 잡 정리는 2시간 뒤).
+  // 그 외의 실패(와이파이 순단·502·일시 오류)는 절대 포기하지 않는다 —
+  // 폴링을 멈추고 '재업로드' 안내를 내면 서버에서 멀쩡히 도는 작업이 이중 처리된다.
+  if(r&&r.status===404){
+    poll404++;
+    if(poll404>=2){
+      clearInterval(pollTimer); stopEta(); setRunning(false);
+      $('stageText').textContent='서버가 재시작되어 진행 상태가 초기화되었습니다. '
+        +'이미 완료된 논문은 📂 지난 결과에서 확인·내려받기 할 수 있고, 남은 논문은 다시 올려 주세요.';
+    }
+    return;
+  }
+  poll404=0;
+  if(!r||!r.ok){
+    pollFails++;
+    if(pollFails>=4){  // 짧은 순단은 조용히 넘기고, 길어지면 상황만 알린다
+      $('stageText').textContent=(r&&(r.status===401||r.status===403))
+        ?'접근 코드 확인이 필요합니다 — 학회 코드를 다시 입력하시면 진행 상황이 이어서 표시됩니다.'
+        :'서버 연결을 기다리는 중… (연결이 돌아오면 자동으로 이어집니다)';
+    }
+    return;
+  }
+  pollFails=0;
+  const j=await r.json();
   window._lastJob=j;
   const frac=j.total_files? j.done_files/j.total_files : 0.05;
   setBar(Math.round(frac*100));
@@ -1711,7 +1739,8 @@ function renderOpenTab(job){
   if(!res){
     const f=job.files[i];
     panel.innerHTML=`<div class="hint" style="padding:34px 10px;text-align:center;font-size:13px">
-      ${f.status==='처리 중'?('🔄 처리 중 — '+esc(f.stage||'시작하는 중…')):'⏳ 대기 중 — 앞의 논문 처리가 끝나면 자동으로 시작됩니다'}</div>`;
+      ${f.status==='처리 중'?('🔄 처리 중 — '+esc(f.stage||'시작하는 중…'))
+        :('⏳ 대기 중 — '+esc(f.stage||'앞의 논문 처리가 끝나면 자동으로 시작됩니다'))}</div>`;
     window._renderedTab=-1;
     return;
   }
