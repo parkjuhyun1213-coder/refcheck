@@ -37,7 +37,8 @@ echo "== 코드 파일 반영 =="
 find "$SRC/app" -maxdepth 1 -name "*.py" -exec cp -f {} "$APP_DIR/app/" \;
 mkdir -p "$APP_DIR/app/static"
 # index.html·guide.html 등 화면 파일 전부 (예전에는 index.html만 복사해 guide.html이 반영되지 않았다)
-find "$SRC/app/static" -maxdepth 1 -name "*.html" -exec cp -f {} "$APP_DIR/app/static/" \;
+# PDF는 공통기준 원문 배포용(/guide/standard.pdf)
+find "$SRC/app/static" -maxdepth 1 \( -name "*.html" -o -name "*.pdf" \) -exec cp -f {} "$APP_DIR/app/static/" \;
 mkdir -p "$APP_DIR/deploy"
 cp -f "$SRC"/deploy/* "$APP_DIR/deploy/" 2>/dev/null || true
 find "$APP_DIR/deploy" -type f -name "*.sh" -exec sed -i 's/\r$//' {} \;

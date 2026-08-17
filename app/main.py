@@ -15,7 +15,7 @@ import zipfile
 from pathlib import Path
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, Response, JSONResponse
+from fastapi.responses import HTMLResponse, Response, JSONResponse, FileResponse
 
 import aiengine
 import compare as compare_mod
@@ -41,7 +41,7 @@ app = FastAPI(title="참고문헌 검증·작성 서비스",
 # 화면(index.html)과 프로그램의 버전이 어긋난 채 배포되면 새 기능이 조용히 무시된다.
 # 두 파일에 같은 값을 두고 /api/status에서 대조해 관리자 화면에 경고를 띄운다.
 # 기능을 추가·변경할 때 main.py와 index.html의 APP_VERSION을 함께 올릴 것.
-APP_VERSION = "2026.08.18-3"
+APP_VERSION = "2026.08.18-4"
 
 APP_DIR = Path(__file__).parent
 JOBS: dict[str, dict] = {}
@@ -1293,6 +1293,20 @@ def guide():
     접속 코드 자체는 문서에 담지 않는다(빈칸으로 두고 학회가 따로 안내).
     """
     return (APP_DIR / "static" / "guide.html").read_text(encoding="utf-8")
+
+
+@app.get("/guide/standard.pdf")
+def standard_pdf():
+    """문편협 공통기준 원문 PDF — 접근 코드 없이 내려받을 수 있다.
+
+    학회 홈페이지들이 같은 문서를 게시하고 있어 원문 배포에 문제가 없고,
+    이용자가 기준 원문과 refcheck 결과를 대조할 수 있어야 신뢰가 생긴다.
+    """
+    path = APP_DIR / "static" / "mph_standard_v7_20240617.pdf"
+    if not path.exists():
+        raise HTTPException(404, "기준 문서 파일이 서버에 없습니다. 관리자에게 문의해 주세요.")
+    return FileResponse(path, media_type="application/pdf",
+                        filename="[문편협] 인용 및 참고문헌의 기술요소와 형식에 관한 공통기준(2024.6.17. 개정).pdf")
 
 
 @app.get("/api/status")
