@@ -45,7 +45,12 @@ th{background:var(--accent-soft);color:var(--accent);white-space:nowrap}
 .cta a.btn{display:inline-block;background:#fff;color:var(--accent);font-weight:700;border-radius:9px;padding:10px 20px;text-decoration:none;margin:8px 8px 0 0}
 .cta a{color:#fff}
 footer{max-width:960px;margin:0 auto 40px;padding:0 18px;font-size:12px;color:var(--sub);text-align:center}
-@media print{header,.cta{display:none}}
+@media print{header,.cta,.bar{display:none}}
+.bar{position:sticky;top:0;z-index:5;background:var(--accent);color:#fff;padding:9px 16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:13px}
+.bar b{font-weight:700}
+.bar .sp{flex:1}
+.bar a,.bar button{font:inherit;color:#fff;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.3);border-radius:6px;padding:5px 11px;cursor:pointer;text-decoration:none}
+.bar a:hover,.bar button:hover{background:rgba(255,255,255,.26)}
 .gnav{margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;font-size:12.5px}
 .gnav a{color:#fff;text-decoration:none;padding:4px 12px;border-radius:999px;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.3)}
 .gnav a:hover{background:rgba(255,255,255,.28)}
@@ -54,6 +59,12 @@ footer{max-width:960px;margin:0 auto 40px;padding:0 18px;font-size:12px;color:va
 </style>
 </head>
 <body>
+<div class="bar">
+  <b>📚 작성법 상세</b>
+  <span class="sp"></span>
+  <button type="button" onclick="window.print()">🖨 인쇄 · PDF 저장</button>
+  <a href="/">서비스로 이동 →</a>
+</div>
 <header>
   <div class="wrap">
     <h1>참고문헌 작성법 상세</h1>

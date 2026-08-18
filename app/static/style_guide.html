@@ -38,7 +38,12 @@ table{border-collapse:collapse;width:100%;font-size:13.5px;margin:8px 0}
 th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
 th{background:var(--accent-soft);color:var(--accent)}
 footer{max-width:960px;margin:0 auto 40px;padding:0 18px;font-size:12px;color:var(--sub);text-align:center}
-@media print{header,.cta{display:none}}
+@media print{header,.cta,.bar{display:none}}
+.bar{position:sticky;top:0;z-index:5;background:var(--accent);color:#fff;padding:9px 16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:13px}
+.bar b{font-weight:700}
+.bar .sp{flex:1}
+.bar a,.bar button{font:inherit;color:#fff;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.3);border-radius:6px;padding:5px 11px;cursor:pointer;text-decoration:none}
+.bar a:hover,.bar button:hover{background:rgba(255,255,255,.26)}
 .gnav{margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;font-size:12.5px}
 .gnav a{color:#fff;text-decoration:none;padding:4px 12px;border-radius:999px;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.3)}
 .gnav a:hover{background:rgba(255,255,255,.28)}
@@ -46,6 +51,12 @@ footer{max-width:960px;margin:0 auto 40px;padding:0 18px;font-size:12px;color:va
 </style>
 </head>
 <body>
+<div class="bar">
+  <b>📚 참고문헌 작성법</b>
+  <span class="sp"></span>
+  <button type="button" onclick="window.print()">🖨 인쇄 · PDF 저장</button>
+  <a href="/">서비스로 이동 →</a>
+</div>
 <header>
   <div class="wrap">
     <h1>참고문헌 작성법 — 문편협 공통기준</h1>
