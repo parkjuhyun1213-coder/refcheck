@@ -52,12 +52,14 @@
   .bar a:hover, .bar button:hover{background:rgba(255,255,255,.26)}
   .bar a:focus-visible, .bar button:focus-visible{outline:2px solid #fff; outline-offset:2px}
 
+  /* 화면에서는 다른 안내 페이지의 카드와 같은 폭·시작 위치 — 인쇄 시에만 A4 문서 */
   .sheet{
-    background:var(--paper); width:210mm; min-height:297mm;
-    margin:8mm auto; padding:16mm 17mm 14mm;
-    box-shadow:0 2px 14px rgba(20,40,60,.14);
+    background:var(--paper); width:auto; max-width:960px; min-height:0;
+    margin:26px auto; padding:24px 28px;
+    border:1px solid #dde4ec; border-radius:14px; box-shadow:none;
     display:flex; flex-direction:column; gap:9mm;
   }
+  .sheet:last-of-type{margin-bottom:80px}
   h1,h2,h3{
     font-family:"Nanum Myeongjo","Batang","바탕","Apple SD Gothic Neo",serif;
     margin:0; text-wrap:balance; letter-spacing:-.01em;
@@ -161,7 +163,7 @@
     @page{size:A4; margin:0}
     body{background:#fff}
     .bar{display:none}
-    .sheet{margin:0; box-shadow:none; width:auto; min-height:0; padding:14mm 16mm; break-after:page}
+    .sheet{margin:0; box-shadow:none; border:none; border-radius:0; max-width:none; width:auto; min-height:0; padding:14mm 16mm; break-after:page}
     .sheet:last-child{break-after:auto}
     *{-webkit-print-color-adjust:exact; print-color-adjust:exact}
   }
