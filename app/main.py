@@ -41,7 +41,7 @@ app = FastAPI(title="참고문헌 검증·작성 서비스",
 # 화면(index.html)과 프로그램의 버전이 어긋난 채 배포되면 새 기능이 조용히 무시된다.
 # 두 파일에 같은 값을 두고 /api/status에서 대조해 관리자 화면에 경고를 띄운다.
 # 기능을 추가·변경할 때 main.py와 index.html의 APP_VERSION을 함께 올릴 것.
-APP_VERSION = "2026.08.18-5"
+APP_VERSION = "2026.08.18-6"
 
 APP_DIR = Path(__file__).parent
 JOBS: dict[str, dict] = {}
@@ -1233,6 +1233,16 @@ def style_guide():
     만들어 내는 출력과 일치하도록 작성·검증한다(test_server 15번 참조).
     """
     return (APP_DIR / "static" / "style_guide.html").read_text(encoding="utf-8")
+
+
+@app.get("/guide/societies", response_class=HTMLResponse)
+def society_guide():
+    """학회별 투고 양식·편집 관행 비교 — 접근 코드 없이 공개.
+
+    4개 학회 규정 원문을 조문 단위로 대조한 결과(2026-08-18 검증).
+    학회 관계자가 서비스의 존재 이유(같은 기준, 다른 양식·관행)를 볼 수 있는 페이지.
+    """
+    return (APP_DIR / "static" / "society_guide.html").read_text(encoding="utf-8")
 
 
 # 학회 이름(코드 키) ↔ 학회지 이름 — suggestions.json의 journal 필드와 대조용
