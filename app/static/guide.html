@@ -7,7 +7,7 @@
 <meta name="description" content="문헌정보학 4개 학회 공동 이용. 참고문헌을 문편협 공통기준에 맞게 정리하고 실존 여부까지 검증합니다.">
 <style>
   :root{
-    --paper:#ffffff; --ground:#e9eef4;
+    --paper:#ffffff; --ground:#f4f6f9; /* 다른 안내 페이지 배경(--bg)과 동일 */
     --ink:#17232f; --ink2:#48596a; --ink3:#7c8b9b;
     --line:#d5dee8; --rule:#b6c6d6;
     --navy:#1f4e79; --navy-deep:#16385a; --navy-soft:#e8f0f8;
@@ -54,7 +54,7 @@
 
   /* 화면에서는 다른 안내 페이지의 카드와 같은 폭·시작 위치 — 인쇄 시에만 A4 문서 */
   .sheet{
-    background:var(--paper); width:auto; max-width:960px; min-height:0;
+    background:var(--paper); width:auto; max-width:924px; min-height:0; /* 960 - 좌우 18px 여백 = 다른 페이지 카드 폭 */
     margin:26px auto; padding:24px 28px;
     border:1px solid #dde4ec; border-radius:14px; box-shadow:none;
     display:flex; flex-direction:column; gap:9mm;
