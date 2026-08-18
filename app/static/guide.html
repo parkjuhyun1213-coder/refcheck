@@ -171,14 +171,18 @@
   }
   @media (prefers-reduced-motion:reduce){*{animation:none!important; transition:none!important}}
 
-  /* 안내 페이지 4곳 공통 메뉴 — 현재 페이지는 흰색 강조 */
-  .gnav{background:var(--navy); border-top:1px solid rgba(255,255,255,.22);
-    padding:7px 16px; display:flex; gap:8px; flex-wrap:wrap; font-size:12.5px}
+  /* 안내 페이지 4곳 공통 머리글 — 남색 띠(제목+부제+메뉴), 현재 페이지는 흰색 강조 */
+  .pagehead{background:var(--navy); color:#fff; padding:26px 24px}
+  .pagehead .wrap{max-width:960px; margin:0 auto}
+  .pagehead h1{font-family:"Pretendard","Malgun Gothic","맑은 고딕",system-ui,sans-serif;
+    font-size:23px; line-height:1.4; color:#fff; font-weight:700; margin:0 0 6px}
+  .pagehead .psub{font-size:13.5px; opacity:.9}
+  .gnav{margin-top:12px; display:flex; gap:8px; flex-wrap:wrap; font-size:12.5px}
   .gnav a{color:#fff; text-decoration:none; padding:4px 12px; border-radius:999px;
     background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.28)}
   .gnav a:hover{background:rgba(255,255,255,.26)}
   .gnav a.on, .gnav a.on:hover{background:#fff; color:var(--navy); font-weight:700}
-  @media print{.gnav{display:none}}
+  @media print{.pagehead{display:none}}
 </style>
 </head>
 <body>
@@ -189,12 +193,18 @@
   <button type="button" onclick="window.print()">🖨 인쇄 · PDF 저장</button>
   <a href="/">서비스로 이동 →</a>
 </div>
-<nav class="gnav">
-  <a href="/guide" class="on">도입 안내</a>
-  <a href="/guide/societies">편집 관행 비교</a>
-  <a href="/guide/style">참고문헌 작성법</a>
-  <a href="/guide/style/detail">작성법 상세</a>
-</nav>
+<header class="pagehead">
+  <div class="wrap">
+    <h1>참고문헌 검증 서비스 도입 안내</h1>
+    <div class="psub">문헌정보학 4개 학회 공동 이용 — 한국도서관·정보학회 · 한국문헌정보학회 · 한국비블리아학회 · 한국정보관리학회 · refcheck.kr</div>
+    <nav class="gnav">
+      <a href="/guide" class="on">도입 안내</a>
+      <a href="/guide/societies">편집 관행 비교</a>
+      <a href="/guide/style">참고문헌 작성법</a>
+      <a href="/guide/style/detail">작성법 상세</a>
+    </nav>
+  </div>
+</header>
 
 <div class="sheet">
   <div class="masthead">
