@@ -18,6 +18,7 @@ app/api_cost_log.json
 app/compare_corpus.jsonl
 
 # ── 결과물·캐시
+실측자료/
 __pycache__/
 *.pyc
 참고문헌_정리결과/
