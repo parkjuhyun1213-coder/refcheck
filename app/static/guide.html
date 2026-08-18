@@ -120,11 +120,12 @@
   ul.tight li:last-child{margin-bottom:0}
 
   .chips{display:flex; flex-wrap:wrap; gap:1.6mm}
+  /* 두 그룹의 색조만 다르고 무게는 같게 — 일부만 '연결됨'으로 오독되지 않도록 */
   .chip{
-    font-size:8.7pt; padding:.9mm 2.4mm; border-radius:2.5px;
-    background:var(--navy-soft); color:var(--navy-deep); border:1px solid var(--line);
+    font-size:8.7pt; padding:.9mm 2.4mm; border-radius:2.5px; font-weight:600;
+    background:#e7f4f0; color:#0d5f52; border:1px solid #c3e0d8;
   }
-  .chip.kr{background:var(--navy); color:#fff; border-color:var(--navy)}
+  .chip.kr{background:var(--navy-soft); color:var(--navy-deep); border-color:#b9cede}
 
   .blank{
     display:inline-block; min-width:26mm; border-bottom:1.4px solid var(--rule);
@@ -251,7 +252,8 @@
       </div>
     </div>
     <div style="margin-top:4mm">
-      <div style="font-size:8.8pt;letter-spacing:.1em;color:var(--navy);font-weight:700;margin-bottom:1.8mm">대조하는 정보원 아홉 곳</div>
+      <div style="font-size:8.8pt;letter-spacing:.1em;color:var(--navy);font-weight:700;margin-bottom:1.8mm">대조하는 정보원 아홉 곳
+        <span style="font-weight:400;letter-spacing:0;color:var(--ink2)">— 아홉 곳 모두 연결되어 있습니다 (<span style="color:var(--navy-deep);font-weight:600">남색 = 국내</span> · <span style="color:#0d5f52;font-weight:600">청록 = 해외</span>)</span></div>
       <div class="chips">
         <span class="chip kr">KCI</span>
         <span class="chip kr">국립중앙도서관</span>
