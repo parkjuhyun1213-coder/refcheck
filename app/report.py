@@ -108,7 +108,7 @@ def _certificate_page(doc: Document, result: dict):
         ("검사 일시", result.get("checked_at", "") or time.strftime("%Y-%m-%d %H:%M")),
         ("적용 기준", result.get("style_name", "")),
         ("처리 엔진", result.get("engine_label", "")),
-        ("검사 도구", "refcheck.kr 참고문헌 검증·작성 서비스"
+        ("검사 도구", "refcheck.kr 참고문헌 검증 서비스"
                      + (f" (버전 {result['app_version']})" if result.get("app_version") else "")),
     ]
     tbl = doc.add_table(rows=len(rows), cols=2)
@@ -151,7 +151,7 @@ def _certificate_page(doc: Document, result: dict):
                   "DataCite · DOAJ · URL 접속 확인").font.size = Pt(8.5)
     note = doc.add_paragraph()
     nr = note.add_run(
-        "이 확인서는 refcheck.kr(참고문헌 검증·작성 서비스)가 위 원고의 참고문헌을 "
+        "이 확인서는 refcheck.kr(참고문헌 검증 서비스)가 위 원고의 참고문헌을 "
         "자동 검사한 결과의 요약입니다. '미확인'은 대조한 데이터베이스에서 찾지 못했다는 "
         "뜻이며 문헌이 존재하지 않는다는 판정이 아닙니다. 항목별 상세 내역은 다음 쪽의 "
         "본 보고서를 참조하십시오.")
@@ -169,7 +169,7 @@ def build_result_docx(result: dict) -> bytes:
 
     title = doc.add_paragraph()
     title.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = title.add_run("참고문헌 검증·작성 결과")
+    run = title.add_run("참고문헌 검증 결과")
     run.bold = True
     run.font.size = Pt(16)
     run.font.color.rgb = _ACCENT

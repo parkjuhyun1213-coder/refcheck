@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>참고문헌 검증·작성 서비스</title>
+<title>참고문헌 검증 서비스</title>
 <style>
 :root{
   --bg:#f4f6f9; --card:#ffffff; --ink:#1c2733; --sub:#5b6b7c; --line:#dde4ec;
@@ -133,8 +133,8 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
 <body>
 <header>
   <div>
-    <h1 onclick="fullReset()" style="cursor:pointer" title="처음 접속한 상태로 되돌립니다 (학회 코드·관리자 로그인까지 해제)">📚 참고문헌 검증·작성 서비스</h1>
-    <div class="sub">원고 파일에서 참고문헌을 추출해 실제 존재하는 문헌인지 확인하고, 학술지 기준에 맞게 작성합니다</div>
+    <h1 onclick="fullReset()" style="cursor:pointer" title="처음 접속한 상태로 되돌립니다 (학회 코드·관리자 로그인까지 해제)">📚 참고문헌 검증 서비스</h1>
+    <div class="sub">원고(2차 심사본 이상) 파일에서 참고문헌을 추출해 실제 존재하는 문헌인지 확인하고, 학술지 기준에 맞는지 검증합니다</div>
     <div class="credit">개발: 전남대학교 문헌정보학과 박주현 교수 (<a href="mailto:park51566@jnu.ac.kr" style="color:inherit">park51566@jnu.ac.kr</a>)</div>
   </div>
   <span class="hspace"></span>
@@ -323,7 +323,7 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
     기준 양식 기본값: 문편협 「인용 및 참고문헌의 기술요소와 형식에 관한 공통기준」(2024. 6. 17. 개정) ·
     AI의 추출·변환에는 오류가 있을 수 있으므로 변경 전·후 대비표로 최종 확인하세요.
     <div style="margin-top:6px;font-size:11.5px;opacity:.8">
-      참고문헌 검증·작성 서비스 <span id="verNote">버전 확인 중…</span>
+      참고문헌 검증 서비스 <span id="verNote">버전 확인 중…</span>
     </div>
   </div>
 </main>
@@ -705,7 +705,7 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
 // main.py의 APP_VERSION과 반드시 같아야 한다. 서버에 index.html이 덜 복사됐는지
 // 알아내려고 일부러 손으로 박아 두는 값이라 자동 주입하지 않는다.
 // (test_server.py가 두 값이 어긋나면 실패시킨다)
-const UI_VERSION='2026.08.18-14';
+const UI_VERSION='2026.08.18-15';
 const $=id=>document.getElementById(id);
 let pickedFiles=[], styles=[], currentJob=null, pollTimer=null, etaTimer=null, pollFails=0, poll404=0;
 

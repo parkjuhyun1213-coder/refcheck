@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""참고문헌 검증·작성 서비스 — FastAPI 서버.
+"""참고문헌 검증 서비스 — FastAPI 서버.
 
 실행:  python -m uvicorn main:app --port 8765   (run.bat 참조)
 접속:  http://localhost:8765
@@ -35,13 +35,13 @@ import suggestions as suggestions_mod
 import verify as verify_mod
 
 # 외부 운영 서비스이므로 API 문서(/docs·/redoc·/openapi.json)는 노출하지 않는다
-app = FastAPI(title="참고문헌 검증·작성 서비스",
+app = FastAPI(title="참고문헌 검증 서비스",
               docs_url=None, redoc_url=None, openapi_url=None)
 
 # 화면(index.html)과 프로그램의 버전이 어긋난 채 배포되면 새 기능이 조용히 무시된다.
 # 두 파일에 같은 값을 두고 /api/status에서 대조해 관리자 화면에 경고를 띄운다.
 # 기능을 추가·변경할 때 main.py와 index.html의 APP_VERSION을 함께 올릴 것.
-APP_VERSION = "2026.08.18-14"
+APP_VERSION = "2026.08.18-15"
 
 APP_DIR = Path(__file__).parent
 JOBS: dict[str, dict] = {}

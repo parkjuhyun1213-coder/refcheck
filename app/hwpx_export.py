@@ -128,7 +128,7 @@ def build_result_hwpx(res: dict) -> bytes:
             body.append(_para(P_ITEM, T_BODY, line))
 
     body.append(_para(P_META, T_SMALL,
-                      "이 목록은 refcheck.kr(참고문헌 검증·작성 서비스)가 정리했습니다. "
+                      "이 목록은 refcheck.kr(참고문헌 검증 서비스)가 정리했습니다. "
                       "투고 전 변경 전·후 대비표로 최종 확인하세요."))
 
     # 첫 문단에 구역 설정과 단(段) 정의를 싣는다 — colPr이 빠지면 한글이
