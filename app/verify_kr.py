@@ -208,8 +208,11 @@ _KCI_REF_TYPE = {
     "01": "journal",   # 학술지(정기간행물)
     "02": "conference",  # 학술대회논문
     "03": "book",      # 단행본
+    "04": "report",    # 보고서 (2025년 4개 학회지 실측: 참고문헌의 5~9%)
     "05": "thesis",    # 학위논문
     "06": "web",       # 인터넷자원
+    # "07" 기타자료는 법령·표준 등 혼합 유형이라 코드 하나로 못 박지 않는다 —
+    # 아래에서 제목 패턴으로 법령만 골라내고 나머지는 unknown 유지.
 }
 
 
@@ -245,6 +248,10 @@ def kci_article_references(client: httpx.Client, article_id: str) -> list[dict] 
         if not title:
             continue
         etype = _KCI_REF_TYPE.get(ref.get("type-code", ""), "unknown")
+        if etype == "unknown" and re.search(r"법률\s*제\s*\d+호|대통령령\s*제\s*\d+호|시행령|시행규칙|조례", title):
+            # '07 기타자료'의 상당수가 법령(2025년 실측: 비블리아 108건 중 40건) —
+            # '도서관법. 법률 제19592호' 식 제목만 법령으로 승격
+            etype = "law"
         author = f.get("author", "")
         entry = {
             "type": etype,
