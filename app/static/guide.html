@@ -170,6 +170,15 @@
     .grid3, .grid2{grid-template-columns:1fr}
   }
   @media (prefers-reduced-motion:reduce){*{animation:none!important; transition:none!important}}
+
+  /* 안내 페이지 4곳 공통 메뉴 — 현재 페이지는 흰색 강조 */
+  .gnav{background:var(--navy); border-top:1px solid rgba(255,255,255,.22);
+    padding:7px 16px; display:flex; gap:8px; flex-wrap:wrap; font-size:12.5px}
+  .gnav a{color:#fff; text-decoration:none; padding:4px 12px; border-radius:999px;
+    background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.28)}
+  .gnav a:hover{background:rgba(255,255,255,.26)}
+  .gnav a.on, .gnav a.on:hover{background:#fff; color:var(--navy); font-weight:700}
+  @media print{.gnav{display:none}}
 </style>
 </head>
 <body>
@@ -180,6 +189,12 @@
   <button type="button" onclick="window.print()">🖨 인쇄 · PDF 저장</button>
   <a href="/">서비스로 이동 →</a>
 </div>
+<nav class="gnav">
+  <a href="/guide" class="on">도입 안내</a>
+  <a href="/guide/societies">편집 관행 비교</a>
+  <a href="/guide/style">참고문헌 작성법</a>
+  <a href="/guide/style/detail">작성법 상세</a>
+</nav>
 
 <div class="sheet">
   <div class="masthead">

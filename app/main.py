@@ -41,7 +41,7 @@ app = FastAPI(title="참고문헌 검증 서비스",
 # 화면(index.html)과 프로그램의 버전이 어긋난 채 배포되면 새 기능이 조용히 무시된다.
 # 두 파일에 같은 값을 두고 /api/status에서 대조해 관리자 화면에 경고를 띄운다.
 # 기능을 추가·변경할 때 main.py와 index.html의 APP_VERSION을 함께 올릴 것.
-APP_VERSION = "2026.08.18-18"
+APP_VERSION = "2026.08.18-19"
 
 APP_DIR = Path(__file__).parent
 JOBS: dict[str, dict] = {}
@@ -1233,6 +1233,16 @@ def style_guide():
     만들어 내는 출력과 일치하도록 작성·검증한다(test_server 15번 참조).
     """
     return (APP_DIR / "static" / "style_guide.html").read_text(encoding="utf-8")
+
+
+@app.get("/guide/style/detail", response_class=HTMLResponse)
+def style_detail():
+    """참고문헌 작성법 상세 — 접근 코드 없이 공개.
+
+    공통기준 전 유형(법령·표준·번역서·비도서 등) + 2025년 4개 학회지 실측 사례 +
+    기준 미수록 유형(프리프린트 등)의 APA 준용 권장안. 예시는 전건 실존 검증(2026-08-18).
+    """
+    return (APP_DIR / "static" / "style_detail.html").read_text(encoding="utf-8")
 
 
 @app.get("/guide/societies", response_class=HTMLResponse)

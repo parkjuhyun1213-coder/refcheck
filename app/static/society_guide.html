@@ -38,6 +38,10 @@ td b{color:var(--accent)}
 .cta a{color:#fff}
 footer{max-width:980px;margin:0 auto 40px;padding:0 18px;font-size:12px;color:var(--sub);text-align:center}
 @media print{header,.cta{display:none}}
+.gnav{margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;font-size:12.5px}
+.gnav a{color:#fff;text-decoration:none;padding:4px 12px;border-radius:999px;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.3)}
+.gnav a:hover{background:rgba(255,255,255,.28)}
+.gnav a.on,.gnav a.on:hover{background:#fff;color:var(--accent);font-weight:700}
 </style>
 </head>
 <body>
@@ -49,6 +53,12 @@ footer{max-width:980px;margin:0 auto 40px;padding:0 18px;font-size:12px;color:va
       <a href="/guide/style">참고문헌 작성법 가이드</a> ·
       <a href="/guide/standard.pdf">공통기준 원문(PDF)</a>
     </div>
+    <nav class="gnav">
+      <a href="/guide">도입 안내</a>
+      <a href="/guide/societies" class="on">편집 관행 비교</a>
+      <a href="/guide/style">참고문헌 작성법</a>
+      <a href="/guide/style/detail">작성법 상세</a>
+    </nav>
   </div>
 </header>
 <main>

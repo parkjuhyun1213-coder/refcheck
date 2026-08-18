@@ -39,6 +39,10 @@ th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-ali
 th{background:var(--accent-soft);color:var(--accent)}
 footer{max-width:860px;margin:0 auto 40px;padding:0 18px;font-size:12px;color:var(--sub);text-align:center}
 @media print{header,.cta{display:none}}
+.gnav{margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;font-size:12.5px}
+.gnav a{color:#fff;text-decoration:none;padding:4px 12px;border-radius:999px;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.3)}
+.gnav a:hover{background:rgba(255,255,255,.28)}
+.gnav a.on,.gnav a.on:hover{background:#fff;color:var(--accent);font-weight:700}
 </style>
 </head>
 <body>
@@ -52,6 +56,12 @@ footer{max-width:860px;margin:0 auto 40px;padding:0 18px;font-size:12px;color:va
       <a href="/guide/societies">학회별 양식·관행 비교</a> ·
       <a href="/guide">refcheck 이용 안내</a>
     </div>
+    <nav class="gnav">
+      <a href="/guide">도입 안내</a>
+      <a href="/guide/societies">편집 관행 비교</a>
+      <a href="/guide/style" class="on">참고문헌 작성법</a>
+      <a href="/guide/style/detail">작성법 상세</a>
+    </nav>
   </div>
 </header>
 <main>
@@ -70,7 +80,8 @@ footer{max-width:860px;margin:0 auto 40px;padding:0 18px;font-size:12px;color:va
 <div class="card">
   <h2>자료 유형별 표기와 예시</h2>
   <p class="hint">아래 예시는 refcheck의 변환 엔진이 실제로 출력하는 형식과 동일하며, 모든 예시 문헌은
-    실제 존재하는 자료로 KCI·국립중앙도서관·국회도서관·Crossref 및 발행처 원문에서 서지를 확인했습니다.</p>
+    실제 존재하는 자료로 KCI·국립중앙도서관·국회도서관·Crossref 및 발행처 원문에서 서지를 확인했습니다.
+    여기 없는 유형(법령·표준·번역서·프리프린트·영상 등)은 <a href="/guide/style/detail">작성법 상세</a>에서 다룹니다.</p>
 
   <h3>학술지 논문</h3>
   <div class="pattern">저자 (연도). 논문 제목. 학술지명, 권(호), 시작면-끝면. https://doi.org/…</div>

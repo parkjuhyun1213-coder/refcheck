@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>참고문헌 작성법 상세 — 공통기준 전 유형과 2025년 실제 사례 | refcheck</title>
+<meta name="description" content="문편협 「인용 및 참고문헌의 기술요소와 형식에 관한 공통기준」의 모든 자료 유형별 표기법과, 문헌정보학 4개 학회지 2025년 발행 논문 7,911건 실측에서 확인된 실제 사례·기준 미수록 유형·학회 간 차이를 정리한 상세 가이드.">
+<style>
+:root{
+  --bg:#f4f6f9; --card:#ffffff; --ink:#1c2733; --sub:#5b6b7c; --line:#dde4ec;
+  --accent:#1f4e79; --accent-soft:#e8f0f8; --ok:#2e7d32; --warn:#b03a2e; --amber:#9a6700;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:"Pretendard","Malgun Gothic","맑은 고딕",system-ui,sans-serif;background:var(--bg);color:var(--ink);font-size:15px;line-height:1.7}
+header{background:var(--accent);color:#fff;padding:26px 24px}
+header .wrap{max-width:900px;margin:0 auto}
+header h1{font-size:23px;margin:0 0 6px;line-height:1.4}
+header .sub{font-size:13.5px;opacity:.9}
+header a{color:#fff}
+main{max-width:900px;margin:26px auto 80px;padding:0 18px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:22px 26px;margin-bottom:18px}
+h2{font-size:18px;margin:0 0 10px;color:var(--accent)}
+h3{font-size:15px;margin:22px 0 6px;color:var(--accent)}
+p{margin:.5em 0}
+.hint{font-size:12.5px;color:var(--sub)}
+.pattern{font-size:13px;color:var(--sub);background:var(--accent-soft);border-radius:8px;padding:7px 12px;margin:6px 0 4px;font-family:inherit}
+.ex{background:#f8fafc;border:1px solid var(--line);border-radius:9px;padding:10px 14px 10px 36px;text-indent:-22px;margin:6px 0;overflow-wrap:anywhere;font-size:14px}
+.src{font-size:11.5px;color:var(--sub);display:block;text-indent:0;margin-top:3px}
+.no{color:var(--warn);font-size:13px;padding-left:14px}
+.no b{font-weight:700}
+ul{margin:.4em 0;padding-left:22px}
+li{margin:.3em 0}
+.badge{display:inline-block;font-size:11px;border-radius:999px;padding:1.5px 9px;font-weight:700;margin-left:6px;vertical-align:2px}
+.badge.diff{background:#fdf3d7;color:#9a6700;border:1px solid #ecd9a0}
+.badge.new{background:#f3e8fd;color:#6b21a8;border:1px solid #ddc3f4}
+.toc{font-size:13.5px;columns:2;column-gap:24px}
+.toc a{color:var(--accent);text-decoration:none}
+.toc a:hover{text-decoration:underline}
+.tablewrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:13px;margin:8px 0;min-width:640px}
+th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+th{background:var(--accent-soft);color:var(--accent);white-space:nowrap}
+.cta{background:var(--accent);color:#fff;border-radius:14px;padding:22px 26px;margin-bottom:18px}
+.cta h2{color:#fff}
+.cta a.btn{display:inline-block;background:#fff;color:var(--accent);font-weight:700;border-radius:9px;padding:10px 20px;text-decoration:none;margin:8px 8px 0 0}
+.cta a{color:#fff}
+footer{max-width:900px;margin:0 auto 40px;padding:0 18px;font-size:12px;color:var(--sub);text-align:center}
+@media print{header,.cta{display:none}}
+.gnav{margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;font-size:12.5px}
+.gnav a{color:#fff;text-decoration:none;padding:4px 12px;border-radius:999px;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.3)}
+.gnav a:hover{background:rgba(255,255,255,.28)}
+.gnav a.on,.gnav a.on:hover{background:#fff;color:var(--accent);font-weight:700}
+@media (max-width:640px){.toc{columns:1}}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <h1>참고문헌 작성법 상세</h1>
+    <div class="sub">
+      문편협 「인용 및 참고문헌의 기술요소와 형식에 관한 공통기준」(2024. 6. 17. 개정)의 전 유형 +
+      4개 학회지 2025년 발행 논문 240편(참고문헌 7,911건) 실측 사례 ·
+      <a href="/guide/style">요약 가이드</a> ·
+      <a href="/guide/standard.pdf">공통기준 원문(PDF)</a> ·
+      <a href="/guide/societies">학회별 비교</a>
+    </div>
+    <nav class="gnav">
+      <a href="/guide">도입 안내</a>
+      <a href="/guide/societies">편집 관행 비교</a>
+      <a href="/guide/style">참고문헌 작성법</a>
+      <a href="/guide/style/detail" class="on">작성법 상세</a>
+    </nav>
+  </div>
+</header>
+<main>
+
+<div class="card">
+  <h2>이 페이지 읽는 법</h2>
+  <p>자주 쓰는 7가지 유형은 <a href="/guide/style">요약 가이드</a>에 있습니다. 이 상세판은
+     <b>공통기준이 규정한 모든 유형</b>과, 2025년 4개 학회지 발행 논문에서 실제로 확인된
+     <b>다양한 인용 사례</b>, 그리고 <b>기준에 아직 없는 유형</b>의 권장 표기까지 다룹니다.</p>
+  <ul style="font-size:13.5px">
+    <li><span class="badge diff">학회 간 차이</span> — 네 학회가 같은 기준을 쓰지만 관행이 갈리는 항목. 투고할 학회지의 방식을 함께 적었습니다.</li>
+    <li><span class="badge new">기준 미수록</span> — 공통기준에 조문·예시가 없는 유형. 기준의 보충 원칙("명시되지 않은 사항은 APA 7판을 따른다")에 따라 APA 7판 구조를 빌리되, 출판지 표기·국문 저자 성명 전체 기재 같은 공통기준 전반 관행을 유지한 권장안입니다.</li>
+    <li>예시 출처 — <b>공통기준 수록 예시</b>(기준 문서의 예시를 서지 확인 후 게재) 또는 <b>2025년 ○○학회지 실제 사례</b>(발행 논문의 실제 인용에서 확인)로 표기했습니다.</li>
+  </ul>
+  <div class="toc" style="margin-top:10px">
+    <div><a href="#intext">① 본문 내 인용</a></div>
+    <div><a href="#basic">② 기본 유형 (학술지·단행본·학위논문 등)</a></div>
+    <div><a href="#bookplus">③ 단행본 상세 (편집서의 장·다권본·총서·번역서)</a></div>
+    <div><a href="#law">④ 법령·조례·고시</a></div>
+    <div><a href="#standards">⑤ 표준·특허</a></div>
+    <div><a href="#webnew">⑥ 기준에 없는 웹 자원 (프리프린트·데이터셋 등)</a></div>
+    <div><a href="#misc">⑦ 그 밖의 유형 (잡지·인터뷰·재인용·비도서·영문화)</a></div>
+    <div><a href="#ai-url">⑧ AI로 찾은 문헌의 URL 정리</a></div>
+    <div><a href="#order">⑨ 배열 순서</a></div>
+  </div>
+</div>
+
+<div class="card" id="intext">
+  <h2>① 본문 내 인용 (공통기준 Ⅰ장)</h2>
+  <p class="hint">참고문헌 목록만큼 자주 틀리는 곳입니다. 괄호인용과 서술인용 어느 쪽이든 기술요소는 같습니다.</p>
+  <div class="tablewrap">
+  <table>
+    <tr><th>경우</th><th>괄호인용</th><th>서술인용</th><th>조문</th></tr>
+    <tr><td>단일 저자</td><td>(곽동철, 2020) / (Patton, 1990)</td><td>곽동철(2020) / Patton(1990)</td><td>Ⅰ.6</td></tr>
+    <tr><td>2인 공저</td><td>(김영석, 이용재, 2018) / (Golder &amp; Huberman, 2006)</td><td>김영석과 이용재(2012) / Golder와 Huberman(2006)</td><td>Ⅰ.3·6</td></tr>
+    <tr><td>3인 이상</td><td>(오동근 외, 2010) / (Smith et al., 2020)</td><td>오동근 외(2010) / Smith et al.(2020)</td><td>Ⅰ.3·6</td></tr>
+    <tr><td>단체명</td><td>(국립중앙도서관, 2019)</td><td>국립중앙도서관(2019)</td><td>Ⅰ.6</td></tr>
+    <tr><td>저자 미상</td><td>(嶺南烈女傳, 1905)</td><td>嶺南烈女傳(1905)</td><td>Ⅰ.5·6</td></tr>
+    <tr><td>동일 저자 복합 인용</td><td>(이제환, 2005; 2007)</td><td>이제환(2005; 2007)</td><td>Ⅰ.7</td></tr>
+    <tr><td>동일 저자·동일 연도</td><td>(변우열, 2013a) (변우열, 2013b)</td><td>변우열(2013a)</td><td>Ⅰ.8</td></tr>
+    <tr><td>인용 면수</td><td>(이병기, 2020, 15) / (김종성, 2014, 45-48) / (Bonk, 2011, 444, 446-448)</td><td>이병기(2020, 15)</td><td>Ⅰ.10</td></tr>
+    <tr><td>번역서</td><td>(Miller, 1990/2002, 34)</td><td>Miller(1990/2002, 34)</td><td>Ⅰ.11</td></tr>
+    <tr><td>발행년 불명</td><td>(발행년불명) / 해외 (n.d.)</td><td>—</td><td>Ⅰ.13</td></tr>
+    <tr><td>법률·표준</td><td>(국가기록원, 2015, NAK 6:2015, v1.2)</td><td>국가기록원(2015, NAK 6:2015, v1.2)</td><td>Ⅰ.14</td></tr>
+  </table>
+  </div>
+  <div class="no"><b>자주 틀리는 것</b> — 본문에서는 3인 이상을 '외'·'et al.'로 줄이지만, <b>참고문헌 목록에서는 전원을 나열</b>합니다(2025년 4개 학회지 7,911건 실측에서 목록 내 축약 0건). 기관·단체명은 처음 나올 때 전체 이름 뒤 괄호에 약어를 적고 이후 약어만 씁니다(Ⅰ.12).</div>
+</div>
+
+<div class="card" id="basic">
+  <h2>② 기본 유형</h2>
+  <p class="hint">요약 가이드와 같은 내용입니다. 모든 예시는 실존 확인을 마친 문헌입니다.</p>
+
+  <h3>학술지 논문 (Ⅱ.3)</h3>
+  <div class="pattern">저자 (연도). 논문 제목. 학술지명, 권(호), 시작면-끝면. https://doi.org/…</div>
+  <div class="ex">박주현, 이명규 (2015). 독서태도 모델 개발 연구. 한국도서관·정보학회지, 46(4), 271-297. https://doi.org/10.16981/kliss.46.4.201512.271</div>
+  <div class="ex">Wilson, T. D. (1999). Models in information behaviour research. Journal of Documentation, 55(3), 249-270. https://doi.org/10.1108/EUM0000000007145</div>
+  <div class="no"><b>자주 틀리는 것</b> — 권·호 누락, DOI를 두고 데이터베이스 URL을 적는 경우. 면수가 없는 온라인 학술지는 <b>아티클 넘버</b>로 대신합니다(Ⅱ.1(6), 예: Information Research, 27(4), paper946).</div>
+
+  <h3>단행본 (Ⅱ.2(1))</h3>
+  <div class="pattern">저자 (연도). 서명 (판차). 출판지: 출판사.</div>
+  <div class="ex">이수상 (2008). 디지털도서관 운영론. 서울: 한국도서관협회.</div>
+  <div class="ex">Rubin, R. E. (2016). Foundations of Library and Information Science (4th ed.). Chicago: ALA Neal-Schuman.</div>
+
+  <h3>학위논문 (Ⅱ.4) <span class="badge diff">학회 간 차이</span></h3>
+  <div class="pattern">저자 (연도). 논문 제목. 학위명, 수여기관. (해외는 발행 국가 추가)</div>
+  <div class="ex">이자영 (2024). 농어촌 공공도서관 비이용 요인과 사서의 공감능력 및 조직서비스지향성에 관한 연구. 박사학위논문, 전남대학교.</div>
+  <p class="hint">학회 간 차이 — 2025년 실측에서 <b>정보관리학회지(43%)·한국도서관·정보학회지(49%)</b>는 절반가량이 수여기관 뒤에 대학원·학과(전공)까지 적습니다(예: "박사학위논문, 경기대학교 대학원 문헌정보학과."). <b>한국비블리아학회지는 0건</b>(대학교명에서 끝남), 한국문헌정보학회지는 2%입니다. 규정 문언상 두 표기 모두 적합합니다.</p>
+
+  <h3>보고서·기관 자료 (Ⅱ.5)</h3>
+  <div class="pattern">발행 기관 (연도). 자료명 (보고서 번호).</div>
+  <div class="ex">한국도서관협회 (2023). 2023 한국도서관연감.</div>
+  <div class="no"><b>자주 틀리는 것</b> — 저자와 발행처가 같은 기관이면 한 번만 적습니다.</div>
+
+  <h3>신문 기사 (Ⅱ.3(4))</h3>
+  <div class="pattern">기자 (발행일자). 기사 제목. 신문명, 면수 또는 웹페이지 URL</div>
+  <div class="ex">고희진 (2026. 4. 24.). 2025년 공공도서관 방문자 2억 3000만명…매년 증가세. 경향신문. https://www.khan.co.kr/article/202604240936001</div>
+  <div class="no"><b>자주 틀리는 것</b> — 지면 기사의 면수, 온라인 기사의 URL 누락. 저자를 모르면 '기사명. (발행일자). 신문명, 면수/URL' 순서입니다.</div>
+
+  <h3>웹 자료 (Ⅱ.6)</h3>
+  <div class="pattern">작성 주체 (게시일). 문서 제목. 웹사이트명. 출처: URL</div>
+  <div class="ex">문화체육관광부 (2024. 8. 6.). 전국 공공도서관 지속 확충, 방문 이용 증가세 뚜렷. 출처: https://www.mcst.go.kr/kor/s_notice/press/pressView.jsp?pSeq=21279</div>
+  <div class="no"><b>자주 틀리는 것</b> — 접속일 표기(네 학회지 발행본 7,911건 실측에서 접속일 0건 — 적지 않는 관행), 검색 결과 URL을 그대로 붙이는 경우. 국문은 '출처:', 영문은 'Available:'을 URL 앞에 붙입니다.</div>
+
+  <h3>학술대회 발표 — 논문집 발간형 (Ⅱ.3(3))</h3>
+  <div class="pattern">발표자 (연도). 발표 제목. 발표집명, 시작면-끝면.</div>
+  <div class="ex">장우권 (2017). 도서관 트랜드: 시대와 콘텐츠 측면에서. 한국정보관리학회 2017년도 제24회 학술대회 논문집, 79-84.</div>
+</div>
+
+<div class="card" id="bookplus">
+  <h2>③ 단행본 상세 (Ⅱ.2(2)~(7))</h2>
+  <p class="hint">기본형 외의 단행본 변형들입니다. 예시는 공통기준 수록 예시이며, 문헌 실존을 국립중앙도서관·국회도서관·Open Library에서 확인했습니다.</p>
+
+  <h3>편집단행본의 장 (Ⅱ.2(2))</h3>
+  <div class="pattern">장 저자 (연도). 장 제목. 편자명 편. 단행본 서명. 출판지: 출판사, 게재면수. — 해외문헌은 장 제목 뒤에 In</div>
+  <div class="ex">곽승진, 이성숙, 김순희 (2008). 기록정보서비스: 기록정보의 활용과 서비스를 어떻게 확대할 것인가? 한국기록관리학회 편. 기록관리론: 증거와 기억의 과학. 서울: 아세아문화사, 165-215.</div>
+  <div class="ex">Gilliland, Anne J. (1998). Setting the stage. In Baca, Murtha eds. Introduction to Metadata: Pathways to Digital Information. Los Angeles: Getty Research Institute, 1-12.</div>
+  <div class="no"><b>자주 틀리는 것</b> — 장 저자 대신 책 전체 편자만 쓰거나 편자('○○학회 편')를 빠뜨리는 경우. 게재면수는 맨 끝에 콤마로 붙입니다. 'In'은 해외문헌에만 씁니다.</div>
+
+  <h3>다권본 (Ⅱ.2(3))</h3>
+  <div class="pattern">저자 (연도). 서명. 제○권: 권서명. 출판지: 출판사. — 전체를 참고했으면 단행본 형식 그대로</div>
+  <div class="ex">강종훈, 송호정, 윤선태, 임기환 (2011). 미래를 여는 한국의 역사. 제1권: 원시시대에서 남북국시대까지. 서울: 웅진지식하우스.</div>
+  <div class="ex">Wright, S. (1969). Evolution and the Genetics of Populations. Vol. 2: Theory of Gene Frequencies. Chicago: University of Chicago Press.</div>
+
+  <h3>총서(시리즈) (Ⅱ.2(4))</h3>
+  <div class="pattern">저자 (연도). 서명 (판차). 총서명, 총서번호. 출판지: 출판사.</div>
+  <div class="ex">문헌정보처리연구회 편 (1998). 메타데이터의 형식과 구조. 문헌정보처리연구회 시리즈, 7. 서울: 문헌정보처리연구회.</div>
+  <div class="ex">Taylor, A. G. &amp; Joudrey, D. N. (2008). The Organization of Information (3rd ed.). Library and Information Science Text Series. London: Libraries Unlimited.</div>
+
+  <h3>번역서·편자·역자 (Ⅱ.2(5), 본문 인용은 Ⅰ.11)</h3>
+  <div class="pattern">원저자 (원서 발행년). 원서명. 역자명 옮김 (번역본 발행년). 번역서명. 출판지: 출판사.</div>
+  <div class="ex">Caplan, P. (2003). Metadata Fundamentals for All Librarians. 오동근 옮김 (2004). 메타데이터의 이해. 대구: 태일사.</div>
+  <div class="ex">한국문헌정보학회 편 (2008). 최신 문헌정보학의 이해. 서울: 한국도서관협회.</div>
+  <div class="no"><b>자주 틀리는 것</b> — 본문 인용에서 번역서는 원본/번역본 발행년을 빗금으로 병기합니다: (Caplan, 2003/2004), 직접인용은 (Caplan, 2003/2004, 34). 기준은 가급적 원서 인용이 원칙이고, 원서 접근이 불가능할 때 번역서를 인용합니다.</div>
+
+  <h3>무저자 자료 (Ⅱ.2(6), 본문 인용은 Ⅰ.5)</h3>
+  <div class="pattern">서명. (연도). 출판지: 출판사. — 저자명 자리에 서명을 앞세움</div>
+  <div class="ex">萬古烈女春香傳. (1961). 서울: 世昌書館.</div>
+  <div class="ex">The Burden of Anonymity. (1948). Nowhere: Nonesuch Press.</div>
+  <p class="hint">본문 인용도 서명으로 합니다 — 기준 예: (嶺南烈女傳, 1905).</p>
+
+  <h3>발행년·발행지·발행처 불명 (Ⅱ.2(7), 본문 인용은 Ⅰ.13)</h3>
+  <div class="pattern">국내: (발행년불명)·(발행지불명)·(발행처불명) / 해외: (n.d.)·(n.p.)·(s.n.)</div>
+  <div class="ex">丁若鏞 (발행년불명). 丁茶山全集, 下卷. 尹世鐸 編. (영인본). 서울: 弘益人間社.</div>
+  <div class="ex">김병희 (2000). 80인생을 회고한다. (발행지불명): (발행처불명).</div>
+  <div class="no"><b>자주 틀리는 것</b> — '미상', '연도불명' 같은 임의 표현. 기준 문언은 '(발행년불명)'으로 고정이며, 해외는 (n.p.)=발행지 불명, (s.n.)=발행처 불명으로 구분합니다.</div>
+</div>
+
+<div class="card" id="law">
+  <h2>④ 법령·조례·고시 (Ⅱ.7(1)) <span class="badge diff">학회 간 차이</span></h2>
+  <p class="hint">2025년 실측에서 법령 인용이 113건으로 확인된, 수요 대비 예시가 가장 부족한 유형입니다.
+     국내 법령 예시는 모두 국가법령정보센터(law.go.kr)에서 법령명·공포번호 실존을 확인했습니다.</p>
+
+  <div class="pattern">법령명. 공포번호.</div>
+  <div class="ex">학교도서관진흥법. 법률 제15368호.<span class="src">공통기준 수록 예시</span></div>
+  <div class="ex">도서관법. 법률 제19592호.<span class="src">2025년 한국비블리아학회지 실제 사례</span></div>
+  <div class="ex">도서관법 시행령. 대통령령 제31772호.<span class="src">2025년 한국도서관·정보학회지 실제 사례</span></div>
+  <div class="ex">국내입양에 관한 특별법 시행규칙. 보건복지부령 제1112호.<span class="src">2025년 정보관리학회지 실제 사례(공통기준 형식으로 정리)</span></div>
+  <div class="ex">국가연구개발정보처리기준. 과학기술정보통신부고시 제2020-102호.<span class="src">2025년 한국비블리아학회지 실제 사례</span></div>
+  <div class="ex">전북특별자치도교육감 소관 도서관 자료의 폐기 및 제적에 관한 조례. 전북특별자치도조례 제5941호.<span class="src">2025년 한국도서관·정보학회지 실제 사례(현행 공포번호로 보정)</span></div>
+  <div class="ex">United Kingdom. Public Records Act 1958. 6 &amp; 7 Eliz. 2 c. 51.<span class="src">2025년 한국도서관·정보학회지 실제 사례 — 해외 법령은 제정국 공식 인용번호(영국 c., 호주 No., 미국 Stat.)를 그대로</span></div>
+
+  <div class="no"><b>자주 틀리는 것 (2025년 발행본에서 실제 발견된 오류)</b> —
+    ① 공포번호의 <b>종류 오기</b>: 대통령령을 "법률 제34533호"로 표기.
+    ② <b>자릿수 오류</b>: "법률 제198415호"(법률 번호는 5자리).
+    ③ <b>해외 법령번호 오기</b>: 호주 Archives Act 1983을 "No. 46"으로 표기(실제 No. 79).
+    ④ 같은 법령도 개정마다 공포번호가 다르므로(도서관법은 제18547호·제19592호·제21090호가 공존)
+    본문에서 참조한 판본의 번호를 적어야 합니다.</div>
+
+  <h3>학회지별 실제 표기 관행 (2025년 실측)</h3>
+  <div class="tablewrap">
+  <table>
+    <tr><th>학회지</th><th>관행</th><th>실제 사례 (verbatim)</th></tr>
+    <tr><td>한국비블리아학회지</td><td><b>기준 준수형</b> — 법령명. 공포번호</td><td>도서관법. 법률 제19592호</td></tr>
+    <tr><td>한국도서관·정보학회지</td><td>[시행일] 병기형</td><td>도서관법 [시행 2026. 5. 12.] 법률 제 21090호</td></tr>
+    <tr><td>정보관리학회지</td><td>낫표(｢｣)형 — 종류명 생략 경향</td><td>｢입양특례법｣ 시행령 제29987호</td></tr>
+    <tr><td>한국문헌정보학회지</td><td>공포번호 생략형</td><td>학교도서관진흥법</td></tr>
+  </table>
+  </div>
+  <p class="hint">같은 공통기준을 쓰는 네 학회지가 법령에서만 네 갈래로 갈립니다. refcheck는 기준 형식(법령명. 공포번호.)을 기본으로 정리합니다.</p>
+</div>
+
+<div class="card" id="standards">
+  <h2>⑤ 표준·특허 (Ⅱ.7(2))</h2>
+  <div class="pattern">기관명. (제정·개정연도). 표준명(표준번호). URL — 버전 구분이 필요하면 표준번호 뒤에 쉼표로(예: NAK 6:2015, v1.2)</div>
+  <div class="ex">국가기술표준원. (2021). 문헌정보 — 기록관리 — 제1부: 개념과 원칙(KS X ISO 15489-1:2021).<span class="src">e나라표준인증 확인 실존 표준 — KS 채택본은 국문 표준명 + KS 번호</span></div>
+  <div class="ex">International Organization for Standardization. (2016). Information and documentation - Records management - Part 1: Concepts and principles (2nd ed.)(ISO 15489-1:2016). https://www.iso.org/obp/ui/en/#iso:std:iso:15489:-1:ed-2:v1:en<span class="src">공통기준 수록 예시 — 기관명은 약어(ISO)가 아닌 전체 명칭</span></div>
+  <div class="ex">국립중앙도서관. (2023). 한국문헌자동화목록형식(KORMARC) — 통합서지용(KS X 6006-0:2023). https://librarian.nl.go.kr/kormarc/KSX6006-0/index.html<span class="src">국립중앙도서관·표준정보 확인 — KORMARC는 고시가 아니라 국가표준(KS X 6006-0)이므로 표준 형식으로</span></div>
+  <div class="no"><b>자주 틀리는 것</b> — 표준을 국문 번역명만으로 번호 없이 인용: 2025년 정보관리학회지 발행 논문에
+    "문헌정보-기록관리-제1부: 개념과 원칙"처럼 표준번호 없는 인용이 실재합니다. 번호가 없으면 KS 채택본인지
+    원 ISO인지, 몇 년 판인지 식별할 수 없습니다. 또 KS 채택본(국문명+KS 번호)과 원 국제표준(영문명+ISO 번호)은
+    별개 문헌이므로 이름과 번호를 섞어 쓰지 마세요 — KS X ISO 15489-1은 2021년 개정에서 표준명 자체가
+    '일반사항'에서 '개념과 원칙'으로 바뀌었습니다(연도와 표준명을 일치시킬 것).</div>
+  <p class="hint">특허도 같은 조문의 형식을 따릅니다: 발명자명(또는 출원기관명). (등록연도). 발명의 명칭(특허번호). —
+     특허번호는 국가·종류가 식별되게(예: 대한민국 등록특허 10-XXXXXXX). 2025년 실측에서 특허 문서 직접 인용은 0건이었습니다.</p>
+</div>
+
+<div class="card" id="webnew">
+  <h2>⑥ 기준에 없는 웹 자원 <span class="badge new">기준 미수록</span></h2>
+  <p class="hint">2025년 발행 논문에서 실제로 인용됐지만 공통기준에 조문·예시가 없는 유형들입니다.
+     기준의 보충 원칙에 따라 APA 7판 공식 안내의 구조를 빌리고, '출처: URL'·접속일 미표기 등
+     공통기준 전반 관행을 유지한 권장안입니다. 예시 문헌의 실존과 URL 접속을 모두 확인했습니다.</p>
+
+  <h3>프리프린트 (arXiv 등)</h3>
+  <div class="pattern">저자 (연도). 논문 제목. 저장소명. https://doi.org/10.48550/arXiv.○○○○.○○○○</div>
+  <div class="ex">Mikolov, T., Chen, K., Corrado, G., &amp; Dean, J. (2013). Efficient estimation of word representations in vector space. arXiv. https://doi.org/10.48550/arXiv.1301.3781<span class="src">2025년 한국도서관·정보학회지 실제 사례 — 실측 28건, 4개 학회지 모두에서 관측</span></div>
+  <div class="no"><b>주의</b> — 최종 출판본이 있으면 출판본을 인용하는 것이 원칙이고, 게재 전 판을 썼을 때만 저장소명을 밝힙니다. 실측에서는 같은 arXiv 문헌이 학회지마다 학술지·학술대회·웹 자원으로 다르게 분류되어 있었습니다.</div>
+
+  <h3>데이터셋·소프트웨어</h3>
+  <div class="pattern">저자 (연도). 자원명 (버전) [Data set / Computer software]. 배포 플랫폼. 출처: URL (DOI가 있으면 DOI)</div>
+  <div class="ex">Park, S. &amp; Shin, H. (2021). KR-SBERT: A pre-trained Korean-specific sentence-BERT model [Computer software]. GitHub. 출처: https://github.com/snunlp/KR-SBERT<span class="src">2025년 한국문헌정보학회지 실제 사례</span></div>
+  <div class="no"><b>주의</b> — 데이터가 발표된 논문·보고서를 본 것이라면 데이터셋이 아니라 그 출판물을 인용합니다.</div>
+
+  <h3>위키·백과사전</h3>
+  <div class="pattern">표제어 (최종 수정일). 위키백과. 출처: 고정판(oldid) URL — 항목 저자가 있는 백과사전은 '저자 (연도). 표제어. 사전명. 출처: URL'</div>
+  <div class="ex">긴 꼬리 (2025. 4. 4.). 위키백과. 출처: https://ko.wikipedia.org/w/index.php?title=긴_꼬리&amp;oldid=39033452<span class="src">2025년 한국비블리아학회지 실제 사례(고정판 URL로 보정)</span></div>
+  <div class="no"><b>주의</b> — 위키는 내용이 계속 바뀌므로 '역사 보기'의 특정판(oldid) URL을 씁니다. 고정판 URL이면 접속일 없이도 어느 판을 봤는지 검증됩니다. 위키백과 대문 주소만 적는 인용(실측에서 발견)은 검증이 불가능합니다.</div>
+
+  <h3>SNS·블로그</h3>
+  <div class="pattern">저자(필명·계정명) (게시 연. 월. 일.). 글 제목. 플랫폼명. 출처: URL</div>
+  <div class="ex">하루결 (2023. 11. 20.). 책 읽는 히키코모리. 브런치스토리. 출처: https://brunch.co.kr/@harugyel/274<span class="src">2025년 한국도서관·정보학회지 실제 사례</span></div>
+  <div class="no"><b>주의</b> — 필명·아이디만 있으면 그대로 저자 위치에 씁니다. 프로필 전체가 아니라 개별 게시물 URL을 인용하세요(프로필은 내용이 변해 검증이 안 됩니다).</div>
+
+  <h3>영상 (유튜브 등)</h3>
+  <div class="pattern">업로드 계정명 (업로드 연. 월. 일.). 영상 제목 [비디오]. YouTube. 출처: URL</div>
+  <div class="ex">EBS Preview (2024. 10. 21.). [다큐멘터리K] 독자생존 3부 공부의 힘 [비디오]. YouTube. 출처: https://www.youtube.com/watch?v=LH0ruGhHolI<span class="src">2025년 한국도서관·정보학회지 실제 사례(업로드 계정명·원제로 보정)</span></div>
+  <div class="no"><b>주의</b> — 저자는 제작 주체가 아니라 <b>업로드한 계정명</b>입니다(위 사례도 EBS 본계정이 아닌 'EBS Preview' 채널). 공통기준의 전자자원 예시에도 유튜브가 있으므로 [비디오] 각괄호는 매체를 밝히고 싶을 때의 선택 요소입니다.</div>
+</div>
+
+<div class="card" id="misc">
+  <h2>⑦ 그 밖의 유형</h2>
+
+  <h3>대중잡지 (Ⅱ.3(4))</h3>
+  <div class="pattern">저자 (발행일자). 기사명. 잡지명, 면수 또는 URL — 국문은 (연도. 월. 일.), 해외는 (연도, 월 일)</div>
+  <div class="ex">Toufexis, A. (1990, October 8). Struggling for sanity. Time, 47-48.<span class="src">공통기준 수록 예시 — TIME 1990. 10. 8.자 호에서 기사 실존 확인</span></div>
+
+  <h3>학술대회 발표 — 논문집 미발간형 (Ⅱ.3(3) 후단)</h3>
+  <div class="pattern">발표자 (발표일자). 발표 제목. 회의명, 회의장소.</div>
+  <div class="ex">이수상 (2012. 2. 15.). 네트워크 분석 방법론의 통합적 고찰. 2012 정보관리와 네트워크 분석 워크샵, 해운대, 부산.<span class="src">공통기준 수록 예시</span></div>
+  <div class="no"><b>자주 틀리는 것</b> — 발간·미발간을 구분하지 않는 것. 논문집이 발간됐으면 학술지처럼 '논문집명, 면수'로 쓰고, 발표일자·회의장소 형식은 논문집이 없는 발표에만 씁니다.</div>
+
+  <h3>인터뷰 (Ⅱ.7(5))</h3>
+  <div class="pattern">인터뷰 대상자명 (일자). 인터뷰 제목 [인터뷰 방법].</div>
+  <div class="ex">Possemato, T. (2024, September 16). Interview by author [Interview].<span class="src">2025년 한국문헌정보학회지 실제 사례 — 일자는 발행 논문 원문에서 확인</span></div>
+  <div class="ex">최석두 (2003. 11. 16.). 수원에서 저자와의 면담 [인터뷰].<span class="src">공통기준 수록 예시</span></div>
+
+  <h3>재인용 (Ⅱ.8)</h3>
+  <div class="pattern">원문 서지사항. 재인용: 실제로 본 문헌의 서지사항, 인용면수.</div>
+  <div class="ex">김용덕 (1969). 일제 초기의 교육정책. 문경, 26, 18-20. 재인용: 정재철 (1985). 일제의 대한국식민지교육정책사. 서울: 일지사, 17.<span class="src">공통기준 수록 예시</span></div>
+  <div class="no"><b>주의</b> — 기준은 재인용을 권장하지 않습니다. 원문을 구할 수 없는 경우에만 허용되며, 원문을 확인했다면 원문만 기재합니다. 2025년 4개 학회지 실측에서 재인용 표기는 0건이었습니다.</div>
+
+  <h3>비도서 — 영화·TV·음반 (Ⅱ.7(4))</h3>
+  <div class="pattern">단행본 형식 + 제목 뒤 각괄호로 유형 표기. 영화=감독, TV=연출자(방송일·방송사), 음반=작곡가</div>
+  <div class="ex">황동혁(감독) (2011). 도가니 [영화]. 한국: 삼거리픽쳐스.<span class="src">공통기준 수록 예시 — 영화 실존 확인</span></div>
+  <div class="ex">서유석(연출) (1993. 11. 5.). 팔만대장경의 비밀 [TV프로그램]. 서울: SBS.<span class="src">공통기준 수록 예시</span></div>
+
+  <h3>경전·실록·원전 (Ⅱ.7(3))</h3>
+  <div class="pattern">단행본 형식을 따르되 서명을 앞세움 — 권차는 서명 뒤 콤마로</div>
+  <div class="ex">三國遺事 紀異編, 卷第2.<span class="src">공통기준 수록 예시</span></div>
+
+  <h3>국문 참고문헌의 영문화 (Ⅱ.9~10)</h3>
+  <div class="pattern">해외문헌 형식을 따르되 저자 이름은 두문자가 아닌 전체 기재. 영문 확인 불가 시 저자명은 음역, 서명은 번역. 영문 목록은 알파벳순 재배열</div>
+  <div class="ex">윤민호 (2020). 특허 데이터를 이용한 연료전지의 기술궤적 분석과 산업의 진화. 지식재산연구, 15(3), 255-292.<br>→ Yoon, Minho (2020). Analysing technological trajectories and the industrial evolution of a fuel cell using patent citation data. Journal of Intellectual Property, 15(3), 255-292. http://doi.org/10.34122/jip.2020.15.3.255<span class="src">2025년 한국문헌정보학회지 발행 논문의 실제 국문↔영문 병기 쌍</span></div>
+  <div class="no"><b>자주 틀리는 것</b> — 'Yoon, M.'처럼 두문자로 줄이는 것. 영문화 목록에서는 이름 전체를 씁니다(Yoon, Minho).
+    네 학회지 모두 참고문헌 말미에 국문 문헌의 영문 병기 절을 두는 관행이 실측으로 확인됐고,
+    refcheck의 영문화 목록 기능은 저자가 KCI에 등록한 공식 영문 표기를 사용합니다.</div>
+</div>
+
+<div class="card" id="ai-url">
+  <h2>⑧ AI로 찾은 문헌의 URL은 정리해서 붙이세요 <span class="badge new">기준 미수록</span></h2>
+  <p>2025년 4개 학회지 발행 논문의 참고문헌에서 <b>URL 끝에 <code>utm_source=chatgpt.com</code>이 그대로 남은 인용이 18건</b>
+     확인됐습니다(정보관리학회지 13 · 한국도서관·정보학회지 2 · 한국문헌정보학회지 2 · 한국비블리아학회지 1).
+     생성형 AI로 자료를 찾은 뒤 주소를 복사해 붙이면서 추적용 꼬리표가 발행본에까지 실린 것입니다.</p>
+  <div class="ex">…https://www.lib.cam.ac.uk/about-library/history-cambridge-university-library<b>?utm_source=chatgpt.com</b>
+    <span class="src">2025년 한국문헌정보학회지 발행 논문의 실제 인용 — 꼬리표가 지면에 인쇄됨</span></div>
+  <ul style="font-size:13.5px">
+    <li>URL의 <b><code>?utm_source=…</code>, <code>&amp;utm_…</code> 이하를 지우고</b> 문서 고유 주소만 남기세요. 공통기준 관행("검색 매개변수가 붙은 긴 URL은 문서 고유 주소로 정리")과 같은 취지입니다.</li>
+    <li>AI가 알려준 문헌은 <b>실존부터 확인</b>하세요 — 생성형 AI는 그럴듯한 가짜 서지를 만들 수 있습니다. refcheck에 붙여넣으면 9개 정보원과 대조해 드립니다.</li>
+    <li>정보관리학회지는 연구윤리 규정(2025. 12. 18. 개정)으로 <b>생성형 AI 활용 시 논문 내 명시</b>를 요구합니다 — AI가 생성한 데이터·문장의 책임은 연구자에게 있습니다.</li>
+  </ul>
+</div>
+
+<div class="card" id="order">
+  <h2>⑨ 배열 순서 (Ⅱ.1(1)~(2), Ⅱ.10)</h2>
+  <ul>
+    <li><b>국내문헌(가나다순) → 서양문헌(알파벳순) → 동양문헌</b> 순서로 묶어 배열합니다.</li>
+    <li>같은 저자의 문헌은 <b>출판연도가 오래된 순</b>, 같은 저자·같은 연도는 <b>제목순으로 a, b, c</b>를 붙입니다.</li>
+    <li>국문 참고문헌을 영문화할 때는 국문 순서와 무관하게 <b>영문명 알파벳순으로 재배열</b>합니다(Ⅱ.10).</li>
+  </ul>
+  <div class="ex">박주현 (2020a). UNESCO의 미디어와 정보 리터러시의 교육내용 분석과 교육과정에 관한 연구. 한국문헌정보학회지, 54(2), 349-374. https://doi.org/10.4275/KSLIS.2020.54.2.349</div>
+  <div class="ex">박주현 (2020b). 미디어정보 리터러시 역량과 교육내용 분석을 통한 교육과정 개발 방향 탐구. 정보관리학회지, 37(2), 119-144. https://doi.org/10.3743/KOSIM.2020.37.2.119</div>
+  <div class="ex">이수상 (2008). 디지털도서관 운영론. 서울: 한국도서관협회.</div>
+  <div class="ex">Rubin, R. E. (2016). Foundations of Library and Information Science (4th ed.). Chicago: ALA Neal-Schuman.</div>
+  <div class="ex">Wilson, T. D. (1999). Models in information behaviour research. Journal of Documentation, 55(3), 249-270. https://doi.org/10.1108/EUM0000000007145</div>
+</div>
+
+<div class="card">
+  <h2>근거</h2>
+  <ul style="font-size:13.5px">
+    <li>문편협 「인용 및 참고문헌의 기술요소와 형식에 관한 공통기준」(2024. 6. 17. 개정) — <a href="/guide/standard.pdf">원문 PDF</a>. 조문 번호(Ⅰ.n, Ⅱ.n)는 이 문서 기준입니다.</li>
+    <li>2025년 실측 — 4개 학회지 2025년 발행 논문 240편의 참고문헌 7,911건(KCI 전수 수집 + 학회지별 지면 표본 대조, 2026. 8. 18.). 학회지별 수치는 <a href="/guide/societies">학회별 투고 양식·편집 관행 비교</a> 참조.</li>
+    <li>기준 미수록 유형의 권장안은 APA Style 공식 안내(apastyle.apa.org)의 유형별 구조를 공통기준 관행과 절충한 것입니다.</li>
+  </ul>
+</div>
+
+<div class="cta">
+  <h2>이 규칙을 손으로 다 맞추실 필요는 없습니다</h2>
+  <p>refcheck에 원고를 올리면 참고문헌을 추출해 위 기준으로 정리하고, 각 문헌이
+     <b>실제로 존재하는지</b>까지 KCI·국립중앙도서관·Crossref 등 9개 정보원과 대조해 드립니다.</p>
+  <a class="btn" href="/">참고문헌 1건 바로 검증해 보기 →</a>
+  <a class="btn" href="/guide/style">요약 가이드로 돌아가기</a>
+</div>
+
+<footer>
+  refcheck.kr — 참고문헌 검증 서비스 · 문헌정보학 4개 학회 공동 이용<br>
+  개발: 전남대학교 문헌정보학과 박주현 교수 (park51566@jnu.ac.kr)
+</footer>
+</main>
+</body>
+</html>
