@@ -41,7 +41,7 @@ app = FastAPI(title="참고문헌 검증 서비스",
 # 화면(index.html)과 프로그램의 버전이 어긋난 채 배포되면 새 기능이 조용히 무시된다.
 # 두 파일에 같은 값을 두고 /api/status에서 대조해 관리자 화면에 경고를 띄운다.
 # 기능을 추가·변경할 때 main.py와 index.html의 APP_VERSION을 함께 올릴 것.
-APP_VERSION = "2026.08.18-28"
+APP_VERSION = "2026.08.20-01"
 
 APP_DIR = Path(__file__).parent
 JOBS: dict[str, dict] = {}
@@ -833,6 +833,8 @@ def _record_job_usage(job: dict, options: dict):
     """잡 완료 시 사용 기록 저장."""
     try:
         refs = sum((r.get("summary") or {}).get("total", 0) for r in job["results"] if r)
+        secs = max(1, int(time.time() - job.get("created", time.time())))
+        job["secs"] = secs  # 잡 상태 응답에 실려 완료 화면의 '실제 소요' 표시가 된다
         _append_usage({
             "time": time.strftime("%Y-%m-%d %H:%M"),
             "user": options.get("user_name", ""),
@@ -843,7 +845,7 @@ def _record_job_usage(job: dict, options: dict):
             "style": options.get("style_id", ""),
             "ai": aiengine.is_configured(),
             "verify": bool(options.get("verify")),
-            "secs": max(1, int(time.time() - job.get("created", time.time()))),
+            "secs": secs,
         })
     except Exception:
         pass  # 통계 기록 실패가 처리 자체를 막지 않도록
@@ -901,6 +903,29 @@ def _agg_by_period(data: list[dict], width: int) -> list[dict]:
             for a in sorted(agg.values(), key=lambda x: x["period"], reverse=True)]
 
 
+def _timing_summary(data: list[dict]) -> dict:
+    """처리 시간 집계 — 작업 1회 기준. secs가 없는 초기 기록은 제외.
+
+    잡 생성부터 완료까지 잰 값이라 동시 사용이 몰리면 대기가 섞인다 —
+    화면에 그 한계를 함께 적는다(시스템 성능 지표이지 사람의 업무 지표가 아님).
+    """
+    import statistics
+    recs = [r for r in data if r.get("secs")]
+    if not recs:
+        return {}
+
+    def med(rows: list[dict]):
+        return int(statistics.median([r["secs"] for r in rows])) if rows else None
+
+    return {"n": len(recs),
+            "median": med(recs),
+            "avg": int(sum(r["secs"] for r in recs) / len(recs)),
+            "ai_median": med([r for r in recs if r.get("ai")]),
+            "rule_median": med([r for r in recs if not r.get("ai")]),
+            "verify_median": med([r for r in recs if r.get("verify")]),
+            "noverify_median": med([r for r in recs if not r.get("verify")])}
+
+
 @app.get("/api/admin/stats")
 def admin_stats(request: Request):
     """사용 통계 — 관리자는 전체, 편집위원·위원장은 자기 학회분만."""
@@ -924,6 +949,7 @@ def admin_stats(request: Request):
     return {"scope_org": scope_org, "total_uses": len(data),
             "total_files": sum(r.get("files", 0) for r in data),
             "total_refs": sum(r.get("refs", 0) for r in data),
+            "timing": _timing_summary(data),
             "by_org": org_rows,
             "by_month": _agg_by_period(data, 7),
             "by_day": _agg_by_period(data, 10)[:60],

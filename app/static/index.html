@@ -705,7 +705,7 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
 // main.py의 APP_VERSION과 반드시 같아야 한다. 서버에 index.html이 덜 복사됐는지
 // 알아내려고 일부러 손으로 박아 두는 값이라 자동 주입하지 않는다.
 // (test_server.py가 두 값이 어긋나면 실패시킨다)
-const UI_VERSION='2026.08.18-28';
+const UI_VERSION='2026.08.20-01';
 const $=id=>document.getElementById(id);
 let pickedFiles=[], styles=[], currentJob=null, pollTimer=null, etaTimer=null, pollFails=0, poll404=0;
 
@@ -1238,10 +1238,16 @@ async function poll(){
   if(j.files&&j.results&&j.results.length>1){ ensureTabs(j); updateTabs(j); }
   if(j.status==='done'||j.status==='error'){
     clearInterval(pollTimer);
+    // 실제 소요 시간 — 서버 기록(j.secs) 우선, 폴링 직후 아직 없으면 화면 경과로 보완.
+    // 예상 시간을 보여줬으면 실제 시간으로 끝맺는 게 신뢰의 기본이다.
+    const est=window._eta?window._eta.total:null;
+    const secs=j.secs||(window._eta?(Date.now()-window._eta.start)/1000:null);
     stopEta();
     window._barPct=100;
     $('barFill').style.width='100%';
-    $('stageText').textContent=j.status==='done'?'완료':'오류: '+j.error;
+    let doneMsg='완료';
+    if(secs) doneMsg+=` — 실제 소요 ${fmtDur(secs)}`+(est?` (예상 ${fmtDur(est)})`:'');
+    $('stageText').textContent=j.status==='done'?doneMsg:'오류: '+j.error;
     setRunning(false);
     renderResults(j);
   }
@@ -2254,6 +2260,17 @@ async function openStats(){
   h+=`<div class="chips"><span class="chip">총 사용 ${d.total_uses}회</span>`+
         `<span class="chip">처리 파일 ${d.total_files}건</span>`+
         `<span class="chip">처리 문헌 ${d.total_refs}건</span></div>`;
+  const tm=d.timing||{};
+  if(tm.n){
+    h+='<h3 style="margin:10px 0 4px;color:var(--accent)">처리 시간 <span class="hint">(작업 1회 기준, '+tm.n+'회 실측)</span></h3><div class="chips">';
+    h+=`<span class="chip">중앙값 ${fmtDur(tm.median)}</span><span class="chip">평균 ${fmtDur(tm.avg)}</span>`;
+    if(tm.ai_median!=null) h+=`<span class="chip">AI 모드 ${fmtDur(tm.ai_median)}</span>`;
+    if(tm.rule_median!=null) h+=`<span class="chip">규칙 기반 ${fmtDur(tm.rule_median)}</span>`;
+    if(tm.verify_median!=null) h+=`<span class="chip">실존 검증 포함 ${fmtDur(tm.verify_median)}</span>`;
+    if(tm.noverify_median!=null) h+=`<span class="chip">검증 제외 ${fmtDur(tm.noverify_median)}</span>`;
+    h+='</div>';
+    h+='<div class="hint" style="margin-top:2px">서버가 원고를 처리한 시간입니다(이용자의 작업 시간이 아님). 동시 사용이 몰리면 대기 시간이 포함될 수 있습니다.</div>';
+  }
   if(!d.scope_org){
     h+='<h3 style="margin:10px 0 4px;color:var(--accent)">기관(학회)별 통계</h3>';
     h+='<div style="overflow-x:auto"><table class="cmp"><tr><th>기관(학회)</th><th>사용 횟수</th><th>사용자 수</th><th>파일</th><th>문헌</th></tr>';
@@ -2276,9 +2293,9 @@ async function openStats(){
     h+='</table></div>';
   }
   h+='<h3 style="margin:12px 0 4px;color:var(--accent)">최근 사용 내역 (최근 50건)</h3>';
-  h+='<div style="overflow-x:auto"><table class="cmp"><tr><th>일시</th><th>사용자</th><th>기관(학회)</th><th>방식</th><th>파일</th><th>문헌</th><th>엔진</th></tr>';
+  h+='<div style="overflow-x:auto"><table class="cmp"><tr><th>일시</th><th>사용자</th><th>기관(학회)</th><th>방식</th><th>파일</th><th>문헌</th><th>엔진</th><th>처리 시간</th></tr>';
   for(const u of d.recent)
-    h+=`<tr><td>${esc(u.time)}</td><td>${esc(u.user)}</td><td>${esc(u.org)}</td><td>${u.mode==='folder'?'폴더 일괄':'업로드'}</td><td>${u.files}</td><td>${u.refs}</td><td>${u.ai?'AI':'규칙'}</td></tr>`;
+    h+=`<tr><td>${esc(u.time)}</td><td>${esc(u.user)}</td><td>${esc(u.org)}</td><td>${u.mode==='folder'?'폴더 일괄':'업로드'}</td><td>${u.files}</td><td>${u.refs}</td><td>${u.ai?'AI':'규칙'}</td><td>${u.secs?fmtDur(u.secs):'—'}</td></tr>`;
   h+='</table></div>';
   if(!d.total_uses) h+='<div class="hint" style="margin-top:8px">아직 사용 기록이 없습니다.</div>';
   $('statsBody').innerHTML=h;
