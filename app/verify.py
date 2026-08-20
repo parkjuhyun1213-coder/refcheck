@@ -468,6 +468,22 @@ def _mark_lookup_failed(result: dict):
                   detail="외부 DB 일시 오류(재시도 제한) — 잠시 후 다시 검증해 주세요")
 
 
+def _kci_doi_crosscheck(client: httpx.Client, entry: dict, doi: str):
+    """해외 DB가 영문 제목만 수록한 국내 논문 방어 — (KCI 레코드|None, 일시오류).
+
+    국내 학술지는 Crossref·OpenAlex에 영문 제목만 올라가는 곳이 많아, 국문 제목과
+    대조하면 유사도가 10%대로 떨어져 제대로 쓴 참고문헌이 '제목 불일치'로 뜬다.
+    같은 DOI가 KCI에서 국문 제목으로 확인되면 정상이다(국내 논문은 KCI가 최종 근거).
+    """
+    if entry.get("lang", "ko") != "ko" or not entry.get("title"):
+        return None, False
+    kci, err = _safe(verify_kr.kci_article_search, client,
+                     entry["title"], (entry.get("authors") or [""])[0])
+    if not (kci and kci.get("doi", "").lower() == doi.lower()):
+        kci = None
+    return kci, err
+
+
 def verify_entry(client: httpx.Client, entry: dict) -> dict:
     result = _base_result()
     etype = entry.get("type", "")
@@ -483,15 +499,9 @@ def verify_entry(client: httpx.Client, entry: dict) -> dict:
             cr_title = " ".join(meta.get("title") or [])
             sim = _best_sim(entry.get("title", ""), meta)
             kci = None
-            if sim < 0.75 and lang == "ko" and entry.get("title"):
-                # 국내 학술지는 Crossref에 영문 제목만 등록하는 곳이 많다. 국문 제목과
-                # 대조하면 유사도가 10%대로 떨어져, 제대로 쓴 참고문헌이 '제목 불일치 ·
-                # 확인 필요'로 뜬다. 같은 DOI를 KCI에서 국문 제목으로 확인되면 정상이다.
-                kci, e_kci = _safe(verify_kr.kci_article_search, client,
-                                   entry["title"], (entry.get("authors") or [""])[0])
+            if sim < 0.75:
+                kci, e_kci = _kci_doi_crosscheck(client, entry, doi)
                 lookup_err |= e_kci
-                if not (kci and kci.get("doi", "").lower() == doi.lower()):
-                    kci = None
             if sim >= 0.75 or not entry.get("title"):
                 result.update(status="verified", source="Crossref",
                               detail=f"DOI 확인됨 · Crossref 제목 일치({sim:.0%})",
@@ -520,6 +530,15 @@ def verify_entry(client: httpx.Client, entry: dict) -> dict:
             dc_title = titles[0].get("title", "") if titles else ""
             sim = _similarity(entry.get("title", ""), dc_title)
             if entry.get("title") and dc_title and sim < 0.60:
+                kci, e_kci = _kci_doi_crosscheck(client, entry, doi)
+                lookup_err |= e_kci
+                if kci:
+                    result.update(status="verified", source="KCI",
+                                  detail=f"DOI 확인됨 · KCI 국문 제목 일치({kci.get('sim', 0):.0%})"
+                                         f" · DataCite에는 영문 제목으로 등록됨",
+                                  meta=_meta_from_kr(kci))
+                    result["preprint"] = _check_preprint(client, entry, None)
+                    return result
                 result.update(status="mismatch", source="DataCite",
                               detail=f"DOI는 존재하나(DataCite) 제목 불일치({sim:.0%}) — “{dc_title[:80]}” · 확인 필요")
             else:
@@ -534,6 +553,15 @@ def verify_entry(client: httpx.Client, entry: dict) -> dict:
             oa_title = w.get("title") or ""
             sim = _similarity(entry.get("title", ""), oa_title)
             if entry.get("title") and oa_title and sim < 0.75:
+                kci, e_kci = _kci_doi_crosscheck(client, entry, doi)
+                lookup_err |= e_kci
+                if kci:
+                    result.update(status="verified", source="KCI",
+                                  detail=f"DOI 확인됨 · KCI 국문 제목 일치({kci.get('sim', 0):.0%})"
+                                         f" · OpenAlex에는 영문 제목으로 등록됨",
+                                  meta=_meta_from_kr(kci))
+                    result["preprint"] = _check_preprint(client, entry, None)
+                    return result
                 result.update(status="mismatch", source="OpenAlex",
                               detail=f"DOI는 존재하나(OpenAlex) 제목 불일치({sim:.0%}) — “{oa_title[:80]}” · 확인 필요")
             else:
