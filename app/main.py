@@ -41,7 +41,7 @@ app = FastAPI(title="참고문헌 검증 서비스",
 # 화면(index.html)과 프로그램의 버전이 어긋난 채 배포되면 새 기능이 조용히 무시된다.
 # 두 파일에 같은 값을 두고 /api/status에서 대조해 관리자 화면에 경고를 띄운다.
 # 기능을 추가·변경할 때 main.py와 index.html의 APP_VERSION을 함께 올릴 것.
-APP_VERSION = "2026.08.20-03"
+APP_VERSION = "2026.08.20-04"
 
 APP_DIR = Path(__file__).parent
 JOBS: dict[str, dict] = {}
@@ -600,6 +600,8 @@ def _process_file(filename: str, data: bytes, options: dict, progress) -> dict:
             result["warnings"].append(f"AI 구조화 실패({ex}) — 규칙 엔진으로 대체")
     if not entries:
         entries = [rules.structure_entry(r) for r in raws]
+    for e in entries:  # 구조화가 놓친 학위 종류·수여기관·DOI를 원문에서 복구
+        rules.backfill_from_raw(e)
 
     # 5) 실존·윤리 검증(형식 변환 전에 수행해 발견된 DOI·교정을 반영)
     verify_results = None
@@ -634,7 +636,9 @@ def _process_file(filename: str, data: bytes, options: dict, progress) -> dict:
         for e in order:
             i = idx_of[id(e)]
             formatted = formatter.format_entry(e)
-            issues = formatter.validate_entry(e) + autofix_notes_by_idx.get(i, [])
+            issues = (formatter.validate_entry(e)
+                      + formatter.lost_elements(e.get("raw", ""), formatted)
+                      + autofix_notes_by_idx.get(i, []))
             items.append({
                 "raw": e.get("raw", ""), "formatted": formatted,
                 "group": GROUP_LABEL.get(e.get("lang", "ko"), "국내문헌"),
@@ -669,7 +673,9 @@ def _process_file(filename: str, data: bytes, options: dict, progress) -> dict:
             items.append({
                 "raw": e.get("raw", ""), "formatted": r.get("formatted", ""),
                 "group": r.get("group") or "전체",
-                "issues": (r.get("issues") or []) + list(e.get("notes") or []) + autofix_notes_by_idx.get(i, []),
+                "issues": (r.get("issues") or []) + list(e.get("notes") or [])
+                          + formatter.lost_elements(e.get("raw", ""), r.get("formatted", ""))
+                          + autofix_notes_by_idx.get(i, []),
                 "type": e.get("type", ""),
                 "changed": _norm_for_compare(e.get("raw")) != _norm_for_compare(r.get("formatted")),
                 "verify": verify_results[i] if verify_results and 0 <= i < len(verify_results) else None,

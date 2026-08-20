@@ -26,6 +26,34 @@ def new_entry(raw: str) -> dict:
     return e
 
 
+def backfill_from_raw(e: dict) -> dict:
+    """구조화가 놓친 필드를 원문에서 결정적으로 복구.
+
+    AI가 배치 처리 중 선택 필드(degree·institution)를 산발적으로 생략해
+    '석사학위논문, 한국교원대학교'가 '학위논문.'으로 깎이는 사례가 실사용에서
+    관찰됐다. 원문에 문자 그대로 있는 값만 채우므로 오염 위험이 없다.
+    """
+    raw = e.get("raw") or ""
+    if e.get("type") == "thesis":
+        if not e.get("degree"):
+            m = re.search(r"(석사|박사)\s*학위\s*논문", raw)
+            if m:
+                e["degree"] = m.group(1) + "학위논문"
+            elif re.search(r"doctoral\s+dissertation", raw, re.I):
+                e["degree"] = "Doctoral dissertation"
+            elif re.search(r"master'?s\s+thesis", raw, re.I):
+                e["degree"] = "Master's thesis"
+        if not e.get("institution"):
+            m = re.search(r"[가-힣]{2,20}대학교", raw)
+            if m:
+                e["institution"] = m.group(0)
+    if not e.get("doi"):
+        m = re.search(r"\b10\.\d{4,9}/[^\s\"<>]+", raw)
+        if m:
+            e["doi"] = m.group(0).rstrip(".,;)")
+    return e
+
+
 _HANGUL = re.compile(r"[가-힣]")
 _CJK = re.compile(r"[一-鿿぀-ゟ゠-ヿ]")
 _LATIN = re.compile(r"[A-Za-z]")

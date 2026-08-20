@@ -292,15 +292,20 @@ def format_entry(e: dict) -> str:
         if e.get("url"):
             parts.append(e["url"])
 
-    # 온라인 자료의 URL 보전 — 학위논문·보고서·발표집·단행본 등은 유형별 분기에 URL
-    # 출력이 없어서, 원고에 적힌 주소가 변환 과정에서 통째로 사라지고 있었다.
-    # (학술지 논문은 공통기준 Ⅱ-1)(6)에 따라 DOI가 있으면 DOI만 쓴다)
-    if e.get("url") and not e.get("doi") and not any(e["url"] in p for p in parts):
+    # 온라인 자료의 DOI·URL 보전 — 학위논문·보고서·발표집·단행본 등은 유형별 분기에
+    # 출력이 없어서, 원고에 적힌 DOI·주소가 변환 과정에서 통째로 사라지고 있었다.
+    # (학술지 논문은 공통기준 Ⅱ-1)(6)에 따라 DOI가 있으면 DOI만 쓴다 — 분기에서 처리)
+    if e.get("doi") and not any(e["doi"] in p for p in parts):
+        parts.append(f"https://doi.org/{e['doi']}")
+    elif e.get("url") and not e.get("doi") and not any(e["url"] in p for p in parts):
         parts.append(e["url"])
 
     s = " ".join(p for p in parts if p and p.strip())
     s = re.sub(r"\s{2,}", " ", s)
-    s = re.sub(r"\.\s*\.", ".", s)
+    # 문장부 정리('. .' → '.')는 주소 밖에서만 — DOI·URL에는 '..'가 합법적으로
+    # 들어간다(예: 10.26589/jockle..103.202501.7). 여기서 뭉개면 링크가 깨진다(실측).
+    toks = re.split(r"(https?://\S+|\b10\.\d{4,9}/\S+)", s)
+    s = "".join(t if i % 2 else re.sub(r"\.\s*\.", ".", t) for i, t in enumerate(toks))
     return s.strip()
 
 
@@ -342,6 +347,43 @@ def validate_entry(e: dict) -> list[str]:
             issues.append("면수 누락 — 확인 필요(온라인 학술지는 아티클 넘버)")
     if e.get("type") == "book" and not e.get("place"):
         issues.append("출판지 누락 — 확인 필요")
+    return issues
+
+
+def lost_elements(raw: str, formatted: str) -> list[str]:
+    """변환이 원문의 핵심 서지 요소를 잃었는지 검사 — 잃은 요소마다 '확인 필요' 메모.
+
+    표기 변경(재배열·구두점·대소문자)은 정상이므로, 문자 그대로 보존돼야 할 고정
+    식별자만 본다: DOI·URL·ISBN·학위 종류·대학교명. 접속일자·(DOI가 있을 때의)
+    중복 URL처럼 기준이 의도적으로 없애는 요소는 검사하지 않는다.
+    실사용에서 AI가 배치 구조화 중 요소를 산발적으로 빠뜨린 사례의 안전망이다.
+    """
+    issues: list[str] = []
+    if not raw or not formatted:
+        return issues
+    f_low = formatted.casefold()
+    m = re.search(r"\b10\.\d{4,9}/[^\s\"<>]+", raw)
+    if m:
+        doi = m.group(0).rstrip(".,;)")
+        if doi.casefold() not in f_low:
+            issues.append(f"원문의 DOI({doi})가 결과에 빠짐 — 확인 필요")
+    m = re.search(r"(석사|박사)(?=\s*학위\s*논문)", raw)
+    if m and m.group(1) not in formatted:
+        issues.append(f"원문의 '{m.group(1)}학위논문' 구분이 결과에 빠짐 — 확인 필요")
+    for univ in set(re.findall(r"[가-힣]{2,20}대학교", raw)):
+        if univ not in formatted:
+            issues.append(f"원문의 기관명({univ})이 결과에 빠짐 — 확인 필요")
+    m = re.search(r"ISBN[\s:]*([0-9Xx][0-9Xx\- ]{8,16}[0-9Xx])", raw, re.I)
+    if m:
+        digits = re.sub(r"[^0-9Xx]", "", m.group(1))
+        if digits and digits not in re.sub(r"[^0-9Xx]", "", formatted):
+            issues.append("원문의 ISBN이 결과에 빠짐 — 확인 필요")
+    m = re.search(r"https?://[^\s\"<>]+", raw)
+    if m and "doi.org" not in m.group(0):
+        url = m.group(0).rstrip(".,;)")
+        # 학술지 논문은 DOI가 있으면 URL을 쓰지 않는 것이 기준(Ⅱ-1(6)) — DOI가 있으면 생략 정상
+        if url.casefold() not in f_low and not re.search(r"\b10\.\d{4,9}/", formatted):
+            issues.append("원문의 URL이 결과에 빠짐 — 확인 필요")
     return issues
 
 
