@@ -123,6 +123,14 @@ def sentence_case(s: str) -> str:
 
 def format_entry(e: dict) -> str:
     """구조화된 문헌 → 문편협 기준 참고문헌 문자열."""
+    # 구조화가 아무것도 못 건진 항목(제목·저자·수록지 전부 없음)은 빈 껍데기
+    # '. (발행년불명).'을 만들지 않고 원문을 그대로 돌려준다 — 어떤 문헌인지
+    # 알아볼 수 있어야 '확인 필요' 표시도 의미가 있다.
+    if (not (e.get("title") or "").strip() and not (e.get("authors") or [])
+            and not (e.get("container") or "").strip()):
+        raw = re.sub(r"\s+", " ", (e.get("raw") or "")).strip()
+        if raw:
+            return raw
     lang = e.get("lang", "ko")
     west = lang == "west"
     t = e.get("type", "unknown")

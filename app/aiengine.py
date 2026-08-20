@@ -8,6 +8,7 @@ Claude Opus 5 기본(설정에서 변경 가능). 안전 분류기 거절(refusa
 import json
 import os
 import re
+import time
 from pathlib import Path
 
 CONFIG_PATH = Path(__file__).parent / "config.json"
@@ -480,35 +481,66 @@ def structure_entries_ai(raws: list[str]) -> list[dict]:
         "해외 학위논문은 country에 국가명.\n"
         "- 원문에 없는 정보를 만들어내지 마세요. 확인이 필요하거나 누락된 요소는 notes 배열에 "
         "'~ 확인 필요' 형태의 한국어 메모로 기재하세요.\n"
+        # 오늘 날짜를 알려주지 않으면 모델이 자기 학습 시점 기준으로 올해 발행 문헌을
+        # '미래연도'로 잘못 표시한다(실사용 보고). 날짜는 일 단위라 프롬프트 캐시도 유지된다.
+        f"- 오늘은 {time.strftime('%Y-%m-%d')}입니다. 발행년은 이 날짜 기준으로만 판단하세요"
+        "(올해 이하의 연도를 미래연도로 표시하지 마세요).\n"
         "- 다음 8개 필드는 해당 문헌에 해당하지 않으면 필드 자체를 생략하세요(빈 문자열로 채우지 마세요): "
         "orig_year, medium, report_no, country, institution, degree, editors, author_note.\n"
-        "- 입력 순서 그대로, 같은 개수의 entries를 반환하세요."
+        "- 각 entry의 index에는 입력 항목 번호 [n]의 n을 그대로 기재하세요. "
+        "입력 순서대로 같은 개수의 entries를 반환하고, 항목을 합치거나 빠뜨리지 마세요."
     )
-    out: list[dict] = []
-    # 배치가 2개 이상일 때만 캐시가 이득이다(캐시 쓰기 1.25배 > 단일 호출 이득)
-    cache = len(raws) > BATCH_SIZE
-    for i in range(0, len(raws), BATCH_SIZE):
-        batch = raws[i:i + BATCH_SIZE]
-        numbered = "\n".join(f"[{j + 1}] {r}" for j, r in enumerate(batch))
+    done: dict[int, dict] = {}  # 전체 입력 순번 → 구조화 결과
+
+    def run_batch(pairs: list[tuple[int, str]], cache: bool):
+        """pairs=[(전체 순번, 원문)]. 응답의 index([1]부터)로 원문과 짝을 맞춘다.
+
+        모델이 항목을 합치거나 빠뜨리면 개수 기반 매핑은 그 뒤 전부가 어긋난다
+        (실사용에서 52건 중 여러 건이 빈 껍데기가 된 원인). index가 없거나
+        범위 밖이면 기존처럼 응답 위치로 매핑한다.
+        """
+        numbered = "\n".join(f"[{j + 1}] {r}" for j, (_, r) in enumerate(pairs))
         result = _call(system, numbered, _STRUCTURE_SCHEMA, cache=cache,
                        effort=EFFORT_STRUCTURE)
-        entries = result.get("entries", [])
-        for j, raw in enumerate(batch):
-            if j < len(entries):
-                e = new_entry(raw)
-                data = entries[j]
-                for k in e:
-                    if k in data and data[k]:
-                        e[k] = data[k]
-                e["raw"] = raw
-                if e.get("type") == "book_chapter":
-                    e["type"] = "book"
-                out.append(e)
-            else:
-                e = new_entry(raw)
-                e["notes"].append("AI 구조화 실패 — 확인 필요")
-                out.append(e)
-    return out
+        for j, data in enumerate(result.get("entries", [])):
+            idx = data.get("index")
+            pos = idx - 1 if isinstance(idx, int) and 1 <= idx <= len(pairs) else j
+            if pos >= len(pairs):
+                continue
+            gi, raw = pairs[pos]
+            if gi in done:  # 중복 index 방어 — 먼저 온 결과 유지
+                continue
+            e = new_entry(raw)
+            for k in e:
+                if k in data and data[k]:
+                    e[k] = data[k]
+            e["raw"] = raw
+            if e.get("type") == "book_chapter":
+                e["type"] = "book"
+            done[gi] = e
+
+    pairs = list(enumerate(raws))
+    # 배치가 2개 이상일 때만 캐시가 이득이다(캐시 쓰기 1.25배 > 단일 호출 이득)
+    cache = len(raws) > BATCH_SIZE
+    for i in range(0, len(pairs), BATCH_SIZE):
+        run_batch(pairs[i:i + BATCH_SIZE], cache)
+
+    # 누락 항목은 한 번 더 모아서 재시도(빠뜨린 항목만이라 소량) 후,
+    # 그래도 실패하면 규칙 엔진으로 구조화 — 빈 껍데기를 만들지 않는다.
+    missing = [p for p in pairs if p[0] not in done]
+    if missing:
+        for i in range(0, len(missing), BATCH_SIZE):
+            try:
+                run_batch(missing[i:i + BATCH_SIZE], cache=False)
+            except AIError:
+                break  # 재시도 실패는 아래 규칙 엔진 대체로 처리
+    from rules import structure_entry
+    for gi, raw in pairs:
+        if gi not in done:
+            e = structure_entry(raw)
+            e["notes"].append("AI 구조화 누락 — 규칙 엔진으로 대체, 확인 필요")
+            done[gi] = e
+    return [done[gi] for gi, _ in pairs]
 
 
 def format_custom_style_ai(entries: list[dict], style: dict,

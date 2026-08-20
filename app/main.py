@@ -41,7 +41,7 @@ app = FastAPI(title="참고문헌 검증 서비스",
 # 화면(index.html)과 프로그램의 버전이 어긋난 채 배포되면 새 기능이 조용히 무시된다.
 # 두 파일에 같은 값을 두고 /api/status에서 대조해 관리자 화면에 경고를 띄운다.
 # 기능을 추가·변경할 때 main.py와 index.html의 APP_VERSION을 함께 올릴 것.
-APP_VERSION = "2026.08.20-01"
+APP_VERSION = "2026.08.20-02"
 
 APP_DIR = Path(__file__).parent
 JOBS: dict[str, dict] = {}
@@ -732,7 +732,9 @@ def _process_file(filename: str, data: bytes, options: dict, progress) -> dict:
                     items[i]["tips"] = [
                         {"id": sid, "source": by_id[sid]["source"], "label": by_id[sid]["label"],
                          "topic": by_id[sid].get("topic", ""), "rule": by_id[sid].get("rule", ""),
-                         "example": by_id[sid].get("example", "")}
+                         "example": by_id[sid].get("example", ""),
+                         # 서양 문헌에는 서양 사례를 보여준다(이용자 피드백) — 표시부에서 lang으로 선택
+                         "example_west": by_id[sid].get("example_west", "")}
                         for sid in ids if sid in by_id]
     result["items"] = items
 

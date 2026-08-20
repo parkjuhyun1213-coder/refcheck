@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """결과 문서 생성: DOCX(하이퍼링크 포함)/TXT/RIS/BibTeX, 폴더 일괄 종합 리포트."""
+import difflib
 import io
 import re
 import time
@@ -238,14 +239,24 @@ def build_result_docx(result: dict) -> bytes:
         for tp in item.get("tips") or []:
             tp_p = doc.add_paragraph()
             tp_p.paragraph_format.left_indent = Pt(20)
+            # 서양 문헌에는 서양 사례를 우선 표시(이용자 피드백)
+            west = (item.get("entry") or {}).get("lang") == "west"
+            ex = (tp.get("example_west") if west and tp.get("example_west")
+                  else tp.get("example"))
             tr = tp_p.add_run(f"💡 [{tp.get('label', '')}] {tp.get('rule', '')}"
-                              + (f" (예: {tp['example']})" if tp.get("example") else ""))
+                              + (f" (예: {ex})" if ex else ""))
             tr.font.size = Pt(8.5)
             tr.font.color.rgb = _AMBER
 
     # ── 대비표
     sec += 1
     _h(doc, f"{sec}. 변경 전·후 대비표")
+    legend = doc.add_paragraph()
+    lr = legend.add_run("변경 후 열: 남색 = 유지된 부분, 빨간색 = 새로 들어가거나 바뀐 부분 · "
+                        "원문 열: 빨간 취소선 = 빠지거나 바뀌기 전 부분 · "
+                        "변경 없는 항목은 '변경할 것 없음'으로 표시")
+    lr.font.size = Pt(8.5)
+    lr.font.color.rgb = RGBColor(0x7C, 0x8B, 0x9B)
     tbl = doc.add_table(rows=1, cols=3)
     tbl.style = "Light Grid Accent 1"
     for i, h in enumerate(["#", "변경 전(원문)", "변경 후(기준 적용)"]):
@@ -254,11 +265,35 @@ def build_result_docx(result: dict) -> bytes:
     for i, item in enumerate(items, 1):
         row = tbl.add_row()
         row.cells[0].paragraphs[0].add_run(str(i)).font.size = Pt(9)
-        row.cells[1].paragraphs[0].add_run(item.get("raw", "")).font.size = Pt(9)
-        after = row.cells[2].paragraphs[0].add_run(item.get("formatted", ""))
-        after.font.size = Pt(9)
+        raw, formatted = item.get("raw", ""), item.get("formatted", "")
         if item.get("changed"):
-            after.font.color.rgb = _ACCENT
+            # 문자 단위 대비(웹 화면과 동일 체계) — 이용자 피드백:
+            # 추가·수정은 변경 후 열에 빨간색으로, 삭제는 변경 후 열에 나타나지
+            # 않으므로 원문 열에 빨간 취소선으로 사람이 인식하게 한다.
+            ops = difflib.SequenceMatcher(None, raw, formatted,
+                                          autojunk=False).get_opcodes()
+            p_before = row.cells[1].paragraphs[0]
+            for tag, i1, i2, _j1, _j2 in ops:
+                if not raw[i1:i2]:
+                    continue
+                run = p_before.add_run(raw[i1:i2])
+                run.font.size = Pt(9)
+                if tag != "equal":
+                    run.font.color.rgb = _WARN
+                    run.font.strike = True
+            p_after = row.cells[2].paragraphs[0]
+            for tag, _i1, _i2, j1, j2 in ops:
+                if not formatted[j1:j2]:
+                    continue
+                run = p_after.add_run(formatted[j1:j2])
+                run.font.size = Pt(9)
+                run.font.color.rgb = _ACCENT if tag == "equal" else _WARN
+        else:
+            row.cells[1].paragraphs[0].add_run(raw).font.size = Pt(9)
+            # 같은 문장을 두 번 보여주면 '무엇이 적용됐다는 건지' 혼란을 준다(이용자 피드백)
+            after = row.cells[2].paragraphs[0].add_run("변경할 것 없음 (원문이 기준에 부합)")
+            after.font.color.rgb = RGBColor(0x7C, 0x8B, 0x9B)
+            after.font.size = Pt(9)
 
     # ── 실존·윤리 검증
     if result.get("verify_enabled"):

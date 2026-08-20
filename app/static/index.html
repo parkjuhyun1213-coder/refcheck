@@ -705,7 +705,7 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
 // main.py의 APP_VERSION과 반드시 같아야 한다. 서버에 index.html이 덜 복사됐는지
 // 알아내려고 일부러 손으로 박아 두는 값이라 자동 주입하지 않는다.
 // (test_server.py가 두 값이 어긋나면 실패시킨다)
-const UI_VERSION='2026.08.20-01';
+const UI_VERSION='2026.08.20-02';
 const $=id=>document.getElementById(id);
 let pickedFiles=[], styles=[], currentJob=null, pollTimer=null, etaTimer=null, pollFails=0, poll404=0;
 
@@ -1436,6 +1436,7 @@ async function orgPreview(idx){
       const n=nMatch(tp);
       return `<div class="dirline">💡 <div><b>[${esc(tp.topic||tp.label)}]</b> ${esc(tp.rule)}`
         +(tp.example?` <span class="hint">예: ${esc(tp.example)}</span>`:'')
+        +(tp.example_west?` <span class="hint">서양 예: ${esc(tp.example_west)}</span>`:'')
         +` <span class="hint">— 내 목록에서 해당 유형 ${n}건</span></div></div>`;
     };
     let h=`<div style="border:1px solid var(--line);border-radius:10px;padding:11px 14px;background:#f8fafc">`
@@ -1583,8 +1584,11 @@ function fileBodyHtml(job,idx,viewHid){
           +'</div>';
       }
       if(it.tips&&it.tips.length){
-        for(const tp of it.tips)
-          h+=`<div class="issue" style="color:var(--amber)">💡 <b>[${esc(tp.label)}]</b> ${esc(tp.rule)}${tp.example?` <span class="hint">예: ${esc(tp.example)}</span>`:''}</div>`;
+        for(const tp of it.tips){
+          // 서양 문헌에는 서양 사례를 우선 표시(이용자 피드백)
+          const ex=(it.entry&&it.entry.lang==='west'&&tp.example_west)?tp.example_west:tp.example;
+          h+=`<div class="issue" style="color:var(--amber)">💡 <b>[${esc(tp.label)}]</b> ${esc(tp.rule)}${ex?` <span class="hint">예: ${esc(ex)}</span>`:''}</div>`;
+        }
       }
       if(it.issues&&it.issues.length) h+=`<div class="issue">⚠ ${esc(it.issues.join(' / '))}</div>`;
       h+='</div>';  // .refitem
@@ -1604,10 +1608,11 @@ function fileBodyHtml(job,idx,viewHid){
       <mark class="da">원문에서 빠지거나 바뀐 부분</mark> <mark class="db">정리 후 들어간 부분</mark></div>`;
     h+=`<div style="overflow-x:auto"><table class="cmp" id="cmpTable${idx}"><tr><th style="width:26px">#</th><th>변경 전(원문)</th><th>변경 후</th></tr>`;
     res.items.forEach((it,i)=>{
-      const d=charDiff(it.raw||'', it.formatted||'');
+      // 변경 없는 항목은 같은 문장을 반복하지 않는다 — '무엇이 바뀌었나' 혼란 방지(이용자 피드백)
+      const d=it.changed?charDiff(it.raw||'', it.formatted||''):null;
       h+=`<tr class="${it.changed?'ch':'same'}"${(nChanged&&!it.changed)?' style="display:none"':''}>`
-        +`<td>${i+1}</td><td>${diffHtml(d,'a')}</td>`
-        +`<td class="${it.changed?'after':''}">${diffHtml(d,'b')}</td></tr>`;
+        +`<td>${i+1}</td><td>${d?diffHtml(d,'a'):esc(it.raw||'')}</td>`
+        +`<td class="${it.changed?'after':''}">${d?diffHtml(d,'b'):'<span class="hint">변경할 것 없음 (원문이 기준에 부합)</span>'}</td></tr>`;
     });
     h+='</table></div>';
 
