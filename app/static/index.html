@@ -16,6 +16,10 @@ header h1{font-size:17px;margin:0;font-weight:700}
 header .sub{font-size:12px;opacity:.85}
 header .credit{font-size:11.5px;opacity:.75;margin-top:2px}
 header .hspace{flex:1}
+/* 머리글 오른쪽: 상태 배지 줄(위) + 버튼 줄(아래), 둘 다 오른쪽 끝 정렬 */
+.hright{display:flex;flex-direction:column;align-items:flex-end;gap:8px}
+.hbadges{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.hbtns{display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end}
 .badge{font-size:11.5px;padding:3px 10px;border-radius:999px;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.35)}
 .badge.on{background:#2e7d32;border-color:#2e7d32}
 header button{background:rgba(255,255,255,.14);color:#fff;border:1px solid rgba(255,255,255,.4);border-radius:8px;padding:7px 14px;cursor:pointer;font-size:13px}
@@ -138,21 +142,28 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
     <div class="credit">개발: 전남대학교 문헌정보학과 박주현 교수 (<a href="mailto:park51566@jnu.ac.kr" style="color:inherit">park51566@jnu.ac.kr</a>)</div>
   </div>
   <span class="hspace"></span>
-  <button onclick="resetAll()" title="처리 결과와 선택 파일을 지웁니다 (학회 코드·로그인은 유지)">🗒 새 논문</button>
-  <button onclick="openPast()" title="이전에 처리한 결과를 다시 보고 내려받습니다">📂 지난 결과</button>
-  <!-- 이용 안내는 접근 코드 없이도 열린다 — 코드를 못 받은 분이 먼저 읽어볼 수 있어야 한다 -->
-  <button onclick="window.open('/guide','_blank','noopener')" title="서비스 소개·권한별 기능·이용 비용 안내 (새 창)">📄 이용 안내</button>
-  <span id="aiBadge" class="badge" onclick="openModels()" style="cursor:pointer" title="사용 중인 AI 엔진과 선택 가능한 모드를 봅니다">엔진 확인 중…</span>
-  <span id="roleBadge" class="badge" style="display:none"></span>
-  <button id="kbBtn" onclick="openKb()" style="display:none">📋 기준·제안 관리</button>
-  <button id="fbBtn" onclick="openFbAdmin()" style="display:none">📝 편집 요구</button>
-  <button id="statsBtn" onclick="openStats()" style="display:none">📊 사용 통계</button>
-  <!-- 공용 PC에서 자리를 뜰 때 바로 누를 수 있어야 한다 — 대화상자 안에 숨겨 두지 않는다.
-       '⚙ 설정'은 관리자에게만 보이고 '나가기'는 관리자에게 안 보이므로, 화면에서는 늘 '사용 통계' 다음이다 -->
-  <button id="leaveBtn" onclick="leaveAccess()" style="display:none"
-          title="학회 코드를 해제하고 나갑니다 (입력해 둔 이름·소속도 이 브라우저에서 지웁니다)">🚪 나가기</button>
-  <button id="settingsBtn" onclick="openSettings()" style="display:none">⚙ 설정</button>
-  <button id="adminBtn" onclick="adminAction()" title="관리자 로그인/로그아웃">🔐 관리자</button>
+  <div class="hright">
+    <!-- 상태 배지 줄 — 보는 것(상태)은 위, 누르는 것(버튼)은 아래 -->
+    <div class="hbadges">
+      <span id="roleBadge" class="badge" style="display:none"></span>
+      <span id="aiBadge" class="badge" onclick="openModels()" style="cursor:pointer" title="사용 중인 AI 엔진과 선택 가능한 모드를 봅니다">엔진 확인 중…</span>
+    </div>
+    <div class="hbtns">
+      <button onclick="resetAll()" title="처리 결과와 선택 파일을 지웁니다 (학회 코드·로그인은 유지)">🗒 새 논문</button>
+      <button onclick="openPast()" title="이전에 처리한 결과를 다시 보고 내려받습니다">📂 지난 결과</button>
+      <!-- 이용 안내는 접근 코드 없이도 열린다 — 코드를 못 받은 분이 먼저 읽어볼 수 있어야 한다 -->
+      <button onclick="window.open('/guide','_blank','noopener')" title="서비스 소개·권한별 기능·이용 비용 안내 (새 창)">📄 이용 안내</button>
+      <button id="kbBtn" onclick="openKb()" style="display:none">📋 기준·제안 관리</button>
+      <button id="fbBtn" onclick="openFbAdmin()" style="display:none">📝 편집 요구</button>
+      <button id="statsBtn" onclick="openStats()" style="display:none">📊 사용 통계</button>
+      <!-- 공용 PC에서 자리를 뜰 때 바로 누를 수 있어야 한다 — 대화상자 안에 숨겨 두지 않는다.
+           '⚙ 설정'은 관리자에게만 보이고 '나가기'는 관리자에게 안 보이므로, 화면에서는 늘 '사용 통계' 다음이다 -->
+      <button id="leaveBtn" onclick="leaveAccess()" style="display:none"
+              title="학회 코드를 해제하고 나갑니다 (입력해 둔 이름·소속도 이 브라우저에서 지웁니다)">🚪 나가기</button>
+      <button id="settingsBtn" onclick="openSettings()" style="display:none">⚙ 설정</button>
+      <button id="adminBtn" onclick="adminAction()" title="관리자 로그인/로그아웃">🔐 관리자</button>
+    </div>
+  </div>
 </header>
 
 <main>
@@ -719,7 +730,7 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
 // main.py의 APP_VERSION과 반드시 같아야 한다. 서버에 index.html이 덜 복사됐는지
 // 알아내려고 일부러 손으로 박아 두는 값이라 자동 주입하지 않는다.
 // (test_server.py가 두 값이 어긋나면 실패시킨다)
-const UI_VERSION='2026.08.21-02';
+const UI_VERSION='2026.08.21-03';
 const $=id=>document.getElementById(id);
 let pickedFiles=[], styles=[], currentJob=null, pollTimer=null, etaTimer=null, pollFails=0, poll404=0;
 
