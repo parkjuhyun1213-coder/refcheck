@@ -149,10 +149,10 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
       <span id="aiBadge" class="badge" onclick="openModels()" style="cursor:pointer" title="사용 중인 AI 엔진과 선택 가능한 모드를 봅니다">엔진 확인 중…</span>
     </div>
     <div class="hbtns">
+      <!-- 이용 안내는 접근 코드 없이도 열린다 — 코드를 못 받은 분이 가장 먼저 읽는 문서라 맨 앞에 둔다 -->
+      <button onclick="window.open('/guide','_blank','noopener')" title="서비스 소개·권한별 기능·이용 비용 안내 (새 창)">📄 이용 안내</button>
       <button onclick="resetAll()" title="처리 결과와 선택 파일을 지웁니다 (학회 코드·로그인은 유지)">🗒 새 논문</button>
       <button onclick="openPast()" title="이전에 처리한 결과를 다시 보고 내려받습니다">📂 지난 결과</button>
-      <!-- 이용 안내는 접근 코드 없이도 열린다 — 코드를 못 받은 분이 먼저 읽어볼 수 있어야 한다 -->
-      <button onclick="window.open('/guide','_blank','noopener')" title="서비스 소개·권한별 기능·이용 비용 안내 (새 창)">📄 이용 안내</button>
       <button id="kbBtn" onclick="openKb()" style="display:none">📋 기준·제안 관리</button>
       <button id="fbBtn" onclick="openFbAdmin()" style="display:none">📝 편집 요구</button>
       <button id="statsBtn" onclick="openStats()" style="display:none">📊 사용 통계</button>
@@ -730,7 +730,7 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
 // main.py의 APP_VERSION과 반드시 같아야 한다. 서버에 index.html이 덜 복사됐는지
 // 알아내려고 일부러 손으로 박아 두는 값이라 자동 주입하지 않는다.
 // (test_server.py가 두 값이 어긋나면 실패시킨다)
-const UI_VERSION='2026.08.21-03';
+const UI_VERSION='2026.08.21-04';
 const $=id=>document.getElementById(id);
 let pickedFiles=[], styles=[], currentJob=null, pollTimer=null, etaTimer=null, pollFails=0, poll404=0;
 
