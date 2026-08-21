@@ -79,7 +79,7 @@ app = FastAPI(title="참고문헌 검증 서비스",
 # 화면(index.html)과 프로그램의 버전이 어긋난 채 배포되면 새 기능이 조용히 무시된다.
 # 두 파일에 같은 값을 두고 /api/status에서 대조해 관리자 화면에 경고를 띄운다.
 # 기능을 추가·변경할 때 main.py와 index.html의 APP_VERSION을 함께 올릴 것.
-APP_VERSION = "2026.08.21-06"
+APP_VERSION = "2026.08.21-07"
 
 APP_DIR = Path(__file__).parent
 JOBS: dict[str, dict] = {}
@@ -1290,9 +1290,29 @@ def _job_public(job: dict) -> dict:
 
 # ================================================================ API
 
+# ---------------------------------------------------------------- 화면(정적 HTML) 서빙
+# 규정 Q&A는 관리자가 공개 여부를 정한다(기본 비공개). 링크가 정적 페이지에 박혀
+# 있으므로, 비공개 상태에서는 내줄 때 <!--QA:BEGIN-->…<!--QA:END--> 구간을 걷어낸다.
+_QA_BLOCK_RE = re.compile(r"[ \t]*<!--QA:BEGIN-->.*?<!--QA:END-->\n?", re.S)
+
+
+def _qa_enabled() -> bool:
+    try:
+        return bool(int(aiengine.load_config().get("qa_enabled") or 0))
+    except (TypeError, ValueError):
+        return False
+
+
+def _serve_html(name: str) -> str:
+    html = (APP_DIR / "static" / name).read_text(encoding="utf-8")
+    if not _qa_enabled():
+        html = _QA_BLOCK_RE.sub("", html)
+    return html
+
+
 @app.get("/", response_class=HTMLResponse)
 def index():
-    return (APP_DIR / "static" / "index.html").read_text(encoding="utf-8")
+    return _serve_html("index.html")
 
 
 @app.get("/guide/style", response_class=HTMLResponse)
@@ -1304,7 +1324,7 @@ def style_guide():
     서비스 체험으로 이어지는 전환 장치다. 예시는 formatter가 실제로
     만들어 내는 출력과 일치하도록 작성·검증한다(test_server 15번 참조).
     """
-    return (APP_DIR / "static" / "style_guide.html").read_text(encoding="utf-8")
+    return _serve_html("style_guide.html")
 
 
 @app.get("/guide/style/detail", response_class=HTMLResponse)
@@ -1314,7 +1334,7 @@ def style_detail():
     공통기준 전 유형(법령·표준·번역서·비도서 등) + 2025년 4개 학회지 실측 사례 +
     기준 미수록 유형(프리프린트 등)의 APA 준용 권장안. 예시는 전건 실존 검증(2026-08-18).
     """
-    return (APP_DIR / "static" / "style_detail.html").read_text(encoding="utf-8")
+    return _serve_html("style_detail.html")
 
 
 @app.get("/guide/societies", response_class=HTMLResponse)
@@ -1324,7 +1344,7 @@ def society_guide():
     4개 학회 규정 원문을 조문 단위로 대조한 결과(2026-08-18 검증).
     학회 관계자가 서비스의 존재 이유(같은 기준, 다른 양식·관행)를 볼 수 있는 페이지.
     """
-    return (APP_DIR / "static" / "society_guide.html").read_text(encoding="utf-8")
+    return _serve_html("society_guide.html")
 
 
 # 학회 이름(코드 키) ↔ 학회지 이름 — suggestions.json의 journal 필드와 대조용
@@ -1384,19 +1404,21 @@ def guide():
     코드를 아직 받지 못한 분이 먼저 읽어 보는 것이 이 문서의 쓸모다.
     접속 코드 자체는 문서에 담지 않는다(빈칸으로 두고 학회가 따로 안내).
     """
-    return (APP_DIR / "static" / "guide.html").read_text(encoding="utf-8")
+    return _serve_html("guide.html")
 
 
 @app.get("/guide/qa", response_class=HTMLResponse)
-def guide_qa():
-    """투고규정 Q&A — 페이지는 공개, 질문(/api/qa)만 접근 코드 필요."""
-    return (APP_DIR / "static" / "qa.html").read_text(encoding="utf-8")
+def guide_qa(request: Request):
+    """투고규정 Q&A — 관리자가 공개를 켠 경우에만 열린다(관리자는 항상 미리보기 가능)."""
+    if not _qa_enabled() and not is_admin(request):
+        raise HTTPException(404, "준비 중인 페이지입니다.")
+    return _serve_html("qa.html")
 
 
 @app.get("/guide/privacy", response_class=HTMLResponse)
 def guide_privacy():
     """개인정보·원고 처리방침 — 접근 코드 없이 공개."""
-    return (APP_DIR / "static" / "privacy.html").read_text(encoding="utf-8")
+    return _serve_html("privacy.html")
 
 
 @app.get("/guide/standard.pdf")
@@ -1435,6 +1457,7 @@ def status(request: Request):
         out["monthly_budget_usd"] = cfg.get("monthly_budget_usd", "")
         out["usd_krw"] = cfg.get("usd_krw", 1400)
         out["retention_days"] = cfg.get("retention_days", "")
+        out["qa_enabled"] = _qa_enabled()
         out["access_codes"] = _org_access_codes()
         rc = _role_codes()
         out["editor_codes"] = rc["editor"]
@@ -1454,7 +1477,8 @@ def save_settings(request: Request, api_key: str = Form(""), model: str = Form(a
                   chair_codes: str | None = Form(None),
                   monthly_budget_usd: str = Form("__keep__"),
                   usd_krw: str = Form("__keep__"),
-                  retention_days: str = Form("__keep__")):
+                  retention_days: str = Form("__keep__"),
+                  qa_enabled: str = Form("__keep__")):
     # 해제 가능한 필드들이 Optional이 아닌 이유: 이 FastAPI(Pydantic v2)는 빈 폼 값을
     # '미전송'으로 떨어뜨려 '빈 값 = 해제'가 서버에 도달하지 않는다. 그래서 화면(JS)이
     # 빈 칸을 __clear__(보존 기한은 0)로 바꿔 보내고, 미전송은 __keep__ 기본값으로 유지한다.
@@ -1498,6 +1522,11 @@ def save_settings(request: Request, api_key: str = Form(""), model: str = Form(a
             cfg["retention_days"] = val
         else:
             cfg.pop("retention_days", None)
+    if qa_enabled != "__keep__":  # 규정 Q&A 공개 여부 — '1' 공개 / 그 외 비공개(기본)
+        if qa_enabled.strip() == "1":
+            cfg["qa_enabled"] = 1
+        else:
+            cfg.pop("qa_enabled", None)
     # 학회별·역할별 코드 {학회명: 코드} JSON — 전송된 필드만 갱신
     import json
     for key, raw in (("access_codes", access_codes),
@@ -1623,7 +1652,11 @@ def _append_qa_log(org: str, role: str, q: str, out: dict, spent: dict | None):
 
 @app.post("/api/qa")
 def regulation_qa(request: Request, org: str = Form(""), q: str = Form("")):
-    """학회 투고규정 Q&A — 접근 코드 보유자만(AI 호출 비용이 들므로)."""
+    """학회 투고규정 Q&A — 접근 코드 보유자만(AI 호출 비용이 들므로).
+
+    관리자가 공개를 끈 상태(기본값)에서는 관리자 외에는 쓸 수 없다."""
+    if not _qa_enabled() and not is_admin(request):
+        raise HTTPException(404, "규정 Q&A는 현재 공개되어 있지 않습니다.")
     require_access(request)
     ip = _client_ip(request)
     if _throttled("qa", ip, _QA_PER_MIN):

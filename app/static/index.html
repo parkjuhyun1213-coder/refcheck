@@ -203,7 +203,7 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
     <div class="qout" id="quickOut"></div>
     <div class="hint" style="margin-top:7px">표기 규칙이 궁금하시면
       <a href="/guide/style" target="_blank" rel="noopener">참고문헌 작성법 가이드(문편협 공통기준)</a>를 참고하세요.
-      투고규정이 궁금하시면 <a href="/guide/qa" target="_blank" rel="noopener">규정 Q&amp;A</a>에 물어보세요.</div>
+      <!--QA:BEGIN-->투고규정이 궁금하시면 <a href="/guide/qa" target="_blank" rel="noopener">규정 Q&amp;A</a>에 물어보세요.<!--QA:END--></div>
   </div>
 
   <!-- 기준 & 옵션 -->
@@ -398,6 +398,14 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
       <div class="hint" style="margin-top:4px">기한이 지난 원고의 <b>원본·발행본 파일만</b> 자동 파기되고
         검증 결과·통계 이력은 남습니다(원고 관리에 "파기됨"으로 표시).
         <b>저장하는 즉시 기한이 지난 원고가 일괄 파기</b>되므로 학회와 협의한 뒤 설정하세요.</div>
+    </div>
+    <div class="field" style="margin-top:14px">
+      <label>규정 Q&amp;A 공개</label>
+      <label style="display:flex;align-items:center;gap:8px;font-weight:400;font-size:13px;cursor:pointer">
+        <input type="checkbox" id="setQaEnabled" style="width:auto"> 이용자 화면에 규정 Q&amp;A(/guide/qa)를 보입니다
+      </label>
+      <div class="hint" style="margin-top:4px">끄면 안내 페이지 메뉴·첫 화면 링크에서 사라지고 페이지·질문 API도 차단됩니다
+        (관리자는 주소로 직접 열어 미리볼 수 있습니다). 기본값: 비공개. 질문 1건당 AI 비용이 듭니다.</div>
     </div>
     <div class="field" style="margin-top:14px">
       <label>국내 문헌 검증 API 상태</label>
@@ -729,7 +737,7 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
 // main.py의 APP_VERSION과 반드시 같아야 한다. 서버에 index.html이 덜 복사됐는지
 // 알아내려고 일부러 손으로 박아 두는 값이라 자동 주입하지 않는다.
 // (test_server.py가 두 값이 어긋나면 실패시킨다)
-const UI_VERSION='2026.08.21-06';
+const UI_VERSION='2026.08.21-07';
 const $=id=>document.getElementById(id);
 let pickedFiles=[], styles=[], currentJob=null, pollTimer=null, etaTimer=null, pollFails=0, poll404=0;
 
@@ -2343,6 +2351,7 @@ async function openSettings(){
   $('setBudget').value=s.monthly_budget_usd||'';
   $('setRate').value=s.usd_krw||1400;
   $('setRetention').value=s.retention_days||'';
+  $('setQaEnabled').checked=!!s.qa_enabled;
   // 학회×역할 접근 코드 입력칸 (기본 4개 학회 + 코드가 등록된 기타 학회)
   const orgCodes=s.access_codes||{}, edCodes=s.editor_codes||{}, chCodes=s.chair_codes||{};
   const orgList=[...(s.default_orgs||[])];
@@ -2392,6 +2401,7 @@ async function saveSettings(){
   fd.append('monthly_budget_usd',orClear($('setBudget').value));
   fd.append('usd_krw',orClear($('setRate').value));
   fd.append('retention_days',$('setRetention').value.trim()||'0');  // 보존 기한의 빈 칸은 0(무기한)
+  fd.append('qa_enabled',$('setQaEnabled').checked?'1':'0');
   fd.append('access_codes',collect('orgCodeInput'));
   fd.append('editor_codes',collect('edCodeInput'));
   fd.append('chair_codes',collect('chCodeInput'));

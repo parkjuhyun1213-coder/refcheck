@@ -375,13 +375,16 @@ def check_regs_corpus() -> bool:
     return ok
 
 
-def check_new_pages(idx: str) -> bool:
-    """규정 Q&A·처리방침 페이지 공개 여부와 안내 페이지 연결."""
+def check_new_pages(idx: str, qa_on: bool) -> bool:
+    """처리방침 페이지와, 규정 Q&A의 공개 설정에 따른 노출 상태."""
     ok = True
     with httpx.Client(timeout=30) as anon:
         qa = anon.get(BASE + "/guide/qa")
-        if qa.status_code != 200 or "물어보면 규정 원문으로 답합니다" not in qa.text:
-            print(f"2-2) 규정 Q&A 페이지 실패: HTTP {qa.status_code}")
+        if qa_on and (qa.status_code != 200 or "물어보면 규정 원문으로 답합니다" not in qa.text):
+            print(f"2-2) 규정 Q&A 페이지 실패(공개 상태): HTTP {qa.status_code}")
+            ok = False
+        if not qa_on and qa.status_code != 404:
+            print(f"2-2) 규정 Q&A 비공개인데 익명 접근이 404가 아님: HTTP {qa.status_code}")
             ok = False
         pv = anon.get(BASE + "/guide/privacy")
         if pv.status_code != 200 or "개인정보·원고 처리방침" not in pv.text:
@@ -389,19 +392,54 @@ def check_new_pages(idx: str) -> bool:
             ok = False
         for path in ("/guide", "/guide/societies", "/guide/style", "/guide/style/detail"):
             g = anon.get(BASE + path)
-            if 'href="/guide/qa"' not in g.text:
-                print(f"2-2) {path} 메뉴에 규정 Q&A 링크가 없습니다.")
+            if ('href="/guide/qa"' in g.text) != qa_on:
+                print(f"2-2) {path} 메뉴의 규정 Q&A 링크가 공개 설정({qa_on})과 다릅니다.")
                 ok = False
     if 'href="/guide/privacy"' not in idx:
         print("2-2) 첫 화면에 처리방침 링크가 없습니다.")
         ok = False
+    if ('href="/guide/qa"' in idx) != qa_on:
+        print(f"2-2) 첫 화면의 규정 Q&A 링크가 공개 설정({qa_on})과 다릅니다.")
+        ok = False
     if ok:
-        print("2-2) 규정 Q&A·처리방침 페이지 공개 OK (안내 페이지 4곳 메뉴 연결 확인)")
+        print(f"2-2) 새 안내 페이지 OK (규정 Q&A {'공개' if qa_on else '비공개'} 상태와 링크 일치)")
     return ok
 
 
-def check_qa_api(c) -> bool:
-    """규정 Q&A API — AI를 부르기 전에 반려되는 경로(비용 0)와 접근 통제."""
+def check_qa_visibility(c) -> bool:
+    """규정 Q&A 공개 토글 — 켜면 링크·페이지가 열리고, 끄면 사라지는지. 원래 값 복원."""
+    st = c.get(BASE + "/api/status").json()
+    model, orig = st.get("model", ""), "1" if st.get("qa_enabled") else "0"
+    ok = True
+    try:
+        for flag, expect in (("1", True), ("0", False)):
+            c.post(BASE + "/api/settings", data={"model": model, "qa_enabled": flag})
+            with httpx.Client(timeout=30) as anon:
+                r = anon.get(BASE + "/guide/qa")
+                g = anon.get(BASE + "/guide")
+            if (r.status_code == 200) != expect:
+                print(f"2-3) 공개={flag}인데 익명 /guide/qa가 HTTP {r.status_code}")
+                ok = False
+            if ('href="/guide/qa"' in g.text) != expect:
+                print(f"2-3) 공개={flag}인데 안내 페이지 링크 노출이 다릅니다.")
+                ok = False
+        # 비공개 상태에서도 관리자는 미리보기 가능해야 한다(마지막 토글이 '0')
+        r = c.get(BASE + "/guide/qa")
+        if r.status_code != 200:
+            print(f"2-3) 비공개 상태 관리자 미리보기 실패: HTTP {r.status_code}")
+            ok = False
+    finally:  # 검사 결과와 무관하게 원래 설정으로 복원
+        c.post(BASE + "/api/settings", data={"model": model, "qa_enabled": orig})
+    if ok:
+        print("2-3) 규정 Q&A 공개 토글 동작 확인 (켬→노출, 끔→숨김·관리자 미리보기)")
+    return ok
+
+
+def check_qa_api(c, qa_on: bool) -> bool:
+    """규정 Q&A API — AI를 부르기 전에 반려되는 경로(비용 0)와 접근 통제.
+
+    관리자 클라이언트(c)는 공개 여부와 무관하게 통과하므로 입력 검증을 그대로 점검하고,
+    익명 요청은 상태에 따라 404(비공개)·401(공개+코드 필요)만 확인한다 — AI 호출 없음."""
     import os
     ok = True
     r = c.post(BASE + "/api/qa", data={"org": "", "q": "짧다"})
@@ -413,7 +451,14 @@ def check_qa_api(c) -> bool:
         print(f"16) 없는 학회가 400이 아님: HTTP {r.status_code} {r.text[:200]}")
         ok = False
     st = c.get(BASE + "/api/status").json()
-    if st.get("access_required"):
+    if not qa_on:
+        with httpx.Client(timeout=30) as anon:
+            r = anon.post(BASE + "/api/qa", data={"org": "", "q": "참고문헌에 DOI를 적어야 하나요"})
+        if r.status_code != 404:
+            print(f"16) 비공개인데 익명 질문이 404가 아님: HTTP {r.status_code}")
+            ok = False
+        gate = "비공개 — 익명 404 확인"
+    elif st.get("access_required"):
         with httpx.Client(timeout=30) as anon:
             r = anon.post(BASE + "/api/qa", data={"org": "", "q": "참고문헌에 DOI를 적어야 하나요"})
         if r.status_code != 401:
@@ -421,7 +466,7 @@ def check_qa_api(c) -> bool:
             ok = False
         gate = "익명 401 확인"
     else:
-        gate = "접근 코드 미설정 환경 — 401 확인 생략"
+        gate = "공개 + 접근 코드 미설정 환경 — 익명 확인 생략"
     if ok:
         print(f"16) 규정 Q&A 입력 반려 OK ({gate})")
     # 실제 AI 호출은 비용·시간이 들어 QA_LIVE=1일 때만 1회
@@ -608,11 +653,15 @@ def main():
             sys.exit(1)
         print("2-1) 이용 안내 페이지 공개 OK,", len(g.text), "bytes (머릿글·코드창 링크 확인)")
 
-        # 규정 Q&A·처리방침 — 새 안내 페이지와 API
-        if not check_new_pages(idx):
+        # 규정 Q&A·처리방침 — 새 안내 페이지와 API (Q&A는 관리자 공개 설정에 따름)
+        qa_on = bool(c.get(BASE + "/api/status").json().get("qa_enabled"))
+        if not check_new_pages(idx, qa_on):
             print("\n== 새 안내 페이지 점검 실패 ==")
             sys.exit(1)
-        if not check_qa_api(c):
+        if not check_qa_visibility(c):
+            print("\n== 규정 Q&A 공개 토글 점검 실패 ==")
+            sys.exit(1)
+        if not check_qa_api(c, qa_on):
             print("\n== 규정 Q&A API 점검 실패 ==")
             sys.exit(1)
         if not check_purge(c):
