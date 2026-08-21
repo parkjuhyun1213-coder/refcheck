@@ -79,7 +79,7 @@ app = FastAPI(title="참고문헌 검증 서비스",
 # 화면(index.html)과 프로그램의 버전이 어긋난 채 배포되면 새 기능이 조용히 무시된다.
 # 두 파일에 같은 값을 두고 /api/status에서 대조해 관리자 화면에 경고를 띄운다.
 # 기능을 추가·변경할 때 main.py와 index.html의 APP_VERSION을 함께 올릴 것.
-APP_VERSION = "2026.08.21-01"
+APP_VERSION = "2026.08.21-02"
 
 APP_DIR = Path(__file__).parent
 JOBS: dict[str, dict] = {}
@@ -1447,15 +1447,18 @@ def status(request: Request):
 
 @app.post("/api/settings")
 def save_settings(request: Request, api_key: str = Form(""), model: str = Form(aiengine.DEFAULT_MODEL),
-                  clear: str = Form("0"), access_code: str | None = Form(None),
+                  clear: str = Form("0"),
+                  access_code: str = Form("__keep__"),
                   access_codes: str | None = Form(None),
                   editor_codes: str | None = Form(None),
                   chair_codes: str | None = Form(None),
-                  monthly_budget_usd: str | None = Form(None),
-                  usd_krw: str | None = Form(None),
+                  monthly_budget_usd: str = Form("__keep__"),
+                  usd_krw: str = Form("__keep__"),
                   retention_days: str = Form("__keep__")):
-    # retention_days만 Optional이 아닌 이유: 이 FastAPI(Pydantic v2)는 Optional Form의
-    # 빈 문자열을 None으로 바꿔 버려 '빈 값 = 해제'가 '미전송 = 유지'와 구분되지 않는다.
+    # 해제 가능한 필드들이 Optional이 아닌 이유: 이 FastAPI(Pydantic v2)는 빈 폼 값을
+    # '미전송'으로 떨어뜨려 '빈 값 = 해제'가 서버에 도달하지 않는다. 그래서 화면(JS)이
+    # 빈 칸을 __clear__(보존 기한은 0)로 바꿔 보내고, 미전송은 __keep__ 기본값으로 유지한다.
+    # 학회별 코드 3종은 JSON 문자열('{}')이라 빈 값이 생기지 않아 Optional을 유지한다.
     require_admin(request)
     cfg = aiengine.load_config()
     # API 키는 .env에만 기록한다(config.json 평문 저장 금지)
@@ -1467,13 +1470,13 @@ def save_settings(request: Request, api_key: str = Form(""), model: str = Form(a
                 {"ok": False, "message": ".env 파일에 API 키를 저장하지 못했습니다. 파일 권한을 확인해 주세요."},
                 status_code=500)
     cfg["model"] = model if model in aiengine.ALLOWED_MODELS else aiengine.DEFAULT_MODEL
-    if access_code is not None:  # 필드가 전송된 경우에만 변경(빈 값 = 공통 코드 해제)
-        cfg["access_code"] = access_code.strip()[:60]
+    if access_code != "__keep__":  # 전송된 경우에만 변경 — __clear__(화면의 빈 칸) = 공통 코드 해제
+        cfg["access_code"] = "" if access_code == "__clear__" else access_code.strip()[:60]
     for field, raw in (("monthly_budget_usd", monthly_budget_usd), ("usd_krw", usd_krw)):
-        if raw is None:
+        if raw == "__keep__":
             continue
         raw = raw.strip().replace(",", "")
-        if not raw:
+        if not raw or raw == "__clear__":  # __clear__ = 화면의 빈 칸(해제)
             cfg.pop(field, None)
             continue
         try:

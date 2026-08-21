@@ -488,6 +488,46 @@ def check_purge(c) -> bool:
     return ok
 
 
+def check_settings_clear(c) -> bool:
+    """설정의 '빈 값 = 해제'가 실제로 동작하는지 — 원래 값을 반드시 복원한다.
+
+    이 FastAPI는 빈 폼 값을 '미전송'으로 떨어뜨리므로 화면(JS)이 빈 칸을 __clear__로
+    바꿔 보낸다(save_settings 참조). 여기서는 그 규약이 서버에서 실제 해제로 이어지는지 본다.
+    """
+    ok = True
+    st = c.get(BASE + "/api/status").json()
+    model = st.get("model", "")
+    orig_budget = st.get("monthly_budget_usd", "")
+    orig_code = st.get("access_code", "")
+    temp_code = "스모크임시코드-zzqx"
+    try:
+        c.post(BASE + "/api/settings", data={"model": model, "monthly_budget_usd": "77"})
+        if c.get(BASE + "/api/status").json().get("monthly_budget_usd") != 77.0:
+            print("18) 예산 설정이 반영되지 않음")
+            ok = False
+        c.post(BASE + "/api/settings", data={"model": model, "monthly_budget_usd": "__clear__"})
+        if c.get(BASE + "/api/status").json().get("monthly_budget_usd") not in ("", None):
+            print("18) 예산 해제(빈 칸)가 동작하지 않음")
+            ok = False
+        c.post(BASE + "/api/settings", data={"model": model, "access_code": temp_code})
+        if c.get(BASE + "/api/status").json().get("access_code") != temp_code:
+            print("18) 공통 코드 설정이 반영되지 않음")
+            ok = False
+        c.post(BASE + "/api/settings", data={"model": model, "access_code": "__clear__"})
+        # 해제 후에는 임시 코드가 남아 있으면 안 된다(.env ACCESS_CODE 폴백값은 남을 수 있음)
+        if c.get(BASE + "/api/status").json().get("access_code") == temp_code:
+            print("18) 공통 코드 해제(빈 칸)가 동작하지 않음")
+            ok = False
+    finally:  # 검사 결과와 무관하게 원래 값으로 복원
+        c.post(BASE + "/api/settings", data={
+            "model": model,
+            "monthly_budget_usd": str(orig_budget) if orig_budget not in ("", None) else "__clear__",
+            "access_code": orig_code if orig_code else "__clear__"})
+    if ok:
+        print("18) 설정 해제(빈 칸 → __clear__) 동작 확인, 원래 값 복원")
+    return ok
+
+
 def job_id_of(r, step: str) -> str:
     """처리 요청 응답에서 job_id를 꺼낸다. 실패 시 서버가 알려준 이유를 그대로 보여준다."""
     if r.status_code != 200 or "job_id" not in r.json():
@@ -577,6 +617,9 @@ def main():
             sys.exit(1)
         if not check_purge(c):
             print("\n== 보존 기한 파기 점검 실패 ==")
+            sys.exit(1)
+        if not check_settings_clear(c):
+            print("\n== 설정 해제 점검 실패 ==")
             sys.exit(1)
 
         r = c.get(BASE + "/api/styles").json()

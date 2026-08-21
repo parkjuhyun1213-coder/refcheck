@@ -719,7 +719,7 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
 // main.py의 APP_VERSION과 반드시 같아야 한다. 서버에 index.html이 덜 복사됐는지
 // 알아내려고 일부러 손으로 박아 두는 값이라 자동 주입하지 않는다.
 // (test_server.py가 두 값이 어긋나면 실패시킨다)
-const UI_VERSION='2026.08.21-01';
+const UI_VERSION='2026.08.21-02';
 const $=id=>document.getElementById(id);
 let pickedFiles=[], styles=[], currentJob=null, pollTimer=null, etaTimer=null, pollFails=0, poll404=0;
 
@@ -2371,15 +2371,17 @@ async function testKey(){
 }
 async function saveSettings(){
   const fd=new FormData(); fd.append('api_key',$('setKey').value); fd.append('model',$('setModel').value);
-  fd.append('access_code',$('setAccessCode').value);
+  // 빈 폼 값은 서버에 '미전송'으로 떨어져 해제가 안 되므로, 빈 칸을 해제 표식으로 바꿔 보낸다
+  const orClear=v=>v.trim()||'__clear__';
+  fd.append('access_code',orClear($('setAccessCode').value));
   const collect=cls=>{
     const o={};
     document.querySelectorAll('.'+cls).forEach(inp=>{ if(inp.value.trim()) o[inp.dataset.org]=inp.value.trim(); });
     return JSON.stringify(o);
   };
-  fd.append('monthly_budget_usd',$('setBudget').value);
-  fd.append('usd_krw',$('setRate').value);
-  fd.append('retention_days',$('setRetention').value.trim()||'0');  // 빈 폼 값은 서버에 안 닿아 0(무기한)으로 보낸다
+  fd.append('monthly_budget_usd',orClear($('setBudget').value));
+  fd.append('usd_krw',orClear($('setRate').value));
+  fd.append('retention_days',$('setRetention').value.trim()||'0');  // 보존 기한의 빈 칸은 0(무기한)
   fd.append('access_codes',collect('orgCodeInput'));
   fd.append('editor_codes',collect('edCodeInput'));
   fd.append('chair_codes',collect('chCodeInput'));
