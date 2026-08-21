@@ -16,6 +16,7 @@ app/history/
 app/styles/
 app/api_cost_log.json
 app/compare_corpus.jsonl
+app/qa_log.json
 
 # ── 결과물·캐시
 실측자료/

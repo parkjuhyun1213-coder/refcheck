@@ -191,7 +191,8 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
     </div>
     <div class="qout" id="quickOut"></div>
     <div class="hint" style="margin-top:7px">표기 규칙이 궁금하시면
-      <a href="/guide/style" target="_blank" rel="noopener">참고문헌 작성법 가이드(문편협 공통기준)</a>를 참고하세요.</div>
+      <a href="/guide/style" target="_blank" rel="noopener">참고문헌 작성법 가이드(문편협 공통기준)</a>를 참고하세요.
+      투고규정이 궁금하시면 <a href="/guide/qa" target="_blank" rel="noopener">규정 Q&amp;A</a>에 물어보세요.</div>
   </div>
 
   <!-- 기준 & 옵션 -->
@@ -271,6 +272,8 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
         <div class="hint">HWP · HWPX · DOCX · PDF · TXT — 여러 편 동시 선택 가능, 논문당 10MB 이하 (암호·배포용으로 잠긴 HWP는 HWPX/PDF로 저장 후 사용)</div>
       </div>
       <input type="file" id="fileInput" multiple accept=".hwp,.hwpx,.docx,.pdf,.txt" style="display:none">
+      <div class="hint" style="margin-top:6px">원고 <b>본문은 AI로 전송되지 않으며 참고문헌 구역만</b> 처리됩니다.
+        수집·보관·파기 기준은 <a href="/guide/privacy" target="_blank" rel="noopener">개인정보·원고 처리방침</a>을 참고하세요.</div>
       <div class="filelist" id="fileList"></div>
       <div class="row" style="margin-top:14px">
         <button class="btn" id="runUpBtn" onclick="runUpload()" disabled>참고문헌 정리 시작</button>
@@ -323,7 +326,8 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
     기준 양식 기본값: 문편협 「인용 및 참고문헌의 기술요소와 형식에 관한 공통기준」(2024. 6. 17. 개정) ·
     AI의 추출·변환에는 오류가 있을 수 있으므로 변경 전·후 대비표로 최종 확인하세요.
     <div style="margin-top:6px;font-size:11.5px;opacity:.8">
-      참고문헌 검증 서비스 <span id="verNote">버전 확인 중…</span>
+      참고문헌 검증 서비스 <span id="verNote">버전 확인 중…</span> ·
+      <a href="/guide/privacy" target="_blank" rel="noopener">개인정보·원고 처리방침</a>
     </div>
   </div>
 </main>
@@ -335,7 +339,7 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
     <div class="field">
       <label>Claude API 키</label>
       <input type="password" id="setKey" placeholder="sk-ant-api03-…  (미입력 시 규칙 기반 엔진으로 동작)">
-      <div class="hint" id="keyHint">console.anthropic.com에서 발급. 키는 이 컴퓨터의 <code>app/config.json</code>에만 저장됩니다.</div>
+      <div class="hint" id="keyHint">console.anthropic.com에서 발급. 키는 서버의 <code>.env</code> 파일에만 저장됩니다(config.json에는 기록되지 않습니다).</div>
     </div>
     <div class="field">
       <label>AI 모델</label>
@@ -373,6 +377,16 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
       <div class="hint" style="margin-top:4px">Anthropic API는 잔액 조회를 제공하지 않아, 실제 사용한
         토큰을 모델 단가로 환산해 추정합니다. 정확한 청구액은
         <a href="https://console.anthropic.com/settings/billing" target="_blank" rel="noopener">console.anthropic.com</a>에서 확인하세요.</div>
+    </div>
+    <div class="field" style="margin-top:14px">
+      <label>원고 보존 기한 (자동 파기)</label>
+      <div class="row">
+        <input type="text" id="setRetention" placeholder="예: 180" style="max-width:120px">
+        <span class="hint">일 — 0 또는 비우면 무기한 보존(현행 유지)</span>
+      </div>
+      <div class="hint" style="margin-top:4px">기한이 지난 원고의 <b>원본·발행본 파일만</b> 자동 파기되고
+        검증 결과·통계 이력은 남습니다(원고 관리에 "파기됨"으로 표시).
+        <b>저장하는 즉시 기한이 지난 원고가 일괄 파기</b>되므로 학회와 협의한 뒤 설정하세요.</div>
     </div>
     <div class="field" style="margin-top:14px">
       <label>국내 문헌 검증 API 상태</label>
@@ -705,7 +719,7 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
 // main.py의 APP_VERSION과 반드시 같아야 한다. 서버에 index.html이 덜 복사됐는지
 // 알아내려고 일부러 손으로 박아 두는 값이라 자동 주입하지 않는다.
 // (test_server.py가 두 값이 어긋나면 실패시킨다)
-const UI_VERSION='2026.08.20-04';
+const UI_VERSION='2026.08.21-01';
 const $=id=>document.getElementById(id);
 let pickedFiles=[], styles=[], currentJob=null, pollTimer=null, etaTimer=null, pollFails=0, poll404=0;
 
@@ -825,12 +839,15 @@ function renderKeepNotice(s){
       +`이용자가 올린 원고는 서버에 보관되며, ${org}편집위원·편집위원장(부편집위원장 포함)이 열람할 수 있습니다. `
       +`보관 자료는 <b>학회 참고문헌을 더 정확하게 작성하고, 4개 학회 사이의 기술 차이를 확인·수정하기 위한 목적</b>으로만 활용합니다. `
       +`발행본 비교에서 찾은 차이는 채택 요청을 거쳐 편집위원장 승인 후 학회 제안으로 등록됩니다.<br>`
-      +`열람한 원고를 심사·편집 목적 외로 이용하거나 외부에 제공하지 않습니다. 보관이 끝난 자료는 <b>원고 관리</b>에서 삭제할 수 있습니다.`;
+      +`열람한 원고를 심사·편집 목적 외로 이용하거나 외부에 제공하지 않습니다. 보관이 끝난 자료는 <b>원고 관리</b>에서 삭제할 수 있습니다. `
+      +`상세 기준은 <a href="/guide/privacy" target="_blank" rel="noopener">개인정보·원고 처리방침</a> 참고.`;
   }else{
     h=`📄 <b>원고 보관 안내</b><br>`
       +`올리신 원고 파일은 처리 이력과 함께 서버에 보관되며, ${org}편집위원회(편집위원·편집위원장)가 열람할 수 있습니다. `
-      +`보관된 원고는 학회 참고문헌 기술을 개선하기 위한 목적으로만 쓰이며, 그 밖의 용도로 이용하거나 외부에 제공하지 않습니다.<br>`
-      +`보관을 원하지 않으시면 위의 <b>‘참고문헌만 붙여넣기’</b> 탭을 이용해 주세요. 원고 파일이 서버에 남지 않습니다.`;
+      +`보관된 원고는 학회 참고문헌 기술을 개선하기 위한 목적으로만 쓰이며, 그 밖의 용도로 이용하거나 외부에 제공하지 않습니다. `
+      +`관리자가 보존 기한을 설정한 경우 기한이 지난 원고 파일은 자동 파기됩니다.<br>`
+      +`보관을 원하지 않으시면 위의 <b>‘참고문헌만 붙여넣기’</b> 탭을 이용해 주세요. 원고 파일이 서버에 남지 않습니다. `
+      +`상세 기준은 <a href="/guide/privacy" target="_blank" rel="noopener">개인정보·원고 처리방침</a> 참고.`;
   }
   el.innerHTML=h;
   el.style.display='';
@@ -2315,6 +2332,7 @@ async function openSettings(){
   $('setAccessCode').value=s.access_code||'';
   $('setBudget').value=s.monthly_budget_usd||'';
   $('setRate').value=s.usd_krw||1400;
+  $('setRetention').value=s.retention_days||'';
   // 학회×역할 접근 코드 입력칸 (기본 4개 학회 + 코드가 등록된 기타 학회)
   const orgCodes=s.access_codes||{}, edCodes=s.editor_codes||{}, chCodes=s.chair_codes||{};
   const orgList=[...(s.default_orgs||[])];
@@ -2361,6 +2379,7 @@ async function saveSettings(){
   };
   fd.append('monthly_budget_usd',$('setBudget').value);
   fd.append('usd_krw',$('setRate').value);
+  fd.append('retention_days',$('setRetention').value.trim()||'0');  // 빈 폼 값은 서버에 안 닿아 0(무기한)으로 보낸다
   fd.append('access_codes',collect('orgCodeInput'));
   fd.append('editor_codes',collect('edCodeInput'));
   fd.append('chair_codes',collect('chCodeInput'));
@@ -2676,8 +2695,8 @@ function renderFileManage(list,canDelete){
       +(canDelete?`<td style="text-align:center"><input type="checkbox" class="fmCk" value="${esc(r.id)}" onclick="fmClick(event,this)"></td>`:'')
       +`<td style="white-space:nowrap">${esc(r.time)}</td><td>${esc(r.filename)}</td>
       <td>${esc(r.user||'익명')} (${esc(r.org||'-')})</td><td>${r.total||0}</td>
-      <td>${r.has_file?`<button class="btn ghost small" onclick="location='/api/admin/history/${r.id}/file?kind=orig'">받기</button>`:'<span class="hint">없음</span>'}</td>
-      <td>${r.has_published?`<button class="btn ghost small" onclick="location='/api/admin/history/${r.id}/file?kind=published'">받기</button>`:'<span class="hint">-</span>'}</td>
+      <td>${r.has_file?`<button class="btn ghost small" onclick="location='/api/admin/history/${r.id}/file?kind=orig'">받기</button>`:(r.purged?`<span class="hint" title="보존 기한 경과로 파일 파기 (${esc(r.purged)})">🔥 파기됨</span>`:'<span class="hint">없음</span>')}</td>
+      <td>${r.has_published?`<button class="btn ghost small" onclick="location='/api/admin/history/${r.id}/file?kind=published'">받기</button>`:(r.purged?`<span class="hint" title="보존 기한 경과로 파일 파기">🔥</span>`:'<span class="hint">-</span>')}</td>
       <td>${r.has_compare?`<button class="btn ghost small" onclick="location='/api/admin/history/${r.id}/compare_csv'">CSV</button>`:'<span class="hint">-</span>'}</td>`
       +'</tr>';
   }

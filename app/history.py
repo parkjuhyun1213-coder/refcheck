@@ -194,7 +194,7 @@ def list_history() -> list[dict]:
             rec = json.loads(p.read_text(encoding="utf-8"))
             meta = {k: rec.get(k, "") for k in
                     ("id", "time", "filename", "user", "org", "style_name", "total",
-                     "file_size", "compared")}
+                     "file_size", "compared", "purged")}
             meta["cost_usd"] = round((rec.get("cost") or {}).get("usd", 0.0), 6)
             meta["has_file"] = bool(rec.get("file"))
             meta["has_published"] = bool(rec.get("published_file"))
@@ -213,6 +213,51 @@ def get_history(hid: str) -> dict | None:
         return json.loads(p.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return None
+
+
+def purge_expired_files(days: int, now: float | None = None) -> int:
+    """보존 기한(days)이 지난 이력의 원본·발행본 '파일만' 파기하고 이력 JSON은 유지.
+
+    - days <= 0 이면 아무것도 하지 않는다(무기한 보존 — 현행 유지).
+    - 기준 시각은 레코드의 time("%Y-%m-%d %H:%M"), 파싱 실패 시 파일 mtime 폴백.
+    - 파기 후 레코드에서 file/published_file 키를 제거해(다운로드 경로 차단·프루닝과 정합)
+      file_name/published_name은 화면 표시용으로 남기고, purged 마커를 기록한다.
+    - 파일이 아예 없는 레코드(붙여넣기 제출 등)는 건너뛴다(마커 없음).
+    반환: 파일을 파기한 레코드 수.
+    """
+    if days <= 0 or not HISTORY_DIR.exists():
+        return 0
+    cutoff = (now if now is not None else time.time()) - days * 86400
+    purged = 0
+    with _LOCK:
+        for p in HISTORY_DIR.glob("h_*.json"):
+            try:
+                rec = json.loads(p.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                continue
+            if not (rec.get("file") or rec.get("published_file")):
+                continue
+            try:
+                created = time.mktime(time.strptime(rec.get("time", ""), "%Y-%m-%d %H:%M"))
+            except (ValueError, OverflowError):
+                created = p.stat().st_mtime
+            if created >= cutoff:
+                continue
+            for key in ("file", "published_file"):
+                rel = rec.pop(key, "")
+                # 경로 이탈 방지 — uploads/ 하위만 삭제 허용(delete_history와 동일)
+                if rel and rel.startswith("uploads/") and ".." not in rel:
+                    try:
+                        (APP_DIR / rel).unlink(missing_ok=True)
+                    except OSError:
+                        pass
+            rec["purged"] = time.strftime("%Y-%m-%d %H:%M")
+            try:
+                p.write_text(json.dumps(rec, ensure_ascii=False, indent=1), encoding="utf-8")
+                purged += 1
+            except OSError:
+                pass
+    return purged
 
 
 def delete_history(hid: str) -> bool:

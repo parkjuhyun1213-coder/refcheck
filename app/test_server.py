@@ -346,6 +346,148 @@ def check_standard_rules() -> bool:
     return ok
 
 
+def check_regs_corpus() -> bool:
+    """규정 Q&A 코퍼스(regs_corpus.py) — 서버 없이 소스만으로 점검."""
+    import main as srv
+    import regs_corpus
+    ok = True
+    if set(regs_corpus.ORG_REGS) != set(srv.DEFAULT_ORGS):
+        print("0-2) 코퍼스 학회 키가 DEFAULT_ORGS와 다릅니다:",
+              sorted(regs_corpus.ORG_REGS), "≠", sorted(srv.DEFAULT_ORGS))
+        ok = False
+    n_common = len(regs_corpus.COMMON.get("text", ""))
+    if n_common < 5000:
+        print(f"0-2) 공통기준 텍스트가 너무 짧습니다: {n_common}자 — make_regs_corpus.py 재실행 필요")
+        ok = False
+    for org in ("한국도서관정보학회", "한국비블리아학회", "한국정보관리학회"):
+        docs = regs_corpus.ORG_REGS.get(org) or []
+        if not docs or any(len(d.get("text", "")) < 500 for d in docs):
+            print(f"0-2) {org} 규정 문서가 없거나 짧습니다: {[len(d.get('text', '')) for d in docs]}")
+            ok = False
+    if regs_corpus.ORG_REGS.get("한국문헌정보학회"):
+        # 지금은 '원문 미등록' 특례로 처리 중 — 등록되면 특례 문구를 걷어내야 한다
+        print("0-2) 안내: 한국문헌정보학회 규정이 등록되었습니다 — aiengine._QA_SYSTEM과 "
+              "qa.html의 NO_REGS_ORGS 특례 문구를 확인하세요.")
+    if ok:
+        total = n_common + sum(len(d["text"]) for docs in regs_corpus.ORG_REGS.values() for d in docs)
+        print(f"0-2) 규정 Q&A 코퍼스: 문서 {1 + sum(len(v) for v in regs_corpus.ORG_REGS.values())}건, "
+              f"총 {total:,}자 (생성 {regs_corpus.GENERATED})")
+    return ok
+
+
+def check_new_pages(idx: str) -> bool:
+    """규정 Q&A·처리방침 페이지 공개 여부와 안내 페이지 연결."""
+    ok = True
+    with httpx.Client(timeout=30) as anon:
+        qa = anon.get(BASE + "/guide/qa")
+        if qa.status_code != 200 or "물어보면 규정 원문으로 답합니다" not in qa.text:
+            print(f"2-2) 규정 Q&A 페이지 실패: HTTP {qa.status_code}")
+            ok = False
+        pv = anon.get(BASE + "/guide/privacy")
+        if pv.status_code != 200 or "개인정보·원고 처리방침" not in pv.text:
+            print(f"2-2) 처리방침 페이지 실패: HTTP {pv.status_code}")
+            ok = False
+        for path in ("/guide", "/guide/societies", "/guide/style", "/guide/style/detail"):
+            g = anon.get(BASE + path)
+            if 'href="/guide/qa"' not in g.text:
+                print(f"2-2) {path} 메뉴에 규정 Q&A 링크가 없습니다.")
+                ok = False
+    if 'href="/guide/privacy"' not in idx:
+        print("2-2) 첫 화면에 처리방침 링크가 없습니다.")
+        ok = False
+    if ok:
+        print("2-2) 규정 Q&A·처리방침 페이지 공개 OK (안내 페이지 4곳 메뉴 연결 확인)")
+    return ok
+
+
+def check_qa_api(c) -> bool:
+    """규정 Q&A API — AI를 부르기 전에 반려되는 경로(비용 0)와 접근 통제."""
+    import os
+    ok = True
+    r = c.post(BASE + "/api/qa", data={"org": "", "q": "짧다"})
+    if r.status_code != 400:
+        print(f"16) 짧은 질문이 400이 아님: HTTP {r.status_code} {r.text[:200]}")
+        ok = False
+    r = c.post(BASE + "/api/qa", data={"org": "없는학회", "q": "이 학회 투고 규정을 알려 주세요"})
+    if r.status_code != 400:
+        print(f"16) 없는 학회가 400이 아님: HTTP {r.status_code} {r.text[:200]}")
+        ok = False
+    st = c.get(BASE + "/api/status").json()
+    if st.get("access_required"):
+        with httpx.Client(timeout=30) as anon:
+            r = anon.post(BASE + "/api/qa", data={"org": "", "q": "참고문헌에 DOI를 적어야 하나요"})
+        if r.status_code != 401:
+            print(f"16) 코드 없는 질문이 401이 아님: HTTP {r.status_code}")
+            ok = False
+        gate = "익명 401 확인"
+    else:
+        gate = "접근 코드 미설정 환경 — 401 확인 생략"
+    if ok:
+        print(f"16) 규정 Q&A 입력 반려 OK ({gate})")
+    # 실제 AI 호출은 비용·시간이 들어 QA_LIVE=1일 때만 1회
+    if os.environ.get("QA_LIVE") == "1":
+        r = c.post(BASE + "/api/qa", timeout=240,
+                   data={"org": "한국도서관정보학회", "q": "참고문헌에 DOI는 꼭 적어야 하나요?"})
+        if r.status_code != 200 or not r.json().get("ok"):
+            print(f"16-1) 실호출 실패: HTTP {r.status_code} {r.text[:300]}")
+            return False
+        d = r.json()
+        cits = d.get("citations") or []
+        if not cits:
+            print("16-1) 실호출 답변에 인용이 없습니다:", (d.get("answer") or "")[:200])
+            return False
+        import regs_corpus
+        corpus = _norm_for_match(regs_corpus.COMMON["text"] + "".join(
+            doc["text"] for docs in regs_corpus.ORG_REGS.values() for doc in docs))
+        head = _norm_for_match(cits[0].get("quote", ""))[:20]
+        if head and head not in corpus:
+            print("16-1) 인용문이 규정 원문에 없습니다:", cits[0].get("quote", "")[:120])
+            return False
+        print(f"16-1) 실호출 OK — 인용 {len(cits)}건, 답변 {len(d.get('answer', ''))}자")
+    return ok
+
+
+def check_purge(c) -> bool:
+    """보존 기한 파기 — 테스트 레코드에만 닿도록 now를 과거로 고정해 점검."""
+    import history as hist
+    ok = True
+    hid = hist.save_result({"filename": "파기테스트.txt",
+                            "items": [{"formatted": "테스트 문헌 1건"}]},
+                           {"user_name": "스모크", "org": "테스트"})
+    try:
+        rel = hist.attach_file(hid, "파기테스트.txt", "더미 원고 내용".encode("utf-8"))
+        if not rel:
+            print("17) 테스트 파일 저장 실패")
+            return False
+        hist._update_record(hid, {"time": "2020-01-01 00:00"})
+        if hist.purge_expired_files(0) != 0:
+            print("17) 기한 0(무기한)인데 파기가 일어남")
+            ok = False
+        # now를 2020-02-15로 고정 — 2020-01-01 레코드만 기한(30일)을 넘기고,
+        # 실제 운영 레코드(2026년)는 미래라서 절대 닿지 않는다
+        fixed_now = time.mktime(time.strptime("2020-02-15", "%Y-%m-%d"))
+        if hist.purge_expired_files(30, now=fixed_now) < 1:
+            print("17) 기한 경과 파일이 파기되지 않음")
+            ok = False
+        rec = hist.get_history(hid)
+        if not rec or "file" in rec or not rec.get("purged") or not rec.get("items"):
+            print("17) 파기 후 레코드 상태 이상:",
+                  {k: rec.get(k) for k in ("file", "file_name", "purged")} if rec else rec)
+            ok = False
+        if (hist.APP_DIR / rel).exists():
+            print("17) 파일이 실제로 지워지지 않음:", rel)
+            ok = False
+        r = c.get(f"{BASE}/api/admin/history/{hid}/file", params={"kind": "orig"})
+        if r.status_code != 404:
+            print(f"17) 파기된 파일 다운로드가 404가 아님: HTTP {r.status_code}")
+            ok = False
+    finally:
+        hist.delete_history(hid)
+    if ok:
+        print("17) 보존 기한 파기 점검 통과 (파일만 삭제, 결과·통계 유지, 다운로드 404)")
+    return ok
+
+
 def job_id_of(r, step: str) -> str:
     """처리 요청 응답에서 job_id를 꺼낸다. 실패 시 서버가 알려준 이유를 그대로 보여준다."""
     if r.status_code != 200 or "job_id" not in r.json():
@@ -365,8 +507,13 @@ def wait_job(c, job_id, timeout=300):
 
 
 def main():
+    if hasattr(sys.stdout, "reconfigure"):   # Windows 콘솔(cp949)에서도 한글·기호 출력
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     # 서버를 부르기 전에 — 소스만 봐도 알 수 있는 문제부터 걸러 낸다
     if not check_versions():
+        sys.exit(1)
+    if not check_regs_corpus():
+        print("\n== 규정 Q&A 코퍼스 점검 실패 ==")
         sys.exit(1)
     if not check_standard_rules():
         print("\n== 규정 표기 점검 실패 ==")
@@ -420,6 +567,17 @@ def main():
             print("2-1) 이용 안내로 가는 링크가 머릿글 또는 코드 입력창에 없습니다.")
             sys.exit(1)
         print("2-1) 이용 안내 페이지 공개 OK,", len(g.text), "bytes (머릿글·코드창 링크 확인)")
+
+        # 규정 Q&A·처리방침 — 새 안내 페이지와 API
+        if not check_new_pages(idx):
+            print("\n== 새 안내 페이지 점검 실패 ==")
+            sys.exit(1)
+        if not check_qa_api(c):
+            print("\n== 규정 Q&A API 점검 실패 ==")
+            sys.exit(1)
+        if not check_purge(c):
+            print("\n== 보존 기한 파기 점검 실패 ==")
+            sys.exit(1)
 
         r = c.get(BASE + "/api/styles").json()
         print("3) 기준 목록:", [s["name"] for s in r["styles"]])

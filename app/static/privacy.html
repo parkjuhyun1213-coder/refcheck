@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>개인정보·원고 처리방침 | refcheck</title>
+<meta name="description" content="refcheck 참고문헌 검증 서비스의 데이터 처리방침 — 수집 항목, AI(Claude API)·외부 검증 DB로 전송되는 데이터의 정확한 범위, 원고 보관·열람·파기 정책, 보안 조치.">
+<style>
+:root{
+  --bg:#f4f6f9; --card:#ffffff; --ink:#1c2733; --sub:#5b6b7c; --line:#dde4ec;
+  --accent:#1f4e79; --accent-soft:#e8f0f8; --ok:#2e7d32; --warn:#b03a2e; --amber:#9a6700;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:"Pretendard","Malgun Gothic","맑은 고딕",system-ui,sans-serif;background:var(--bg);color:var(--ink);font-size:15px;line-height:1.7}
+header{background:var(--accent);color:#fff;padding:26px 24px}
+header .wrap{max-width:960px;margin:0 auto}
+header h1{font-size:23px;margin:0 0 6px;line-height:1.4}
+header .sub{font-size:13.5px;opacity:.9}
+header a{color:#fff}
+main{max-width:960px;margin:26px auto 80px;padding:0 18px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:22px 26px;margin-bottom:18px}
+h2{font-size:18px;margin:0 0 10px;color:var(--accent)}
+h3{font-size:15px;margin:22px 0 6px;color:var(--accent)}
+p{margin:.5em 0}
+.hint{font-size:12.5px;color:var(--sub)}
+ul{margin:.4em 0;padding-left:22px}
+li{margin:.3em 0}
+.pill{display:inline-block;font-size:11.5px;border-radius:999px;padding:2px 10px;background:var(--accent-soft);color:var(--accent);font-weight:700;margin-right:6px}
+.keep{background:var(--accent-soft);border-radius:9px;padding:10px 14px;font-size:13.5px;margin:8px 0}
+table{border-collapse:collapse;width:100%;font-size:13.5px;margin:8px 0}
+th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+th{background:var(--accent-soft);color:var(--accent);white-space:nowrap}
+footer{max-width:960px;margin:0 auto 40px;padding:0 18px;font-size:12px;color:var(--sub);text-align:center}
+footer a{color:var(--sub)}
+@media print{header,.bar{display:none}}
+.bar{position:sticky;top:0;z-index:5;background:var(--accent);color:#fff;padding:9px 16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:13px}
+.bar b{font-weight:700}
+.bar .sp{flex:1}
+.bar a,.bar button{font:inherit;color:#fff;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.3);border-radius:6px;padding:5px 11px;cursor:pointer;text-decoration:none}
+.bar a:hover,.bar button:hover{background:rgba(255,255,255,.26)}
+.gnav{margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;font-size:12.5px}
+.gnav a{color:#fff;text-decoration:none;padding:4px 12px;border-radius:999px;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.3)}
+.gnav a:hover{background:rgba(255,255,255,.28)}
+</style>
+</head>
+<body>
+<div class="bar">
+  <b>🔒 개인정보·원고 처리방침</b>
+  <span class="sp"></span>
+  <button type="button" onclick="window.print()">🖨 인쇄 · PDF 저장</button>
+  <a href="/">서비스로 이동 →</a>
+</div>
+<header>
+  <div class="wrap">
+    <h1>개인정보·원고 처리방침</h1>
+    <div class="sub">
+      · refcheck가 미공개 학술 원고를 어떻게 다루는지 — 수집·전송·보관·파기의 실제 동작을 그대로 공개합니다<br>
+      · 이 문서의 내용은 서비스 프로그램의 실제 동작을 코드 기준으로 확인해 작성했습니다 (2026. 8. 21. 기준) ·
+      <a href="/guide">이용 안내</a>
+    </div>
+    <nav class="gnav">
+      <a href="/guide">도입 안내</a>
+      <a href="/guide/societies">편집 관행 비교</a>
+      <a href="/guide/style">참고문헌 작성법</a>
+      <a href="/guide/style/detail">작성법 상세</a>
+      <a href="/guide/qa">규정 Q&amp;A</a>
+    </nav>
+  </div>
+</header>
+<main>
+
+<div class="card">
+  <h2>1. 수집하는 정보</h2>
+  <ul>
+    <li><b>이용자 이름·소속 학회</b> — 원고 처리 시 입력받아 학회별 이용 통계와 처리 이력 구분에만 사용합니다.</li>
+    <li><b>원고 파일</b>(HWP·HWPX·DOCX·PDF·TXT) — 참고문헌 추출·검증을 위해 업로드받습니다.
+        텍스트 <b>붙여넣기로 제출한 내용은 파일로 저장하지 않습니다.</b></li>
+    <li><b>접근 코드</b> — 입력한 코드 원문은 저장하지 않고, 일방향 해시(SHA-256)만 브라우저 쿠키(HttpOnly)에
+        담아 로그인 상태를 유지합니다.</li>
+    <li>이 외의 개인정보(연락처·이메일·소속 외 정보)는 수집하지 않으며, 광고·추적 스크립트를 쓰지 않습니다.</li>
+  </ul>
+</div>
+
+<div class="card">
+  <h2>2. AI(Claude API)로 전송되는 데이터의 정확한 범위</h2>
+  <p><b>원고 본문은 AI로 전송하지 않습니다.</b> 서비스는 원고에서 <b>참고문헌 구역만</b> 잘라내
+     그 부분만 AI(Anthropic Claude API)로 보내 문헌 분리·서지 구조화·형식 변환을 수행합니다.
+     본문 인용 대조(본문–참고문헌 일치 확인)는 서버 안에서만 계산하며 외부로 나가지 않습니다.</p>
+  <ul>
+    <li><b>예외</b> — 참고문헌 표제(「참고문헌」·References 등)를 찾지 못했는데 파일 전체가 참고문헌
+        목록으로 보이는 경우(목록만 담긴 파일 등)에는 파일 전문이 전송되며, 이때 결과 화면에 경고가 표시됩니다.</li>
+    <li><b>규정 Q&amp;A</b> — 질문 텍스트와 공개된 투고규정 원문이 전송됩니다. 원고와는 무관합니다.</li>
+    <li>이용자 이름·소속 학회·파일명은 AI로 전송하지 않습니다.</li>
+    <li>Anthropic은 상용 API 약관상 <b>API로 전송된 입력·출력을 모델 학습에 사용하지 않습니다.</b></li>
+  </ul>
+</div>
+
+<div class="card">
+  <h2>3. 외부 검증 데이터베이스로 전송되는 데이터</h2>
+  <p>참고문헌 실재 검증을 위해 아래 공개 학술 DB에 조회를 보냅니다. 전송되는 것은 모두
+     <b>"인용된 문헌"의 서지정보</b>(원고가 인용한 논문·도서의 제목·저자 등)이며,
+     <b>투고자(원고 저자) 이름·이용자 이름·소속 학회는 어떤 외부 DB로도 전송하지 않습니다.</b></p>
+  <table>
+    <tr><th>정보원</th><th>전송 항목</th></tr>
+    <tr><td>KCI (한국학술지인용색인)</td><td>인용 문헌의 제목(80자)·저자명(40자), 또는 논문 식별자</td></tr>
+    <tr><td>Crossref</td><td>인용 문헌의 제목+제1저자, 또는 DOI</td></tr>
+    <tr><td>OpenAlex · Semantic Scholar</td><td>인용 문헌의 제목</td></tr>
+    <tr><td>DataCite</td><td>DOI</td></tr>
+    <tr><td>국립중앙도서관 (SEOJI)</td><td>ISBN, 또는 도서 제목+저자+연도</td></tr>
+    <tr><td>국회도서관</td><td>자료명(60자)</td></tr>
+  </table>
+  <p class="hint">단건 검증(첫 화면의 ⚡ 참고문헌 1건 바로 검증)은 위 공개 DB만 조회하며 AI를 호출하지 않습니다.</p>
+</div>
+
+<div class="card">
+  <h2>4. 원고의 보관과 열람</h2>
+  <ul>
+    <li>업로드된 원고 원본과 처리 결과는 <b>서비스 서버 내부에만</b> 보관합니다.
+        발행본 대비 검토(투고 원고 → 정리 결과 → 발행본 3자 비교) 등 학회 편집 업무를 위한 보관입니다.</li>
+    <li>보관된 원고는 <b>소속 학회의 편집위원·편집위원장만</b> 열람할 수 있고, 학회 간에는 서로 볼 수 없습니다.</li>
+    <li>서버 백업 정책 — 원고 파일은 <b>외부(클라우드·코드 저장소)로 전송하지 않고</b> 같은 서버 안의
+        백업 폴더에만 복제합니다. 처리 이력(참고문헌 텍스트)은 비공개 저장소에 이중 백업합니다.</li>
+  </ul>
+</div>
+
+<div class="card">
+  <h2>5. 파기</h2>
+  <ul>
+    <li><span class="pill">수동</span> 편집위원장과 관리자는 보관된 원고(원본·발행본 파일 포함)를 <b>언제든 즉시 삭제</b>할 수 있습니다.</li>
+    <li><span class="pill">자동</span> 처리 이력이 300건을 넘으면 오래된 것부터 원고 파일을 삭제하고,
+        통계용 요약(메타정보와 정리된 참고문헌 목록 텍스트)만 남깁니다.</li>
+    <li><span class="pill">보존 기한</span> 관리자가 <b>원고 보존 기한(일)</b>을 설정하면, 기한이 지난 원고의
+        원본·발행본 <b>파일이 자동 파기</b>됩니다. 검증 결과와 통계는 유지되며 화면에 "파기됨"으로 표시됩니다.
+        기한은 학회와 협의해 설정하며, 설정 전에는 무기한 보관(수동 삭제만)입니다.</li>
+  </ul>
+  <div class="keep">붙여넣기로 제출한 텍스트는 애초에 파일로 저장되지 않으므로 파기 대상 자체가 없습니다.</div>
+</div>
+
+<div class="card">
+  <h2>6. 보안 조치</h2>
+  <ul>
+    <li>원고 처리·결과 열람은 <b>학회 접근 코드</b>가 있어야 하며, 코드는 학회 단위로 발급·회수합니다.</li>
+    <li>로그인 상태는 HttpOnly 쿠키(스크립트 접근 불가)로만 유지하고, 접속 시도는 IP당 횟수를 제한합니다.</li>
+    <li>AI API 키 등 비밀값은 서버의 환경 파일(.env)에만 두며 코드 저장소·백업에 포함하지 않습니다.</li>
+    <li>통신은 HTTPS로 암호화됩니다.</li>
+  </ul>
+</div>
+
+<div class="card">
+  <h2>7. 문의</h2>
+  <p>이 방침에 대한 문의, 열람·삭제 요청은 소속 학회 편집위원회 또는 아래 관리자에게 연락해 주세요.</p>
+  <p><b>관리자</b> — 전남대학교 문헌정보학과 박주현 교수 (park51566@jnu.ac.kr)</p>
+  <p class="hint">서비스 동작이 바뀌면 이 문서를 함께 갱신합니다. 문서 하단 기준일과 실제 동작이 다르다고
+     생각되시면 알려 주세요.</p>
+</div>
+
+<footer>
+  refcheck.kr — 참고문헌 검증 서비스 · 문헌정보학 4개 학회 공동 이용 · 2026. 8. 21. 기준<br>
+  개발: 전남대학교 문헌정보학과 박주현 교수 (park51566@jnu.ac.kr)
+</footer>
+</main>
+</body>
+</html>

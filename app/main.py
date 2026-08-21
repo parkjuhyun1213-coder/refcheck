@@ -4,6 +4,7 @@
 실행:  python -m uvicorn main:app --port 8765   (run.bat 참조)
 접속:  http://localhost:8765
 """
+import contextlib
 import hashlib
 import io
 import re
@@ -34,14 +35,51 @@ import styles as styles_mod
 import suggestions as suggestions_mod
 import verify as verify_mod
 
+# ---------------------------------------------------------------- 보존 기한 스위퍼
+# 관리자가 설정한 원고 보존 기한(일)이 지난 원본·발행본 파일을 주기적으로 파기한다.
+# 기본값 0 = 무기한(현행 유지). test_server.py가 `import main`을 하므로 스레드는
+# 임포트 시점이 아니라 lifespan(서버 기동)에서만 띄운다. uvicorn 워커 1개라 중복 실행 없음.
+_SWEEP_STOP = threading.Event()
+_SWEEP_INTERVAL = 6 * 3600
+
+
+def _retention_days() -> int:
+    try:
+        return max(0, int(float(aiengine.load_config().get("retention_days") or 0)))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _retention_sweeper():
+    while True:
+        try:
+            days = _retention_days()
+            if days > 0:
+                n = history_mod.purge_expired_files(days)
+                if n:
+                    print(f"[보존기한] 기한({days}일) 경과 원고 파일 {n}건 파기")
+        except Exception as ex:  # 스위퍼가 죽으면 파기가 조용히 멈추므로 삼키고 계속 돈다
+            print(f"[보존기한] 정리 실패: {ex}")
+        if _SWEEP_STOP.wait(_SWEEP_INTERVAL):   # 기동 직후 1회 실행 후 6시간 간격
+            return
+
+
+@contextlib.asynccontextmanager
+async def _lifespan(app):
+    threading.Thread(target=_retention_sweeper, daemon=True).start()
+    yield
+    _SWEEP_STOP.set()
+
+
 # 외부 운영 서비스이므로 API 문서(/docs·/redoc·/openapi.json)는 노출하지 않는다
 app = FastAPI(title="참고문헌 검증 서비스",
-              docs_url=None, redoc_url=None, openapi_url=None)
+              docs_url=None, redoc_url=None, openapi_url=None,
+              lifespan=_lifespan)
 
 # 화면(index.html)과 프로그램의 버전이 어긋난 채 배포되면 새 기능이 조용히 무시된다.
 # 두 파일에 같은 값을 두고 /api/status에서 대조해 관리자 화면에 경고를 띄운다.
 # 기능을 추가·변경할 때 main.py와 index.html의 APP_VERSION을 함께 올릴 것.
-APP_VERSION = "2026.08.20-04"
+APP_VERSION = "2026.08.21-01"
 
 APP_DIR = Path(__file__).parent
 JOBS: dict[str, dict] = {}
@@ -1349,6 +1387,18 @@ def guide():
     return (APP_DIR / "static" / "guide.html").read_text(encoding="utf-8")
 
 
+@app.get("/guide/qa", response_class=HTMLResponse)
+def guide_qa():
+    """투고규정 Q&A — 페이지는 공개, 질문(/api/qa)만 접근 코드 필요."""
+    return (APP_DIR / "static" / "qa.html").read_text(encoding="utf-8")
+
+
+@app.get("/guide/privacy", response_class=HTMLResponse)
+def guide_privacy():
+    """개인정보·원고 처리방침 — 접근 코드 없이 공개."""
+    return (APP_DIR / "static" / "privacy.html").read_text(encoding="utf-8")
+
+
 @app.get("/guide/standard.pdf")
 def standard_pdf():
     """문편협 공통기준 원문 PDF — 접근 코드 없이 내려받을 수 있다.
@@ -1384,6 +1434,7 @@ def status(request: Request):
         out["access_code"] = _access_code()
         out["monthly_budget_usd"] = cfg.get("monthly_budget_usd", "")
         out["usd_krw"] = cfg.get("usd_krw", 1400)
+        out["retention_days"] = cfg.get("retention_days", "")
         out["access_codes"] = _org_access_codes()
         rc = _role_codes()
         out["editor_codes"] = rc["editor"]
@@ -1401,7 +1452,10 @@ def save_settings(request: Request, api_key: str = Form(""), model: str = Form(a
                   editor_codes: str | None = Form(None),
                   chair_codes: str | None = Form(None),
                   monthly_budget_usd: str | None = Form(None),
-                  usd_krw: str | None = Form(None)):
+                  usd_krw: str | None = Form(None),
+                  retention_days: str = Form("__keep__")):
+    # retention_days만 Optional이 아닌 이유: 이 FastAPI(Pydantic v2)는 Optional Form의
+    # 빈 문자열을 None으로 바꿔 버려 '빈 값 = 해제'가 '미전송 = 유지'와 구분되지 않는다.
     require_admin(request)
     cfg = aiengine.load_config()
     # API 키는 .env에만 기록한다(config.json 평문 저장 금지)
@@ -1427,6 +1481,20 @@ def save_settings(request: Request, api_key: str = Form(""), model: str = Form(a
         except ValueError:
             return JSONResponse({"ok": False, "message": "예산·환율은 숫자로 입력해 주세요."},
                                 status_code=400)
+    if retention_days != "__keep__":  # 원고 보존 기한(일) — 0 = 무기한(자동 파기 없음)
+        # 이 FastAPI는 빈 폼 값을 '미전송'으로 떨어뜨리므로 화면 쪽에서 빈 칸을 '0'으로 보낸다
+        raw = retention_days.strip().replace(",", "")
+        if not raw:
+            raw = "0"
+        try:
+            val = min(3650, max(0, int(float(raw))))
+        except ValueError:
+            return JSONResponse({"ok": False, "message": "보존 기한은 일 수(숫자)로 입력해 주세요."},
+                                status_code=400)
+        if val:
+            cfg["retention_days"] = val
+        else:
+            cfg.pop("retention_days", None)
     # 학회별·역할별 코드 {학회명: 코드} JSON — 전송된 필드만 갱신
     import json
     for key, raw in (("access_codes", access_codes),
@@ -1458,6 +1526,9 @@ def save_settings(request: Request, api_key: str = Form(""), model: str = Form(a
             {"ok": False, "message": "겹치는 코드가 있습니다. 모든 접근 코드(학회별·역할별·공통)는 서로 달라야 합니다."},
             status_code=400)
     aiengine.save_config(cfg)
+    if _retention_days() > 0:  # 기한을 켰으면 다음 주기를 기다리지 않고 즉시 1회 정리
+        threading.Thread(target=history_mod.purge_expired_files,
+                         args=(_retention_days(),), daemon=True).start()
     return {"ok": True, "ai": aiengine.is_configured(), "model": aiengine.get_model(),
             "access_required": access_required()}
 
@@ -1476,24 +1547,31 @@ def test_settings(request: Request, api_key: str = Form(""), model: str = Form(a
 # 접근 코드 없이 공개한다 — 코드가 없는 방문자의 체험 경로이자 유입 장치.
 # 외부 무료 DB만 조회하고 AI를 호출하지 않으므로 비용이 들지 않지만,
 # 무한정 두드리지 못하도록 IP당 분당 횟수만 가볍게 막는다.
-_QUICK_HITS: dict[str, list[float]] = {}
-_QUICK_LOCK = threading.Lock()
+_RATE_HITS: dict[str, list[float]] = {}
+_RATE_LOCK = threading.Lock()
 _QUICK_PER_MIN = 12
+_QA_PER_MIN = 5   # 규정 Q&A — AI 호출이라 단건 검증보다 낮게
+
+
+def _throttled(kind: str, ip: str, per_min: int) -> bool:
+    """IP당 분당 횟수 제한 — kind별로 버킷을 분리한다."""
+    key = f"{kind}:{ip}"
+    now = time.time()
+    with _RATE_LOCK:
+        hits = [t for t in _RATE_HITS.get(key, []) if now - t < 60]
+        if len(hits) >= per_min:
+            _RATE_HITS[key] = hits
+            return True
+        hits.append(now)
+        _RATE_HITS[key] = hits
+        if len(_RATE_HITS) > 2000:  # 메모리 무한 증가 방지
+            for k in [k for k, v in _RATE_HITS.items() if not v or now - v[-1] > 120][:1000]:
+                _RATE_HITS.pop(k, None)
+    return False
 
 
 def _quick_throttled(ip: str) -> bool:
-    now = time.time()
-    with _QUICK_LOCK:
-        hits = [t for t in _QUICK_HITS.get(ip, []) if now - t < 60]
-        if len(hits) >= _QUICK_PER_MIN:
-            _QUICK_HITS[ip] = hits
-            return True
-        hits.append(now)
-        _QUICK_HITS[ip] = hits
-        if len(_QUICK_HITS) > 2000:  # 메모리 무한 증가 방지
-            for k in [k for k, v in _QUICK_HITS.items() if not v or now - v[-1] > 120][:1000]:
-                _QUICK_HITS.pop(k, None)
-    return False
+    return _throttled("quick", ip, _QUICK_PER_MIN)
 
 
 @app.post("/api/quick")
@@ -1508,6 +1586,65 @@ def quick_check(request: Request, q: str = Form("")):
         return JSONResponse({"ok": False, "message": "DOI·ISBN·URL 또는 제목을 4자 이상 입력해 주세요."},
                             status_code=400)
     return quick_mod.quick_lookup(q[:300])
+
+
+# ================================================================ 규정 Q&A
+QA_LOG_PATH = APP_DIR / "qa_log.json"
+_QA_LOG_LOCK = threading.Lock()
+
+
+def _append_qa_log(org: str, role: str, q: str, out: dict, spent: dict | None):
+    """규정 Q&A 이용 기록 — usage_log와 분리(사용 통계 화면의 mode 렌더를 오염시키지 않게)."""
+    import json
+    import os
+    try:
+        with _QA_LOG_LOCK:
+            data = []
+            if QA_LOG_PATH.exists():
+                try:
+                    data = json.loads(QA_LOG_PATH.read_text(encoding="utf-8"))
+                except json.JSONDecodeError:
+                    data = []
+            data.append({"time": time.strftime("%Y-%m-%d %H:%M"),
+                         "org": org, "role": role, "q": q[:200],
+                         "found": bool(out.get("found")),
+                         "model": aiengine.get_model(),
+                         "usd": round((spent or {}).get("usd", 0.0), 6)})
+            data = data[-2000:]
+            tmp = QA_LOG_PATH.with_suffix(".json.tmp")
+            tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+            os.replace(tmp, QA_LOG_PATH)  # 원자적 교체
+    except Exception:
+        pass  # 기록 실패가 답변 자체를 막지 않도록
+
+
+@app.post("/api/qa")
+def regulation_qa(request: Request, org: str = Form(""), q: str = Form("")):
+    """학회 투고규정 Q&A — 접근 코드 보유자만(AI 호출 비용이 들므로)."""
+    require_access(request)
+    ip = _client_ip(request)
+    if _throttled("qa", ip, _QA_PER_MIN):
+        return JSONResponse({"ok": False, "message": "질문이 너무 잦습니다. 1분 뒤 다시 시도해 주세요."},
+                            status_code=429)
+    q = q.strip()
+    if not (4 <= len(q) <= 500):
+        return JSONResponse({"ok": False, "message": "질문을 4자 이상 500자 이하로 입력해 주세요."},
+                            status_code=400)
+    org = org.strip()
+    if org and org not in DEFAULT_ORGS:
+        raise HTTPException(400, "지원하는 학회가 아닙니다.")
+    if not aiengine.is_configured():
+        return JSONResponse({"ok": False, "message": "규정 Q&A는 AI 모드에서만 동작합니다. "
+                             "관리자에게 API 키 등록을 요청해 주세요."}, status_code=400)
+    cost_mod.start_job()
+    try:
+        out = aiengine.answer_regulation_qa(org, q)
+    except aiengine.AIError as ex:
+        cost_mod.end_job()
+        return JSONResponse({"ok": False, "message": str(ex)}, status_code=502)
+    spent = cost_mod.end_job()
+    _append_qa_log(org, access_role(request), q, out, spent)
+    return {"ok": True, "org": org, **out}
 
 
 @app.post("/api/jobs/{job_id}/reverify")
