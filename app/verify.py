@@ -468,6 +468,29 @@ def _mark_lookup_failed(result: dict):
                   detail="외부 DB 일시 오류(재시도 제한) — 잠시 후 다시 검증해 주세요")
 
 
+def _kci_author_note(entry: dict, kci: dict) -> str:
+    """원고의 영문 저자 표기가 KCI 등록 표기와 '철자 수준'에서 다르면 안내 문구.
+
+    저자명의 전거는 발행본에 인쇄된 표기다(사용자 확정 정책, 2026-09-06). KCI 등록
+    표기와 다르다고 자동 교체하면 안 되고, 붙임표·띄어쓰기·대소문자 차이(Chul-Wan ↔
+    Chul Wan)는 표기 관행이라 침묵한다. 철자가 다를 때만(Woo-Yeoul ↔ Woo-Yeol)
+    발행본 확인을 권한다.
+    """
+    official = kci.get("authors_en") or []
+    mine = entry.get("authors") or []
+    if not official or not mine or not re.search(r"[A-Za-z]", mine[0] or ""):
+        return ""
+
+    def norm(x: str) -> str:
+        return re.sub(r"[^a-z]", "", (x or "").casefold())
+
+    a, b = norm(mine[0]), norm(official[0])
+    if a and b and a != b:
+        return (f" · 저자 영문 표기가 KCI 등록과 다름(원고 {mine[0]} / KCI {official[0]})"
+                f" — 발행본 표기 확인 권장")
+    return ""
+
+
 def _kci_fill_detail(client: httpx.Client, kci: dict) -> tuple[str, bool]:
     """KCI 검색 결과에 빠진 DOI·페이지·등재구분을 articleDetail로 보강.
 
@@ -619,6 +642,7 @@ def verify_entry(client: httpx.Client, entry: dict) -> dict:
             reg, e_d = _kci_fill_detail(client, kr)
             lookup_err |= e_d
             detail = f"{kr.get('source')} 대조 성공(제목 일치 {kr.get('sim', 0):.0%})"
+            detail += _kci_author_note(entry, kr)
             if kr.get("isbn"):
                 # 같은 서명의 다른 판과 헷갈릴 때 이용자가 손으로 확인할 수 있는 유일한 값
                 detail += f" · ISBN {kr['isbn']}"
@@ -720,7 +744,8 @@ def verify_entry(client: httpx.Client, entry: dict) -> dict:
             lookup_err |= e_d
             result.update(status="verified", source="KCI",
                           detail=f"KCI 대조 성공(제목 일치 {kci.get('sim', 0):.0%}) — "
-                                 f"국내 학술지 논문의 영문 인용",
+                                 f"국내 학술지 논문의 영문 인용"
+                                 + _kci_author_note(entry, kci),
                           meta=_meta_from_kr(kci))
             if kci.get("doi"):
                 result["found_doi"] = kci["doi"]
