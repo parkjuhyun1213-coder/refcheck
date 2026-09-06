@@ -76,9 +76,14 @@ def _similarity(a: str, b: str) -> float:
 
 
 def _crossref_titles(m: dict) -> list[str]:
-    """Crossref title (+subtitle 결합) 비교 후보들."""
-    title = " ".join(m.get("title") or [])
-    subtitle = " ".join(m.get("subtitle") or [])
+    """Crossref title (+subtitle 결합) 비교 후보들.
+
+    Crossref 문자열에는 '&amp;' 같은 HTML 엔티티가 섞여 온다(2026-09 실측:
+    Library &amp; Information Science Research) — 풀지 않으면 유사도가 깎이고
+    화면 대조표에 부호가 그대로 노출된다.
+    """
+    title = html.unescape(" ".join(m.get("title") or []))
+    subtitle = html.unescape(" ".join(m.get("subtitle") or []))
     variants = [title]
     if subtitle:
         variants.append(f"{title}: {subtitle}")
@@ -304,14 +309,17 @@ def _meta_from_crossref(m: dict) -> dict:
         elif a.get("name"):  # 단체 저자
             authors.append(a["name"])
     return {
-        "title": " ".join(m.get("title") or []),
-        "container": " ".join(m.get("container-title") or []),
+        # HTML 엔티티 해제 — 'Library &amp; Information Science Research'가 부호째
+        # 대조표에 노출되어 맞게 쓴 원고가 불일치로 칠해졌다(2026-09 실측)
+        "title": html.unescape(" ".join(m.get("title") or [])),
+        "container": html.unescape(" ".join(m.get("container-title") or [])),
         "year": str(parts[0][0] or ""),
         "volume": m.get("volume", "") or "",
         "issue": m.get("issue", "") or "",
-        "pages": (m.get("page", "") or "").replace("--", "-"),
+        # 면수 없는 온라인 학술지는 article-number가 면수 자리를 대신한다(APA 7 준용)
+        "pages": (m.get("page") or m.get("article-number") or "").replace("--", "-"),
         "doi": m.get("DOI", "") or "",
-        "publisher": m.get("publisher", "") or "",
+        "publisher": html.unescape(m.get("publisher", "") or ""),
         "isbn": (isbns[0] if isbns else ""),
         "authors": authors,
         "source": "Crossref",
@@ -325,8 +333,8 @@ def _meta_from_openalex(w: dict) -> dict:
     if biblio.get("first_page"):
         pages = biblio["first_page"] + (f"-{biblio['last_page']}" if biblio.get("last_page") else "")
     return {
-        "title": w.get("title") or "",
-        "container": loc.get("display_name") or "",
+        "title": html.unescape(w.get("title") or ""),
+        "container": html.unescape(loc.get("display_name") or ""),
         "year": str(w.get("publication_year") or ""),
         "volume": biblio.get("volume") or "",
         "issue": biblio.get("issue") or "",
@@ -358,6 +366,19 @@ def _meta_from_kr(m: dict) -> dict:
         "kci_id": m.get("kci_id", ""),
         "source": m.get("source", ""),
     }
+
+
+def _meta_kr_for_entry(entry: dict, kci: dict) -> dict:
+    """KCI 서지를 대조표용으로 — 인용 표기 언어에 맞는 제목으로 비교한다.
+
+    국내 논문의 영문 인용(로마자 제목)에 KCI 국문 제목을 '공식'으로 들이대면
+    맞게 쓴 영문 표기가 불일치처럼 보인다(2026-09 실측). 영문 인용에는 KCI에
+    등록된 공식 영문 제목으로 바꿔 실어 영문↔영문으로 대조되게 한다.
+    """
+    meta = _meta_from_kr(kci)
+    if meta.get("title_en") and not _HANGUL_RE.search(entry.get("title", "")):
+        meta["title"] = meta["title_en"]
+    return meta
 
 
 # ================================================================ 부가 검사
@@ -566,11 +587,14 @@ def _kci_fill_detail(client: httpx.Client, kci: dict) -> tuple[str, bool]:
 def _kci_doi_crosscheck(client: httpx.Client, entry: dict, doi: str):
     """해외 DB가 영문 제목만 수록한 국내 논문 방어 — (KCI 레코드|None, 일시오류).
 
-    국내 학술지는 Crossref·OpenAlex에 영문 제목만 올라가는 곳이 많아, 국문 제목과
-    대조하면 유사도가 10%대로 떨어져 제대로 쓴 참고문헌이 '제목 불일치'로 뜬다.
-    같은 DOI가 KCI에서 국문 제목으로 확인되면 정상이다(국내 논문은 KCI가 최종 근거).
+    국내 학술지는 Crossref·OpenAlex에 영문 제목만(혹은 국문 제목만) 올라가는 곳이
+    많아, 다른 표기와 대조하면 유사도가 10%대로 떨어져 제대로 쓴 참고문헌이
+    '제목 불일치'로 뜬다. 같은 DOI가 KCI에서 확인되면 정상이다(국내 논문은 KCI가
+    최종 근거). 영문 인용(로마자 제목)도 KCI가 영문 제목으로 찾아 주므로
+    국문 분류에 가두지 않는다(2026-09 실측: 영문 인용 항목이 국문 등록 Crossref와
+    어긋나 '제목 불일치'가 됐다).
     """
-    if entry.get("lang", "ko") != "ko" or not entry.get("title"):
+    if not entry.get("title"):
         return None, False
     kci, err = _safe(verify_kr.kci_article_search, client,
                      entry["title"], (entry.get("authors") or [""])[0])
@@ -612,13 +636,15 @@ def verify_entry(client: httpx.Client, entry: dict) -> dict:
                     lookup_err |= e_k2
                     if kci2 and (kci2.get("doi", "").lower() == doi.lower()
                                  or kci2.get("sim", 0) >= 0.9):
-                        result["meta"] = _meta_from_kr(kci2)
+                        result["meta"] = _meta_kr_for_entry(entry, kci2)
                         result["detail"] += " · 서지는 KCI 기준(국문)"
             elif kci:
+                my_lang = "국문" if _HANGUL_RE.search(entry.get("title", "")) else "영문"
+                cr_lang = "국문" if _HANGUL_RE.search(cr_title) else "영문"
                 result.update(status="verified", source="KCI",
-                              detail=f"DOI 확인됨 · KCI 국문 제목 일치({kci.get('sim', 0):.0%})"
-                                     f" · Crossref에는 영문 제목으로 등록됨",
-                              meta=_meta_from_kr(kci))
+                              detail=f"DOI 확인됨 · KCI {my_lang} 제목 일치({kci.get('sim', 0):.0%})"
+                                     f" · Crossref에는 {cr_lang} 제목으로 등록됨",
+                              meta=_meta_kr_for_entry(entry, kci))
             else:
                 result.update(status="mismatch", source="Crossref",
                               detail=f"DOI는 존재하나 제목 불일치({sim:.0%}) — Crossref: “{cr_title[:80]}” · 확인 필요",
@@ -642,9 +668,9 @@ def verify_entry(client: httpx.Client, entry: dict) -> dict:
                 lookup_err |= e_kci
                 if kci:
                     result.update(status="verified", source="KCI",
-                                  detail=f"DOI 확인됨 · KCI 국문 제목 일치({kci.get('sim', 0):.0%})"
-                                         f" · DataCite에는 영문 제목으로 등록됨",
-                                  meta=_meta_from_kr(kci))
+                                  detail=f"DOI 확인됨 · KCI 제목 일치({kci.get('sim', 0):.0%})"
+                                         f" · DataCite에는 다른 표기의 제목으로 등록됨",
+                                  meta=_meta_kr_for_entry(entry, kci))
                     result["preprint"] = _check_preprint(client, entry, None)
                     return result
                 result.update(status="mismatch", source="DataCite",
@@ -665,9 +691,9 @@ def verify_entry(client: httpx.Client, entry: dict) -> dict:
                 lookup_err |= e_kci
                 if kci:
                     result.update(status="verified", source="KCI",
-                                  detail=f"DOI 확인됨 · KCI 국문 제목 일치({kci.get('sim', 0):.0%})"
-                                         f" · OpenAlex에는 영문 제목으로 등록됨",
-                                  meta=_meta_from_kr(kci))
+                                  detail=f"DOI 확인됨 · KCI 제목 일치({kci.get('sim', 0):.0%})"
+                                         f" · OpenAlex에는 다른 표기의 제목으로 등록됨",
+                                  meta=_meta_kr_for_entry(entry, kci))
                     result["preprint"] = _check_preprint(client, entry, None)
                     return result
                 result.update(status="mismatch", source="OpenAlex",
@@ -716,7 +742,7 @@ def verify_entry(client: httpx.Client, entry: dict) -> dict:
                 # 같은 서명의 다른 판과 헷갈릴 때 이용자가 손으로 확인할 수 있는 유일한 값
                 detail += f" · ISBN {kr['isbn']}"
             result.update(status="verified", source=kr.get("source", "국내DB"),
-                          detail=detail, meta=_meta_from_kr(kr))
+                          detail=detail, meta=_meta_kr_for_entry(entry, kr))
             if kr.get("doi"):
                 result["found_doi"] = kr["doi"]
                 _enrich_from_crossref(client, result, kr["doi"])  # 철회 여부 보강
@@ -825,7 +851,7 @@ def verify_entry(client: httpx.Client, entry: dict) -> dict:
                           detail=f"KCI 대조 성공(제목 일치 {kci.get('sim', 0):.0%}) — "
                                  f"국내 학술지 논문의 영문 인용"
                                  + _kci_author_note(entry, kci),
-                          meta=_meta_from_kr(kci))
+                          meta=_meta_kr_for_entry(entry, kci))
             if kci.get("doi"):
                 result["found_doi"] = kci["doi"]
                 _enrich_from_crossref(client, result, kci["doi"])  # 철회 여부 보강

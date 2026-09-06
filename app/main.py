@@ -79,7 +79,7 @@ app = FastAPI(title="참고문헌 검증 서비스",
 # 화면(index.html)과 프로그램의 버전이 어긋난 채 배포되면 새 기능이 조용히 무시된다.
 # 두 파일에 같은 값을 두고 /api/status에서 대조해 관리자 화면에 경고를 띄운다.
 # 기능을 추가·변경할 때 main.py와 index.html의 APP_VERSION을 함께 올릴 것.
-APP_VERSION = "2026.09.07-03"
+APP_VERSION = "2026.09.07-04"
 
 APP_DIR = Path(__file__).parent
 JOBS: dict[str, dict] = {}
@@ -456,6 +456,10 @@ def _build_suggestions(entry: dict, meta: dict | None) -> list[dict]:
             continue
         if f == "pages" and cur and _norm_for_compare(cur) == _norm_for_compare(new):
             continue
+        if f == "pages" and not cur:
+            ano = (entry.get("article_no") or "").strip()
+            if ano and _norm_for_compare(ano) == _norm_for_compare(new):
+                continue  # 아티클 번호가 면수를 대신하는 학술지 — 원고에 이미 있으므로 제안 불필요
         if f == "publisher" and cur and _norm_publisher(cur) == _norm_publisher(new):
             continue
         out.append({"field": f, "label": label, "current": cur or "(없음)",

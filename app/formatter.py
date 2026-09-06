@@ -393,6 +393,10 @@ def validate_entry(e: dict) -> list[str]:
     if e.get("type") == "journal" and not e.get("pages") and not e.get("article_no"):
         if not any("면수" in i for i in issues):
             issues.append("면수 누락 — 확인 필요(온라인 학술지는 아티클 넘버)")
+    elif e.get("type") == "journal" and not e.get("pages") and e.get("article_no"):
+        # 사용자 확정(2026-09-07): 아티클 번호는 면수 자리에 유지하되 성격을 설명한다
+        issues.append(f"면수 자리의 {e['article_no']}는 쪽수가 아니라 아티클 번호입니다"
+                      "(면수 없는 온라인 학술지의 논문 번호 — APA 7판 준용 표기, 수정 불필요)")
     if e.get("type") == "book" and not e.get("place"):
         issues.append("출판지 누락 — 확인 필요")
     return issues
