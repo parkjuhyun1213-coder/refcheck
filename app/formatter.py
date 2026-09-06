@@ -20,6 +20,8 @@ _ORG_WORDS = {
     "archives", "federation", "union", "corporation", "company", "press",
     "national", "international", "federal", "administration", "network",
     "consortium", "academy", "authority", "service", "services", "project",
+    # 'Softlink Education'을 인명으로 보고 'Education, S.'로 뒤집던 문제(2026-09 실측)
+    "education", "research", "publishing", "publishers", "media", "solutions",
 }
 
 
@@ -31,6 +33,33 @@ def _is_org_name(name: str) -> bool:
     low = {w.lower().strip(".") for w in words}
     # 인명에는 들어가지 않는 기능어(of·on·the…)나 기관 명칭어가 있으면 단체로 본다
     return bool(low & _ORG_FUNCTION_WORDS) or bool(low & _ORG_WORDS)
+
+
+# 로마자 표기 한국 성씨(주요 이형 포함) — 공통기준 Ⅱ-1)(3)은 '국내를 포함한 중국,
+# 일본 저자는 성명을 그대로 기재'하고 서양 인명만 이름을 두문자로 줄이게 한다.
+# 국문 문헌의 영문 인용(Byun, Woo-Yeoul)을 서양 저자로 보고 'Byun, W. Y.'로
+# 줄이던 문제의 방어선(2026-09 실측).
+_KR_SURNAMES = {
+    "kim", "lee", "yi", "rhee", "park", "pak", "choi", "choe", "jung", "jeong", "chung",
+    "kang", "gang", "cho", "jo", "yoon", "yun", "jang", "chang", "lim", "im", "rim",
+    "han", "oh", "seo", "suh", "shin", "sin", "kwon", "gwon", "hwang", "ahn", "an",
+    "song", "yoo", "yu", "ryu", "ryoo", "hong", "jeon", "chun", "jun", "ko", "koh",
+    "go", "moon", "mun", "yang", "son", "sohn", "bae", "pae", "baek", "paik", "heo",
+    "hur", "huh", "noh", "roh", "no", "nam", "sim", "shim", "ha", "joo", "ju", "chu",
+    "koo", "gu", "ku", "min", "byun", "byeon", "kwak", "gwak", "sung", "seong", "cha",
+    "woo", "kil", "gil", "hyun", "hyeon", "hu", "na", "ra", "do", "seok", "pyo",
+    "chae", "won", "jin", "ok", "maeng", "bang", "pyeon", "byeong", "myung", "myeong",
+}
+
+
+def _east_asian_full_name(last: str, first: str) -> bool:
+    """로마자 표기 동아시아 저자로 보이면 True — 이름을 두문자로 줄이지 않는다."""
+    toks = [t for t in re.split(r"[\s\-]+", first) if t]
+    if not toks or any(len(t.rstrip(".")) <= 1 for t in toks):
+        return False  # 'J. A.'처럼 이미 두문자면 서양식 표기
+    if len(toks) == 2 and ("-" in first or all(2 <= len(t) <= 7 for t in toks)):
+        return True   # Woo-Yeoul · Bong-suk · Jee Yeon · Bo Seong 꼴
+    return last.lower().rstrip(".") in _KR_SURNAMES  # Park, Juhyeon / Hong, Soram 꼴
 
 
 def _west_author(name: str) -> str:
@@ -47,6 +76,8 @@ def _west_author(name: str) -> str:
         if len(parts) == 1:
             return name
         last, first = parts[-1], " ".join(parts[:-1])
+    if _east_asian_full_name(last, first):
+        return f"{last}, {first}"
     initials = " ".join(
         f"{w[0].upper()}." for w in re.split(r"[\s\.\-]+", first) if w and w[0].isalpha()
     )
@@ -85,10 +116,12 @@ def title_case(s: str) -> str:
     words = s.split()
     out = []
     for i, w in enumerate(words):
-        after_colon = i > 0 and words[i - 1].endswith((":", "："))
+        # 부제 경계(콜론·물음표·느낌표) 뒤 첫 낱말은 관사라도 대문자
+        # (예: 'Equal Futures? An Imbalance of Opportunities')
+        after_break = i > 0 and words[i - 1].endswith((":", "：", "?", "!"))
         if w.isupper() and len(w) >= 2:  # 약어(IFLA, DCF 등) 유지
             out.append(w)
-        elif i > 0 and not after_colon and w.lower() in _SMALL_WORDS:
+        elif i > 0 and not after_break and w.lower() in _SMALL_WORDS:
             out.append(w.lower())
         else:
             out.append(w[0].upper() + w[1:] if w[0].isalpha() else w)
@@ -112,8 +145,8 @@ def sentence_case(s: str) -> str:
             else:
                 out.append(w.lower())
         s = " ".join(out)
-        # 콜론 뒤 첫 글자 대문자
-        s = re.sub(r"(:\s*)([a-z])", lambda m: m.group(1) + m.group(2).upper(), s, count=1)
+        # 부제 경계(콜론·물음표·느낌표) 뒤 첫 글자는 대문자
+        s = re.sub(r"([:?!]\s*)([a-z])", lambda m: m.group(1) + m.group(2).upper(), s)
     else:
         s = s[0].upper() + s[1:] if s[0].isalpha() else s
     return s
@@ -146,11 +179,14 @@ def format_entry(e: dict) -> str:
         if t == "journal":
             title = sentence_case(title)
             container = title_case(container)
-        elif t in ("book", "report", "thesis"):
+        elif t in ("book", "report", "thesis", "web"):
             # 단독으로 간행되는 저작의 서명은 Title Case(공통기준 Ⅱ-1)(5)).
-            # 학위논문도 단행본과 같이 다룬다.
+            # 학위논문과 웹 단독 문서도 단행본과 같이 다룬다 — 학회 원고형식 예시
+            # 'Functional Requirements for Bibliographic Records: Final Report.'도
+            # Title Case다. 문장식으로 낮추면 고유명사(Australia 등)까지 뭉개진다.
             title = title_case(title)
-        elif t in ("newspaper", "web", "conference"):
+            container = title_case(container)
+        elif t in ("newspaper", "conference"):
             title = sentence_case(title)
             container = title_case(container)
 
@@ -253,7 +289,10 @@ def format_entry(e: dict) -> str:
             parts.append(seg + ".")
 
     elif t == "law":
-        return f"{title}. {e.get('report_no', '')}.".replace(" .", ".").strip()
+        # 번호가 비면 '법령명..'이 된다 — 번호가 있을 때만 이어 붙인다
+        num = (e.get("report_no") or "").strip()
+        base = title.rstrip(".")
+        return f"{base}. {num}." if num else f"{base}."
 
     elif t == "standard":
         who = authors or title
@@ -373,6 +412,16 @@ def lost_elements(raw: str, formatted: str) -> list[str]:
     for univ in set(re.findall(r"[가-힣]{2,20}대학교", raw)):
         if univ not in formatted:
             issues.append(f"원문의 기관명({univ})이 결과에 빠짐 — 확인 필요")
+    # 영문 학위논문의 수여기관 — 학위 문구 뒤의 기관명이 통째로 사라진 사례 방어(2026-09 실측)
+    m = re.search(r"(?i:dissertation|thesis)[\)\.,:]*\s+(?P<u>[A-Z][A-Za-z&.\-' ]{1,60}?)(?=\s*[,\.;]|\s*$)", raw)
+    if m and m.group("u").strip().casefold() not in f_low:
+        issues.append(f"원문의 기관명({m.group('u').strip()})이 결과에 빠짐 — 확인 필요")
+    # 법령 번호('법률 제18547호'·'Act No. 18547') — 구조화가 놓치면 조용히 사라진다
+    m = re.search(r"법률\s*제?\s*\d+호|Act\s+No\.?\s*\d+", raw, re.I)
+    if m:
+        law_no = re.sub(r"\s", "", m.group(0)).casefold()
+        if law_no not in re.sub(r"\s", "", formatted).casefold():
+            issues.append(f"원문의 법령 번호({m.group(0)})가 결과에 빠짐 — 확인 필요")
     m = re.search(r"ISBN[\s:]*([0-9Xx][0-9Xx\- ]{8,16}[0-9Xx])", raw, re.I)
     if m:
         digits = re.sub(r"[^0-9Xx]", "", m.group(1))

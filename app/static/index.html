@@ -737,7 +737,7 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
 // main.py의 APP_VERSION과 반드시 같아야 한다. 서버에 index.html이 덜 복사됐는지
 // 알아내려고 일부러 손으로 박아 두는 값이라 자동 주입하지 않는다.
 // (test_server.py가 두 값이 어긋나면 실패시킨다)
-const UI_VERSION='2026.08.21-07';
+const UI_VERSION='2026.09.06-01';
 const $=id=>document.getElementById(id);
 let pickedFiles=[], styles=[], currentJob=null, pollTimer=null, etaTimer=null, pollFails=0, poll404=0;
 
@@ -1364,7 +1364,9 @@ const META_FIELDS=[['title','제목'],['container','수록지'],['year','발행�
 // 출판사는 단행본·보고서에서만 본다. 학술지 논문은 참고문헌에 출판사를 적지 않는데
 // Crossref는 발행처를 주므로, 유형을 가리지 않으면 '출판사 없음'이 전부 불일치로 뜬다.
 const BOOK_META_FIELDS=[['publisher','출판사']];
-function normCmp(s){ return (s==null?'':String(s)).toLowerCase().replace(/[\s.,:;·\-–—()\[\]]/g,''); }
+// 아포스트로피·따옴표 이형(schools' ↔ Schools’)과 대소문자만 다른 표기는 불일치가 아니다
+// — 학술지 논문 제목은 기준상 문장식 표기라 공식 서지(Title Case)와 대소문자가 달라도 정상
+function normCmp(s){ return (s==null?'':String(s)).toLowerCase().replace(/[\s.,:;·\-–—()\[\]'’‘"“”?!]/g,''); }
 // 법인격 표기만 다른 같은 출판사를 불일치로 보지 않는다(서버의 _norm_publisher와 같은 규칙)
 function normPub(s){ return normCmp((s==null?'':String(s)).toLowerCase()
   .replace(/\(\s*[주유재사합]\s*\)|㈜|주식회사|유한회사|재단법인|사단법인|도서출판|\b(?:inc|ltd|co|corp|company)\b\.?|['"“”]/g,'')); }

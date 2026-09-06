@@ -64,6 +64,33 @@ def _sim(a: str, b: str) -> float:
     return difflib.SequenceMatcher(None, a, b).ratio()
 
 
+def _main_title(s: str) -> str:
+    """부제 분리 — '제목- 부제 -'·'제목: 부제'의 앞부분.
+
+    원고는 부제를 생략하는 관행이 흔한데(실측: '…효과에 대한 분석'만 쓰고
+    '- 2003-05년도 사업 결과를 중심으로 -' 생략), 정식 제목과 통으로 비교하면
+    유사도가 0.80 아래로 떨어져 실존 논문이 미확인이 된다. '2003-05'처럼 단어
+    안의 붙임표는 부제 경계로 보지 않는다.
+    """
+    return re.split(r"\s*[–—]\s*|\s+-\s*|-\s+|\s*[::]\s+", (s or ""), 1)[0].strip()
+
+
+def _q_trim(s: str, limit: int = 80) -> str:
+    """검색어를 단어 경계에서 자른다.
+
+    KCI title 검색은 단어 단위 매칭이라, 글자 수로 기계적으로 자르면 마지막 단어가
+    동강 나 실존 논문도 No Data가 된다(2026-09 실측: 82자 영문 제목이 80자에서
+    'USA'→'U'로 잘려 0건, 온전한 단어로 자르면 1건 적중).
+    """
+    s = re.sub(r"\s+", " ", (s or "")).strip()
+    if len(s) <= limit:
+        return s
+    cut = s[:limit]
+    if " " in cut:
+        cut = cut[: cut.rfind(" ")]
+    return cut.strip()
+
+
 def _bare_doi(s: str) -> str:
     """'http://dx.doi.org/10.x/y' → '10.x/y'.
 
@@ -102,7 +129,7 @@ def kci_article_search(client: httpx.Client, title: str, author: str = "") -> di
     if not key or not title or len(title) < 4:
         return None
     params = {"apiCode": "articleSearch", "key": key,
-              "title": title[:80], "displayCount": 10}
+              "title": _q_trim(title), "displayCount": 10}
     if author:
         params["author"] = author[:40]  # API가 지원하는 검색조건 — 동명 제목의 오매칭을 줄인다
     r = _get(client, "https://open.kci.go.kr/po/openapi/openApiSearch.kci", params)
@@ -125,14 +152,21 @@ def kci_article_search(client: httpx.Client, title: str, author: str = "") -> di
             return ""
         # 첫 <article-title>은 lang="original"(국문). 영문 제목은 lang="english"로 따로 온다.
         art_title = g(".//article-title", ".//articleTitle", ".//title")
-        sim = _sim(title, art_title)
+        title_en = next((t.text.strip() for t in rec.iter("article-title")
+                         if t.get("lang") == "english" and (t.text or "").strip()), "")
+        # 국내 논문을 영문 서지로 인용한 원고가 많다 — 국문·영문 제목 중 높은 쪽으로
+        # 판정한다. 국문 제목과만 비교하면 KCI가 정답을 돌려줘도 유사도 0%로 버려져
+        # 실존 논문이 '미확인'이 된다(2026-09 실측: 곽철완 2006 영문 인용).
+        # 부제 생략 관행도 흡수한다 — 정식 제목의 부제까지 통으로 비교하면 부제만
+        # 뺀 올바른 인용이 0.80 문턱 아래로 떨어진다(2026-09 실측: 곽철완 국문 인용).
+        sim = max(_sim(title, art_title), _sim(title, title_en),
+                  _sim(_main_title(title), _main_title(art_title)),
+                  _sim(_main_title(title), _main_title(title_en)))
         if sim > best_sim:
             authors = [a.text.strip() for a in rec.iter("author") if a.text and a.text.strip()]
             # 저자가 KCI에 등록한 공식 영문 표기. 영문화 목록을 지어내지 않고 이것을 쓴다.
             authors_en = [a.get("english", "").strip() for a in rec.iter("author")
                           if a.get("english", "").strip()]
-            title_en = next((t.text.strip() for t in rec.iter("article-title")
-                             if t.get("lang") == "english" and (t.text or "").strip()), "")
             best_sim = sim
             best = {
                 "title": art_title,
@@ -286,7 +320,7 @@ def kci_reference_search(client: httpx.Client, title: str, author: str = "",
     key = env_get("KCI_API_KEY")
     if not key or not title or len(title) < 4:
         return None
-    params = {"apiCode": "referenceSearch", "key": key, "title": title[:80]}
+    params = {"apiCode": "referenceSearch", "key": key, "title": _q_trim(title)}
     if author:
         params["author"] = author[:40]
     if year and re.fullmatch(r"\d{4}", str(year)):

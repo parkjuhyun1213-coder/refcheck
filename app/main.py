@@ -79,7 +79,7 @@ app = FastAPI(title="참고문헌 검증 서비스",
 # 화면(index.html)과 프로그램의 버전이 어긋난 채 배포되면 새 기능이 조용히 무시된다.
 # 두 파일에 같은 값을 두고 /api/status에서 대조해 관리자 화면에 경고를 띄운다.
 # 기능을 추가·변경할 때 main.py와 index.html의 APP_VERSION을 함께 올릴 것.
-APP_VERSION = "2026.08.21-07"
+APP_VERSION = "2026.09.06-01"
 
 APP_DIR = Path(__file__).parent
 JOBS: dict[str, dict] = {}
@@ -499,6 +499,9 @@ def _health_report(entries: list[dict], user_name: str) -> dict:
     for i in range(len(entries)):
         for j in range(i + 1, len(entries)):
             a, b = entries[i], entries[j]
+            if cc_mod.is_conversion_pair(a, b):
+                # 국문 원문 ↔ 영문 변환 표기 — DOI가 같은 것이 당연하다(규정상 병기)
+                continue
             same_doi = a.get("doi") and a.get("doi") == b.get("doi")
             sim = _title_sim(a.get("title", ""), b.get("title", ""))
             if same_doi or sim >= 0.92:

@@ -29,9 +29,11 @@ def new_entry(raw: str) -> dict:
 def backfill_from_raw(e: dict) -> dict:
     """구조화가 놓친 필드를 원문에서 결정적으로 복구.
 
-    AI가 배치 처리 중 선택 필드(degree·institution)를 산발적으로 생략해
-    '석사학위논문, 한국교원대학교'가 '학위논문.'으로 깎이는 사례가 실사용에서
-    관찰됐다. 원문에 문자 그대로 있는 값만 채우므로 오염 위험이 없다.
+    AI가 배치 처리 중 선택 필드(degree·institution·report_no)를 산발적으로 생략해
+    '석사학위논문, 한국교원대학교'가 '학위논문.'으로, 'Master's thesis, Sungkyunkwan
+    University'가 'Master's thesis.'로, '학교도서관진흥법. 법률 제18547호.'가
+    '학교도서관진흥법..'으로 깎이는 사례가 실사용에서 관찰됐다.
+    원문에 문자 그대로 있는 값만 채우므로 오염 위험이 없다.
     """
     raw = e.get("raw") or ""
     if e.get("type") == "thesis":
@@ -41,12 +43,33 @@ def backfill_from_raw(e: dict) -> dict:
                 e["degree"] = m.group(1) + "학위논문"
             elif re.search(r"doctoral\s+dissertation", raw, re.I):
                 e["degree"] = "Doctoral dissertation"
-            elif re.search(r"master'?s\s+thesis", raw, re.I):
+            elif re.search(r"master['’]?s\s+thesis", raw, re.I):
                 e["degree"] = "Master's thesis"
         if not e.get("institution"):
             m = re.search(r"[가-힣]{2,20}대학교", raw)
             if m:
                 e["institution"] = m.group(0)
+            else:
+                # 영문 표기 학위논문 — 학위 문구 바로 뒤의 수여기관을 원문 그대로 복구
+                # (예: "Master's thesis, Sungkyunkwan University, Korea." 이 기관이
+                # 한글 대학명만 복구하던 시절 통째로 사라졌다. 2026-09 실측)
+                m = re.search(
+                    r"(?i:(?:unpublished\s+)?(?:doctoral\s+dissertation|master['’]?s\s+thesis))"
+                    r"[\)\.,:]*\s+(?P<inst>[A-Z][^,\.;()]{1,60}?)\s*(?:[,\.;]|$)", raw)
+                if m:
+                    e["institution"] = m.group("inst").strip()
+        if e.get("institution") and not e.get("country"):
+            # 해외 표기 학위논문의 '기관, 국가.' 꼬리 — 국가명도 함께 복구
+            m = re.search(re.escape(e["institution"])
+                          + r"\s*,\s*(?P<c>[A-Za-z][A-Za-z .]{1,30}?)\s*\.?\s*$", raw)
+            if m:
+                e["country"] = m.group("c").strip()
+    if e.get("type") == "law" and not e.get("report_no"):
+        # 법령 번호가 구조화에서 생략되면 '학교도서관진흥법. 법률 제18547호.'가
+        # '학교도서관진흥법..'으로 깎인다(2026-09 실측) — 원문에서 결정적으로 복구
+        m = re.search(r"법률\s*제?\s*\d+호|Act\s+No\.?\s*\d+|Chapter\s+[A-Z0-9][A-Z0-9\-\.]*", raw)
+        if m:
+            e["report_no"] = m.group(0).strip().rstrip(".")
     if not e.get("doi"):
         m = re.search(r"\b10\.\d{4,9}/[^\s\"<>]+", raw)
         if m:
@@ -81,6 +104,9 @@ def structure_entry(raw: str) -> dict:
     e = new_entry(raw)
     text = re.sub(r"\s{2,}", " ", raw.strip()).rstrip(".") + "."
     text = text.replace("․", "·").replace("‧", "·")  # 가운뎃점 이형 통일
+    # 워드·한글이 자동 변환하는 둥근 아포스트로피 통일 — 'Master’s thesis'가
+    # 학위논문으로 인식되지 않고 단행본으로 오분류되던 함정(2026-09 실측)
+    text = text.replace("’", "'").replace("‘", "'")
     e["lang"] = detect_lang(text)
 
     # DOI / URL 분리
@@ -137,7 +163,7 @@ def structure_entry(raw: str) -> dict:
 
 def _detect_type(text: str, e: dict) -> str:
     t = text
-    if re.search(r"(석사|박사)\s*학위\s*논문|Doctoral dissertation|Master'?s thesis|Unpublished (doctoral|master)", t, re.I):
+    if re.search(r"(석사|박사)\s*학위\s*논문|Doctoral dissertation|Master['’]?s thesis|Unpublished (doctoral|master)", t, re.I):
         return "thesis"
     if re.search(r"법률\s*제?\s*\d+호|공포번호|시행령|시행규칙|(^|\s)Chapter\s+[A-Z0-9][A-Z0-9\-\.]*\.?$", t):
         return "law"
@@ -258,8 +284,9 @@ def _split_authors(s: str, lang: str) -> list[str]:
     s = re.sub(r"\s+(와|과)\s+", ",", s)
     if lang == "west":
         parts = [p.strip() for p in s.split(",") if p.strip()]
-        # "Caplan, Priscilla" — 성, 이름 꼴 단일 저자
-        if len(parts) == 2 and re.fullmatch(r"[A-Z][a-z]+(?:\s[A-Z][a-z]+)?", parts[1]) \
+        # "Caplan, Priscilla" / "Hyun, Hye-Jeong" — 성, 이름 꼴 단일 저자
+        # (붙임표 이름을 몰라 'Hyun & Hye-Jeong' 2인으로 갈리던 문제. 2026-09 실측)
+        if len(parts) == 2 and re.fullmatch(r"[A-Z][a-z]+(?:[\s\-][A-Za-z][a-z]+)?", parts[1]) \
                 and not re.fullmatch(r"(?:[A-Z]\.?\s*)+", parts[1]):
             return [parts[0] + ", " + parts[1]]
         authors, i = [], 0
@@ -267,6 +294,14 @@ def _split_authors(s: str, lang: str) -> list[str]:
             nxt = parts[i + 1] if i + 1 < len(parts) else ""
             if re.fullmatch(r"(?:[A-Z]\.?\s*)+(?:Jr\.?|Sr\.?)?", nxt):
                 authors.append(parts[i] + ", " + nxt.rstrip("."))
+                i += 2
+            elif re.fullmatch(r"[A-Z][a-z]+(?:[\s\-][A-Za-z][a-z]+)+", nxt) or \
+                    (nxt and i + 2 == len(parts) and authors and all("," in a for a in authors)
+                     and re.fullmatch(r"[A-Z][a-z]+", nxt)):
+                # 로마자 국문 저자 나열 'Kwak, Chul-Wan, Chang, Yun-Keum' — 성+이름 짝짓기.
+                # 붙임표·두 마디 이름은 그 자체로, 한 마디 이름은 앞 저자들이 모두
+                # '성, 이름' 꼴일 때 마지막 짝에 한해 묶는다(성씨 나열과의 오인 방지).
+                authors.append(parts[i] + ", " + nxt)
                 i += 2
             else:
                 if parts[i].lower() not in ("et al", "et al."):
@@ -398,10 +433,12 @@ def _fill_fields(e: dict):
 
     elif t == "thesis":
         m = re.search(
-            r"(?P<deg>석사\s*학위\s*논문|박사\s*학위\s*논문|Doctoral dissertation|Master'?s thesis)\s*,?\s*"
+            r"(?P<deg>석사\s*학위\s*논문|박사\s*학위\s*논문|"
+            r"(?:Unpublished\s+)?(?:Doctoral dissertation|Master['’]?s thesis))"
+            r"\s*\)?\s*[,\.]?\s*"
             r"(?P<inst>[^,\.]+)?(?:,\s*(?P<country>[^\.]+))?", rest, re.I)
         if m:
-            head = rest[: m.start()].strip().rstrip(".,")
+            head = rest[: m.start()].strip().rstrip(".,(").rstrip()
             if not title_fixed and head:
                 e["title"] = head
             deg = m.group("deg")

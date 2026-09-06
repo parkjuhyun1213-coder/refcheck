@@ -468,6 +468,22 @@ def _mark_lookup_failed(result: dict):
                   detail="외부 DB 일시 오류(재시도 제한) — 잠시 후 다시 검증해 주세요")
 
 
+def _kci_fill_detail(client: httpx.Client, kci: dict) -> tuple[str, bool]:
+    """KCI 검색 결과에 빠진 DOI·페이지·등재구분을 articleDetail로 보강.
+
+    반환: (등재구분 문자열, 일시오류 여부).
+    """
+    reg, err = "", False
+    if kci.get("kci_id"):
+        detail, err = _safe(verify_kr.kci_article_detail, client, kci["kci_id"])
+        if detail:
+            reg = detail.get("kci_registration", "")
+            for f in ("doi", "pages"):
+                if detail.get(f) and not kci.get(f):
+                    kci[f] = detail[f]
+    return reg, err
+
+
 def _kci_doi_crosscheck(client: httpx.Client, entry: dict, doi: str):
     """해외 DB가 영문 제목만 수록한 국내 논문 방어 — (KCI 레코드|None, 일시오류).
 
@@ -600,15 +616,8 @@ def verify_entry(client: httpx.Client, entry: dict) -> dict:
                 lookup_err |= e_k2
         if kr:
             # KCI 검색 결과에는 DOI·페이지·등재구분이 빠져 있어 상세 조회로 보강한다
-            reg = ""
-            if kr.get("kci_id"):
-                detail, e_d = _safe(verify_kr.kci_article_detail, client, kr["kci_id"])
-                lookup_err |= e_d
-                if detail:
-                    reg = detail.get("kci_registration", "")
-                    for f in ("doi", "pages"):
-                        if detail.get(f) and not kr.get(f):
-                            kr[f] = detail[f]
+            reg, e_d = _kci_fill_detail(client, kr)
+            lookup_err |= e_d
             detail = f"{kr.get('source')} 대조 성공(제목 일치 {kr.get('sim', 0):.0%})"
             if kr.get("isbn"):
                 # 같은 서명의 다른 판과 헷갈릴 때 이용자가 손으로 확인할 수 있는 유일한 값
@@ -699,11 +708,33 @@ def verify_entry(client: httpx.Client, entry: dict) -> dict:
                           found_doi=s2_doi)
             _enrich_from_crossref(client, result, s2_doi)
             return result
+        # 국내 논문의 영문 인용: 해외 DB에 없어도 KCI에는 저자가 등록한 공식 영문
+        # 제목이 있다(2026-09 실측: 곽철완 2006 영문 인용이 KCI 1건 적중). 실존
+        # 의심으로 판정하기 전에 KCI를 영문 제목으로 대조한다.
+        kci_used = verify_kr.kr_api_status()["kci"]
+        kci, e4 = _safe(verify_kr.kci_article_search, client, entry.get("title", ""),
+                        (entry.get("authors") or [""])[0])
+        lookup_err |= e4
+        if kci:
+            reg, e_d = _kci_fill_detail(client, kci)
+            lookup_err |= e_d
+            result.update(status="verified", source="KCI",
+                          detail=f"KCI 대조 성공(제목 일치 {kci.get('sim', 0):.0%}) — "
+                                 f"국내 학술지 논문의 영문 인용",
+                          meta=_meta_from_kr(kci))
+            if kci.get("doi"):
+                result["found_doi"] = kci["doi"]
+                _enrich_from_crossref(client, result, kci["doi"])  # 철회 여부 보강
+            if reg:
+                result["journal"] = {"flag": "ok" if "등재" in reg else "warn",
+                                     "detail": f"KCI {reg} 학술지"}
+            return result
         if lookup_err:
             _mark_lookup_failed(result)  # 일시 오류를 '실존 의심'으로 오판하지 않음
         elif entry.get("lang") == "west":
+            dbs = "Crossref·OpenAlex·Semantic Scholar" + ("·KCI" if kci_used else "")
             result.update(status="suspect",
-                          detail="Crossref·OpenAlex·Semantic Scholar 3개 DB 모두 미발견 — "
+                          detail=f"{dbs} 모두 미발견 — "
                                  "실존 의심(AI 생성 인용·서지 오류 가능성), 반드시 확인 필요")
         else:
             result.update(status="skipped", detail="다중 DB 미발견 — 원문 DB에서 확인 권장")
