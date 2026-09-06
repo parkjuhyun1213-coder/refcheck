@@ -238,7 +238,7 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
     </div>
     <div id="srcBoxCard" style="display:none;margin-top:8px"></div>
     <div class="checks">
-      <label><input type="checkbox" id="optVerify" checked> 실존·윤리 검증 <span class="hint">(Crossref·OpenAlex·국내DB·철회검사·URL)</span></label>
+      <label><input type="checkbox" id="optVerify" checked> 실존·윤리 검증 <span class="hint">(KCI·국내DB·Crossref·OpenAlex·ERIC 등 10개 정보원·철회검사·URL, 미확인 항목 RISS 확인 링크)</span></label>
       <label><input type="checkbox" id="optAutofix"> 서지 자동 교정 <span class="hint">(공식 서지로 연도·권·호·면수, 단행본은 출판사까지 자동 수정)</span></label>
       <label><input type="checkbox" id="optCross" checked> 본문 인용 ↔ 목록 대조</label>
       <label><input type="checkbox" id="optEng" checked> 영문 변환 목록 <span class="hint">(학회 투고 시 필수 — 국문 참고문헌에는 영문화 목록을 병기합니다. AI 모드)</span></label>
@@ -737,7 +737,7 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
 // main.py의 APP_VERSION과 반드시 같아야 한다. 서버에 index.html이 덜 복사됐는지
 // 알아내려고 일부러 손으로 박아 두는 값이라 자동 주입하지 않는다.
 // (test_server.py가 두 값이 어긋나면 실패시킨다)
-const UI_VERSION='2026.09.07-05';
+const UI_VERSION='2026.09.07-06';
 const $=id=>document.getElementById(id);
 let pickedFiles=[], styles=[], currentJob=null, pollTimer=null, etaTimer=null, pollFails=0, poll404=0;
 

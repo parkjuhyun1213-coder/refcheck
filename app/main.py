@@ -79,7 +79,7 @@ app = FastAPI(title="참고문헌 검증 서비스",
 # 화면(index.html)과 프로그램의 버전이 어긋난 채 배포되면 새 기능이 조용히 무시된다.
 # 두 파일에 같은 값을 두고 /api/status에서 대조해 관리자 화면에 경고를 띄운다.
 # 기능을 추가·변경할 때 main.py와 index.html의 APP_VERSION을 함께 올릴 것.
-APP_VERSION = "2026.09.07-05"
+APP_VERSION = "2026.09.07-06"
 
 APP_DIR = Path(__file__).parent
 JOBS: dict[str, dict] = {}
@@ -1900,18 +1900,25 @@ def get_sources():
              "state": "on" if kr.get("nlk") else "off"},
             {"name": "국회도서관 국가학술정보", "role": "학위논문 등 국내 자료 대조",
              "state": "on" if kr.get("nanet") else "off"},
+            {"name": "RISS (학술연구정보서비스)",
+             "role": "미확인·의심 항목의 원클릭 확인 링크 — 학위논문·KCI 미등재지·해외 학위논문까지 수록"
+                     "(검색 API 제휴 추진 중, 승인 시 자동 대조로 승격)",
+             "state": "on"},
         ],
         "overseas": [
             {"name": "Crossref", "role": "DOI 조회·서지 대조, 철회(Retraction)·정정 정보", "state": "on"},
             {"name": "OpenAlex", "role": "Crossref 미등록 문헌 보조 대조", "state": "on"},
             {"name": "Semantic Scholar", "role": "제목·저자 기반 논문 매칭", "state": "on"},
+            {"name": "ERIC (미국 교육학 문헌 DB)",
+             "role": "DOI 없는 교육·문헌정보 학술지(School Library Research 등) 대조", "state": "on"},
             {"name": "DataCite", "role": "데이터셋·보고서 등 비학술지 DOI 대조", "state": "on"},
             {"name": "DOAJ", "role": "오픈액세스 학술지 등재 여부(학술지 신뢰성)", "state": "on"},
             {"name": "URL 접속 확인", "role": "웹 자원 링크 유효성 점검", "state": "on"},
         ],
         "note": ("국내 문헌은 KCI·국립중앙도서관·국회도서관에서, 해외 문헌은 Crossref를 시작으로 "
-                 "OpenAlex·Semantic Scholar·DataCite 순서로 대조합니다. "
-                 "국내 문헌이라도 DOI가 있으면 해외 정보원에서도 함께 확인합니다."),
+                 "OpenAlex·Semantic Scholar·ERIC 순서로 대조합니다. 국내 논문의 영문 인용은 "
+                 "KCI 공식 영문 서지로도 대조하며, 국내 문헌이라도 DOI가 있으면 해외 정보원에서 "
+                 "함께 확인합니다. 확인되지 않은 항목에는 RISS 바로 확인 링크가 붙습니다."),
     }
 
 
