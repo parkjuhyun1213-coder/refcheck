@@ -545,13 +545,32 @@ def _mark_lookup_failed(result: dict):
                   detail="외부 DB 일시 오류(재시도 제한) — 잠시 후 다시 검증해 주세요")
 
 
+def _crossref_authors_en(meta: dict) -> list[str]:
+    """Crossref에 등록된 로마자 저자 표기 — 출판사가 발행본에서 등록한 값이다.
+
+    2026-09-07 실측: 국내 논문 8건 중 5건에서 Crossref 쪽이 발행본 PDF와 일치하고
+    KCI 등록 표기가 어긋났다(변우열 Woo-Yeoul/Woo-Yeol, 이병기 Byeong-Ki/Byeong-Kee 등).
+    다만 국내 학술지는 Crossref에 한글 이름으로 등록하거나 저자 일부만 올린 곳도 있어
+    (강봉숙·박주현 2019는 한글, 박주현·허우정 2019는 1명만) 단독 근거로는 쓰지 않고
+    대조 정보로만 제시한다.
+    """
+    out = []
+    for a in (meta.get("author") or [])[:30]:
+        fam = (a.get("family") or "").strip()
+        giv = (a.get("given") or "").strip()
+        if not fam or not re.fullmatch(r"[A-Za-z][A-Za-z\-'. ]*", fam):
+            return []  # 한글 등록·비로마자면 대조 근거로 쓰지 않는다
+        out.append(f"{fam}, {giv}" if giv else fam)
+    return out
+
+
 def _kci_author_note(entry: dict, kci: dict) -> str:
     """원고의 영문 저자 표기가 KCI 등록 표기와 '철자 수준'에서 다르면 안내 문구.
 
     저자명의 전거는 발행본에 인쇄된 표기다(사용자 확정 정책, 2026-09-06). KCI 등록
-    표기와 다르다고 자동 교체하면 안 되고, 붙임표·띄어쓰기·대소문자 차이(Chul-Wan ↔
-    Chul Wan)는 표기 관행이라 침묵한다. 철자가 다를 때만(Woo-Yeoul ↔ Woo-Yeol)
-    발행본 확인을 권한다.
+    표기는 저자가 직접 올린 값이라 발행본과 어긋난 사례가 있으므로(2026-09-07 실측),
+    '틀렸다'가 아니라 '출처마다 다르다'로 알리고 판단은 저자에게 맡긴다.
+    붙임표·띄어쓰기·대소문자 차이(Chul-Wan ↔ Chul Wan)는 표기 관행이라 침묵한다.
     """
     official = kci.get("authors_en") or []
     mine = entry.get("authors") or []
@@ -563,8 +582,8 @@ def _kci_author_note(entry: dict, kci: dict) -> str:
 
     a, b = norm(mine[0]), norm(official[0])
     if a and b and a != b:
-        return (f" · 저자 영문 표기가 KCI 등록과 다름(원고 {mine[0]} / KCI {official[0]})"
-                f" — 발행본 표기 확인 권장")
+        return (f" · 저자 영문 표기가 출처마다 다름(원고 {mine[0]} / KCI 등록 {official[0]})"
+                f" — 인용한 논문 발행본(원문)의 표기를 확인해 정하세요")
     return ""
 
 
@@ -638,6 +657,10 @@ def verify_entry(client: httpx.Client, entry: dict) -> dict:
                                  or kci2.get("sim", 0) >= 0.9):
                         result["meta"] = _meta_kr_for_entry(entry, kci2)
                         result["detail"] += " · 서지는 KCI 기준(국문)"
+            # 발행본에서 등록된 로마자 저자 표기 — 화면의 '표기 대조' 근거로만 싣는다
+            cr_au = _crossref_authors_en(meta)
+            if cr_au and result.get("meta") is not None:
+                result["meta"]["authors_cr"] = cr_au
             elif kci:
                 my_lang = "국문" if _HANGUL_RE.search(entry.get("title", "")) else "영문"
                 cr_lang = "국문" if _HANGUL_RE.search(cr_title) else "영문"

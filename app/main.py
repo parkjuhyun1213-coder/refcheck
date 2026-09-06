@@ -19,6 +19,7 @@ from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, Response, JSONResponse, FileResponse
 
 import aiengine
+import authority
 import compare as compare_mod
 import cost as cost_mod
 import crosscheck as cc_mod
@@ -79,7 +80,7 @@ app = FastAPI(title="참고문헌 검증 서비스",
 # 화면(index.html)과 프로그램의 버전이 어긋난 채 배포되면 새 기능이 조용히 무시된다.
 # 두 파일에 같은 값을 두고 /api/status에서 대조해 관리자 화면에 경고를 띄운다.
 # 기능을 추가·변경할 때 main.py와 index.html의 APP_VERSION을 함께 올릴 것.
-APP_VERSION = "2026.09.07-06"
+APP_VERSION = "2026.09.07-07"
 
 APP_DIR = Path(__file__).parent
 JOBS: dict[str, dict] = {}
@@ -781,6 +782,51 @@ def _process_file(filename: str, data: bytes, options: dict, progress) -> dict:
                 if title_en and conv_title and _title_sim(conv_title, title_en) < 0.55:
                     conv_issues_by_idx.setdefault(conv_j, []).append(
                         f"원고의 영문 변환 제목이 KCI 공식 영문 제목과 다름 — 공식: {title_en} — 확인 필요")
+        # 저자가 원고에 병기한 영문 표기 = 발행본을 확인하고 확정한 표기로 보고 전거에 축적한다.
+        # KCI 등록 표기가 발행본과 어긋나는 사례가 있어(2026-09-07 실측), 다음 원고에서는
+        # 이 축적분을 KCI보다 먼저 쓴다. [[authority]] 모듈 주석 참조.
+        try:
+            n = authority.record_pairs([(entries[ko_i], entries[conv_j])
+                                        for ko_i, conv_j in conv_pairs.items()])
+            if n:
+                result["warnings"].append(
+                    f"저자 영문 표기 {n}건을 전거로 보관했습니다 — 같은 문헌이 다시 오면 이 표기를 씁니다.")
+        except Exception:
+            pass  # 전거는 부가 기능 — 실패해도 검사 흐름을 막지 않는다
+
+    # 5-2) 저자 영문 표기 대조 — 전거·KCI·발행본 등록(Crossref)이 갈리면 알려 준다.
+    #      자동 교체는 하지 않는다: 어느 것이 맞는지는 발행본 원문을 본 저자가 정한다.
+    name_notes_by_idx: dict[int, list[str]] = {}
+    try:
+        _auth = authority.load()
+        for i, e in enumerate(entries):
+            if e.get("lang") != "ko" or e.get("is_en_conversion"):
+                continue
+            v = (verify_results[i] or {}) if verify_results else {}
+            meta = v.get("meta") or {}
+            kci_au = [authority.norm_en(a) for a in (meta.get("authors_en") or [])]
+            cr_au = [authority.norm_en(a) for a in (meta.get("authors_cr") or [])]
+            fixed = authority.lookup(e, _auth)
+            for pos, ko in enumerate(e.get("authors") or []):
+                ko_n = authority.norm_ko(ko)
+                cand = []
+                if ko_n in fixed:
+                    cand.append(("이용자 확정", fixed[ko_n]))
+                if pos < len(cr_au) and cr_au[pos]:
+                    cand.append(("발행본 등록(Crossref)", cr_au[pos]))
+                if pos < len(kci_au) and kci_au[pos]:
+                    cand.append(("KCI 등록", kci_au[pos]))
+                uniq = []
+                for lb, val in cand:
+                    if not any(authority._same_en(val, u[1]) for u in uniq):
+                        uniq.append((lb, val))
+                if len(uniq) > 1:
+                    name_notes_by_idx.setdefault(i, []).append(
+                        f"{ko_n} 영문 표기가 출처마다 다릅니다 — "
+                        + " · ".join(f"{lb} {val}" for lb, val in uniq)
+                        + " · 인용한 논문 발행본(원문)에 인쇄된 표기를 확인해 하나로 정하세요")
+    except Exception:
+        name_notes_by_idx = {}
 
     # 6) 형식 변환·정렬
     progress("형식 변환·정렬", filename)
@@ -800,13 +846,15 @@ def _process_file(filename: str, data: bytes, options: dict, progress) -> dict:
                 "group": (GROUP_LABEL_CONV if e.get("is_en_conversion")
                           else GROUP_LABEL.get(e.get("lang", "ko"), "국내문헌")),
                 "issues": issues, "type": e.get("type", ""),
+                # 저자 영문 표기 이형 안내 — 경고(⚠)가 아니라 판단 근거이므로 따로 싣는다
+                "name_notes": name_notes_by_idx.get(i, []),
                 "changed": _norm_for_compare(e.get("raw")) != _norm_for_compare(formatted),
                 "verify": verify_results[i] if verify_results else None,
                 "suggestions": suggestions_by_idx.get(i, []),
                 "entry": {k: e.get(k, "") for k in
                           ("authors", "year", "title", "container", "volume", "issue",
                            "pages", "publisher", "place", "doi", "url", "degree",
-                           "institution", "edition", "lang")},
+                           "institution", "edition", "lang", "article_no")},
             })
     else:
         try:
@@ -924,11 +972,23 @@ def _process_file(filename: str, data: bytes, options: dict, progress) -> dict:
         # 검증 단계에서 KCI가 확인해 준 공식 영문 제목·저자명을 번역 근거로 넘긴다.
         # 이게 없으면 AI가 로마자 표기를 지어내 저자가 등록한 표기와 어긋난다.
         official = {}
+        _auth = None
+        try:
+            _auth = authority.load()
+        except Exception:
+            _auth = None
         for n, i in enumerate(ko_idx):
             meta = (verify_results[i] or {}).get("meta") if verify_results else None
-            if meta and (meta.get("title_en") or meta.get("authors_en")):
-                official[n] = {"title_en": meta.get("title_en", ""),
-                               "authors_en": meta.get("authors_en") or []}
+            au_en = list((meta or {}).get("authors_en") or [])
+            # 이용자가 발행본을 보고 확정해 둔 표기가 있으면 그것이 우선이다 —
+            # KCI 등록 표기가 발행본과 어긋난 사례가 있기 때문(2026-09-07 실측)
+            if _auth is not None:
+                fixed = authority.authors_en_for(entries[i], _auth)
+                if fixed:
+                    au_en = fixed
+            if (meta and meta.get("title_en")) or au_en:
+                official[n] = {"title_en": (meta or {}).get("title_en", ""),
+                               "authors_en": au_en}
         # 원고가 소절 표제로 병기해 둔 변환 표기는 다시 짓지 않고 재활용한다 —
         # 저자가 고른 로마자 인명·용어를 유지한 채 형식만 다듬는 근거가 된다
         manuscript = {}
