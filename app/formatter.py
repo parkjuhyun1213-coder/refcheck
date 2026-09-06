@@ -90,7 +90,12 @@ def format_authors(entry: dict) -> str:
     lang = entry.get("lang", "ko")
     if not authors:
         return ""
-    if lang == "west":
+    # 로마자 저자 목록은 국내문헌으로 분류돼 있어도 영문 표기 규칙을 따른다 —
+    # 공통기준 Ⅱ-1)(4): 서양(로마자) 저자는 2인이어도 마지막 저자 앞에 앤드기호(&).
+    # (예: 'Kang, Bong-suk & Park, Juhyeon'. ko 분류 시 &가 지워지던 문제 — 2026-09 실측)
+    roman = all(re.search(r"[A-Za-z]", a) and not re.search(r"[가-힣一-鿿぀-ゟ゠-ヿ]", a)
+                for a in authors)
+    if lang == "west" or roman:
         formatted = [_west_author(a) for a in authors]
         if len(formatted) == 1:
             s = formatted[0]
@@ -337,7 +342,11 @@ def format_entry(e: dict) -> str:
     if e.get("doi") and not any(e["doi"] in p for p in parts):
         parts.append(f"https://doi.org/{e['doi']}")
     elif e.get("url") and not e.get("doi") and not any(e["url"] in p for p in parts):
-        parts.append(e["url"])
+        # 출처 접두어 — 공통기준 '국문 웹자료 (출처: URL), 영문 웹자료 (Available: URL)'.
+        # 학술지 논문은 'DOI 또는 URL'을 그대로 적으므로 붙이지 않는다.
+        # (보고서가 이 보전 블록을 타면서 원고의 'Available:'이 지워졌다 — 2026-09 실측)
+        prefix = "" if t in ("journal", "newspaper") else ("Available: " if west else "출처: ")
+        parts.append(prefix + e["url"])
 
     s = " ".join(p for p in parts if p and p.strip())
     s = re.sub(r"\s{2,}", " ", s)

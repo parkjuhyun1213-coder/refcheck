@@ -17,6 +17,7 @@
 - meta: 매칭된 문헌의 정규 서지(교정 제안용) | None
 """
 import difflib
+import html
 import re
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -208,6 +209,60 @@ def _datacite_by_doi(client: httpx.Client, doi: str) -> dict | None:
     except ValueError:
         pass
     return None
+
+
+def _eric_search(client: httpx.Client, entry: dict) -> dict | None:
+    """ERIC(미국 교육학 DB, 무료·키 불요) 검색.
+
+    School Library Research 등 DOI 없는 교육·문헌정보 학술지는 Crossref·OpenAlex·
+    Semantic Scholar 어디에도 색인되지 않아 실존 논문이 '실존 의심'으로 몰렸다
+    (2026-09 실측: Thompson 외 2021 → 3개 DB 미수록, ERIC EJ1292860에서 확인).
+    따옴표 구문 검색은 0건을 돌려주므로(실측) 구두점을 걷어낸 낱말 질의 뒤
+    유사도·연도로 판정한다. 제목의 &apos; 같은 HTML 엔티티는 풀어서 비교한다.
+    """
+    title = entry.get("title", "")
+    if not title or len(title) < 8:
+        return None
+    q = re.sub(r"\s+", " ", re.sub(r"[^\w\s]", " ", title)).strip()
+    if len(q) > 120:
+        q = q[:120]
+        if " " in q:
+            q = q[: q.rfind(" ")]
+    try:
+        r = _get_with_retry(client, "https://api.ies.ed.gov/eric/",
+                            params={"search": f"title:{q}", "format": "json", "rows": 8})
+        if r.status_code != 200:
+            return None
+        docs = (r.json().get("response") or {}).get("docs") or []
+    except ValueError:
+        return None
+    year_m = re.match(r"(\d{4})", entry.get("year") or "")
+    want_year = int(year_m.group(1)) if year_m else None
+    best, best_sim = None, 0.0
+    for d in docs:
+        sim = _similarity(title, html.unescape(d.get("title") or ""))
+        dy = d.get("publicationdateyear")
+        if want_year and isinstance(dy, int) and abs(dy - want_year) > 1:
+            continue
+        if sim > best_sim:
+            best, best_sim = d, sim
+    if best and best_sim >= 0.85:
+        best["_sim"] = best_sim
+        return best
+    return None
+
+
+def _meta_from_eric(d: dict) -> dict:
+    src = d.get("source")
+    return {
+        "title": html.unescape(d.get("title") or ""),
+        "container": html.unescape(src) if isinstance(src, str) else "",
+        "year": str(d.get("publicationdateyear") or ""),
+        "volume": str(d.get("volume")) if d.get("volume") else "",
+        "issue": "", "pages": "", "doi": "", "publisher": "", "isbn": "",
+        "authors": d.get("author") or [],
+        "source": "ERIC",
+    }
 
 
 def _s2_match(client: httpx.Client, entry: dict) -> dict | None:
@@ -732,6 +787,16 @@ def verify_entry(client: httpx.Client, entry: dict) -> dict:
                           found_doi=s2_doi)
             _enrich_from_crossref(client, result, s2_doi)
             return result
+        # 교육학 오픈액세스 학술지(School Library Research 등)는 DOI가 없어 위 3개
+        # DB에 색인되지 않는다 — 실존 의심 전에 ERIC으로 한 번 더 확인
+        er, e_er = _safe(_eric_search, client, entry)
+        lookup_err |= e_er
+        if er:
+            result.update(status="verified", source="ERIC",
+                          detail=f"ERIC 대조 성공(제목 일치 {er.get('_sim', 0):.0%})"
+                                 + (f" · ERIC 문헌번호 {er['id']}" if er.get("id") else ""),
+                          meta=_meta_from_eric(er))
+            return result
         # 국내 논문의 영문 인용: 해외 DB에 없어도 KCI에는 저자가 등록한 공식 영문
         # 제목이 있다(2026-09 실측: 곽철완 2006 영문 인용이 KCI 1건 적중). 실존
         # 의심으로 판정하기 전에 KCI를 영문 제목으로 대조한다.
@@ -757,7 +822,7 @@ def verify_entry(client: httpx.Client, entry: dict) -> dict:
         if lookup_err:
             _mark_lookup_failed(result)  # 일시 오류를 '실존 의심'으로 오판하지 않음
         elif entry.get("lang") == "west":
-            dbs = "Crossref·OpenAlex·Semantic Scholar" + ("·KCI" if kci_used else "")
+            dbs = "Crossref·OpenAlex·Semantic Scholar·ERIC" + ("·KCI" if kci_used else "")
             result.update(status="suspect",
                           detail=f"{dbs} 모두 미발견 — "
                                  "실존 의심(AI 생성 인용·서지 오류 가능성), 반드시 확인 필요")

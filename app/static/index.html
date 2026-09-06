@@ -737,7 +737,7 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
 // main.py의 APP_VERSION과 반드시 같아야 한다. 서버에 index.html이 덜 복사됐는지
 // 알아내려고 일부러 손으로 박아 두는 값이라 자동 주입하지 않는다.
 // (test_server.py가 두 값이 어긋나면 실패시킨다)
-const UI_VERSION='2026.09.07-01';
+const UI_VERSION='2026.09.07-02';
 const $=id=>document.getElementById(id);
 let pickedFiles=[], styles=[], currentJob=null, pollTimer=null, etaTimer=null, pollFails=0, poll404=0;
 
@@ -1563,7 +1563,7 @@ function fileBodyHtml(job,idx,viewHid){
     }
     // 철회·실존의심 경고 배너
     if(s.retracted) h+=`<div class="errbox" style="margin-bottom:8px"><b>⚠ 철회(Retraction)된 문헌을 인용하고 있습니다 (${s.retracted}건).</b> 아래 목록의 붉은 표시 항목을 확인하고 인용 유지 여부를 재검토하세요.</div>`;
-    if(s.suspect) h+=`<div class="warnbox">⚠ 다중 DB(Crossref·OpenAlex·Semantic Scholar)에서 찾지 못한 실존 의심 문헌이 ${s.suspect}건 있습니다. AI 생성 인용이나 서지 오류 가능성을 확인하세요.</div>`;
+    if(s.suspect) h+=`<div class="warnbox">⚠ 다중 DB(Crossref·OpenAlex·Semantic Scholar·ERIC)에서 찾지 못한 실존 의심 문헌이 ${s.suspect}건 있습니다. AI 생성 인용이나 서지 오류 가능성을 확인하세요.</div>`;
 
     // 학회 전환 미리보기 — 네 학회는 같은 공통기준이라 형식은 동일하고,
     // 학회지별로 다른 것은 편집 관행뿐이다. 그 차이를 겹쳐 보여준다.
