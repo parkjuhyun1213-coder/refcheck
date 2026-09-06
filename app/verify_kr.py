@@ -64,6 +64,36 @@ def _sim(a: str, b: str) -> float:
     return difflib.SequenceMatcher(None, a, b).ratio()
 
 
+def _norm_en_author(s: str) -> str:
+    """KCI 등록 영문 저자명 정돈 — '성, 이름' 꼴로 통일하되 철자는 바꾸지 않는다.
+
+    등록 데이터에는 이형이 섞여 온다(2026-09 실측): 전각 콤마 'Byun，Woo-Yeol',
+    소문자 'kwon, jae-hyun', 이름-성 순서 'Younghee Noh', 붙은 콤마 'Kwon,Eun-Kyung'.
+    표기 자체(발행본에 인쇄된 철자)가 전거이므로 순서·구두점·첫 글자만 정돈한다.
+    """
+    s = re.sub(r"\s+", " ", (s or "").replace("，", ",")).strip().strip(",").strip()
+    if not s:
+        return s
+
+    def cap(w: str) -> str:
+        return w[:1].upper() + w[1:] if w else w
+
+    if "," in s:
+        last, first = [p.strip() for p in s.split(",", 1)]
+    else:
+        parts = s.split(" ")
+        if len(parts) == 1:
+            return cap(s)
+        # 콤마 없는 등록은 성 위치가 제각각이다(실측: 'Park Juhyeon' 성 앞 /
+        # 'Younghee Noh' 성 뒤) — 로마자 한국 성씨 목록으로 성을 찾는다
+        from formatter import _KR_SURNAMES
+        if parts[0].lower() in _KR_SURNAMES and parts[-1].lower() not in _KR_SURNAMES:
+            last, first = parts[0], " ".join(parts[1:])
+        else:
+            last, first = parts[-1], " ".join(parts[:-1])
+    return f"{cap(last)}, {cap(first)}" if first else cap(last)
+
+
 def _main_title(s: str) -> str:
     """부제 분리 — '제목- 부제 -'·'제목: 부제'의 앞부분.
 
@@ -165,7 +195,7 @@ def kci_article_search(client: httpx.Client, title: str, author: str = "") -> di
         if sim > best_sim:
             authors = [a.text.strip() for a in rec.iter("author") if a.text and a.text.strip()]
             # 저자가 KCI에 등록한 공식 영문 표기. 영문화 목록을 지어내지 않고 이것을 쓴다.
-            authors_en = [a.get("english", "").strip() for a in rec.iter("author")
+            authors_en = [_norm_en_author(a.get("english", "")) for a in rec.iter("author")
                           if a.get("english", "").strip()]
             best_sim = sim
             best = {
