@@ -79,7 +79,7 @@ app = FastAPI(title="참고문헌 검증 서비스",
 # 화면(index.html)과 프로그램의 버전이 어긋난 채 배포되면 새 기능이 조용히 무시된다.
 # 두 파일에 같은 값을 두고 /api/status에서 대조해 관리자 화면에 경고를 띄운다.
 # 기능을 추가·변경할 때 main.py와 index.html의 APP_VERSION을 함께 올릴 것.
-APP_VERSION = "2026.09.06-01"
+APP_VERSION = "2026.09.07-01"
 
 APP_DIR = Path(__file__).parent
 JOBS: dict[str, dict] = {}
@@ -91,6 +91,9 @@ if KEY_MIGRATION:
     print(f"[보안] {KEY_MIGRATION}")
 
 GROUP_LABEL = {"ko": "국내문헌", "west": "서양문헌", "east": "동양문헌"}
+# 원고가 소절 표제('국한문 참고문헌의 영문 표기' 등)로 명시한 영문 변환 항목의 그룹 —
+# 서양문헌으로 잘못 배열되지 않게 원문 그룹들 뒤에 별도로 모은다
+GROUP_LABEL_CONV = "국문 문헌의 영문 변환 표기"
 
 
 # ================================================================ 관리자 인증
@@ -478,14 +481,82 @@ def _title_sim(a: str, b: str) -> float:
     return difflib.SequenceMatcher(None, na, nb).ratio()
 
 
+def _year4(e: dict) -> str:
+    m = re.match(r"\d{4}", e.get("year") or "")
+    return m.group(0) if m else ""
+
+
+def _pair_manuscript_conversions(entries: list[dict]) -> dict[int, int]:
+    """국문 원문 ↔ 원고에 병기된 영문 변환 항목(is_en_conversion)의 짝 — 엄격 기준.
+
+    영문 변환 목록 재활용·KCI 공식 표기 대조에 쓰므로, 잘못 짝지으면 다른 문헌의
+    표기를 재활용하게 된다. is_conversion_pair의 '같은 해 같은 유형' 느슨한 짝
+    (경고 억제 전용)과 달리 ① DOI 일치, ② 연도+권·호·면수 일치, ③ 유형+연도가
+    양쪽에서 서로 유일할 때만 짝으로 본다. {원문 인덱스: 변환 인덱스} 반환."""
+    conv_idx = [i for i, e in enumerate(entries) if e.get("is_en_conversion")]
+    orig_idx = [i for i, e in enumerate(entries)
+                if not e.get("is_en_conversion") and e.get("lang") != "west"]
+    pairs: dict[int, int] = {}
+    used: set[int] = set()
+    for i in orig_idx:                       # ① DOI 일치
+        d = (entries[i].get("doi") or "").lower()
+        if not d:
+            continue
+        for j in conv_idx:
+            if j not in used and (entries[j].get("doi") or "").lower() == d:
+                pairs[i] = j
+                used.add(j)
+                break
+    for i in orig_idx:                       # ② 연도+권·호·면수 일치
+        if i in pairs:
+            continue
+        a = entries[i]
+        if not (a.get("volume") and a.get("pages")):
+            continue
+        for j in conv_idx:
+            if j in used:
+                continue
+            b = entries[j]
+            if (_year4(a) and _year4(a) == _year4(b)
+                    and a.get("volume") == b.get("volume")
+                    and (a.get("issue") or "") == (b.get("issue") or "")
+                    and re.sub(r"\D", "", a["pages"]) == re.sub(r"\D", "", b.get("pages") or "")):
+                pairs[i] = j
+                used.add(j)
+                break
+    #                                        ③ 유형+연도가 양쪽에서 유일
+    def _ty_key(e):
+        return (e.get("type") or "unknown", _year4(e))
+    rem_orig = [i for i in orig_idx if i not in pairs]
+    rem_conv = [j for j in conv_idx if j not in used]
+    by_orig: dict[tuple, list[int]] = {}
+    by_conv: dict[tuple, list[int]] = {}
+    for i in rem_orig:
+        by_orig.setdefault(_ty_key(entries[i]), []).append(i)
+    for j in rem_conv:
+        by_conv.setdefault(_ty_key(entries[j]), []).append(j)
+    for key, os_ in by_orig.items():
+        cs = by_conv.get(key) or []
+        if len(os_) == 1 and len(cs) == 1 and _year4(entries[os_[0]]):
+            pairs[os_[0]] = cs[0]
+    return pairs
+
+
 RECENT_YEARS = 10  # 최근 문헌 기준 연한
 
 
 def _health_report(entries: list[dict], user_name: str) -> dict:
-    """참고문헌 건전성 리포트: 연도 분포·중복·자기인용·저널 편중."""
+    """참고문헌 건전성 리포트: 연도 분포·중복·자기인용·저널 편중.
+
+    국문 문헌의 영문 변환 표기(병기 항목)는 같은 문헌이 두 번 세어져 연도 분포·
+    유형·학술지 편중이 모두 부풀므로 통계에서 제외하고 건수만 따로 알린다.
+    중복 검출은 전체 항목 대상으로 유지한다(변환 목록 안의 중복도 잡아야 하므로).
+    """
+    conv_flags = cc_mod.en_conversion_flags(entries)
+    originals = [e for e, f in zip(entries, conv_flags) if not f]
     cur_year = time.localtime().tm_year
     years = []
-    for e in entries:
+    for e in originals:
         m = re.match(r"(\d{4})", e.get("year") or "")
         if m:
             years.append(int(m.group(1)))
@@ -512,12 +583,12 @@ def _health_report(entries: list[dict], user_name: str) -> dict:
 
     self_cites = 0
     if user_name:
-        for e in entries:
+        for e in originals:
             if any(user_name in (a or "") for a in e.get("authors") or []):
                 self_cites += 1
 
     journals: dict[str, int] = {}
-    for e in entries:
+    for e in originals:
         if e.get("type") == "journal" and e.get("container"):
             jn = e["container"].strip()
             journals[jn] = journals.get(jn, 0) + 1
@@ -525,11 +596,12 @@ def _health_report(entries: list[dict], user_name: str) -> dict:
     j_total = sum(journals.values())
 
     types: dict[str, int] = {}
-    for e in entries:
+    for e in originals:
         types[e.get("type", "unknown")] = types.get(e.get("type", "unknown"), 0) + 1
 
     return {
         "total": len(entries),
+        "en_conversions": sum(conv_flags),
         "year_min": min(years) if years else None,
         "year_max": max(years) if years else None,
         "year_dist": year_dist,
@@ -617,16 +689,34 @@ def _process_file(filename: str, data: bytes, options: dict, progress) -> dict:
             result["error"] = "참고문헌 구역을 찾을 수 없습니다. 원고에 '참고문헌' 또는 'References' 표제가 있는지 확인해 주세요."
             return result
 
+    # 2-1) '국한문 참고문헌의 영문 표기' 류 소절 표제 감지 — 표제 아래 항목은
+    #      국문 문헌의 영문 변환 표기다(표제 기반 인식이 서지 휴리스틱보다 정확)
+    section_main, section_conv, conv_head = extract.find_en_conversion_split(section)
+
     # 3) 문헌 건별 분리
     progress("문헌 추출·분리", filename)
-    raws: list[str] = []
-    if use_ai:
-        try:
-            raws = aiengine.split_entries_ai(section)
-        except aiengine.AIError as ex:
-            result["warnings"].append(f"AI 분리 실패({ex}) — 규칙 엔진으로 대체")
-    if not raws:
-        raws = extract.split_entries(section)
+
+    def _split_part(sec_text: str) -> list[str]:
+        part: list[str] = []
+        if use_ai:
+            try:
+                part = aiengine.split_entries_ai(sec_text)
+            except aiengine.AIError as ex:
+                result["warnings"].append(f"AI 분리 실패({ex}) — 규칙 엔진으로 대체")
+        return part or extract.split_entries(sec_text)
+
+    conv_flag_by_idx: list[bool] | None = None
+    if section_conv:
+        main_raws = _split_part(section_main) if section_main.strip() else []
+        conv_raws = _split_part(section_conv)
+        raws = main_raws + conv_raws
+        if conv_raws:
+            conv_flag_by_idx = [False] * len(main_raws) + [True] * len(conv_raws)
+            result["warnings"].append(
+                f"참고문헌 구역의 '{conv_head}' 소절을 인식해 이하 {len(conv_raws)}건을 "
+                "국문 문헌의 영문 변환 표기로 처리했습니다.")
+    else:
+        raws = _split_part(section)
     if not raws:
         result["error"] = "참고문헌 구역에서 문헌을 추출하지 못했습니다."
         return result
@@ -643,6 +733,10 @@ def _process_file(filename: str, data: bytes, options: dict, progress) -> dict:
         entries = [rules.structure_entry(r) for r in raws]
     for e in entries:  # 구조화가 놓친 학위 종류·수여기관·DOI를 원문에서 복구
         rules.backfill_from_raw(e)
+    if conv_flag_by_idx and len(entries) == len(raws):
+        # 소절 표제 기반 플래그를 항목까지 전달 — crosscheck·정렬·그룹핑이 우선 사용
+        for e, is_conv in zip(entries, conv_flag_by_idx):
+            e["is_en_conversion"] = is_conv
 
     # 5) 실존·윤리 검증(형식 변환 전에 수행해 발견된 DOI·교정을 반영)
     verify_results = None
@@ -668,6 +762,22 @@ def _process_file(filename: str, data: bytes, options: dict, progress) -> dict:
                         s["applied"] = True
                 suggestions_by_idx[i] = sugg
 
+    # 5-1) 원고에 병기된 영문 변환 항목의 짝 매칭(영문 목록 재활용용) +
+    #      KCI가 확인해 준 공식 영문 제목과 원고 변환 표기 대조
+    conv_pairs: dict[int, int] = {}
+    conv_issues_by_idx: dict[int, list[str]] = {}
+    if any(e.get("is_en_conversion") for e in entries):
+        conv_pairs = _pair_manuscript_conversions(entries)
+        if verify_results:
+            for ko_i, conv_j in conv_pairs.items():
+                v = verify_results[ko_i] or {}
+                meta = v.get("meta") if v.get("status") == "verified" else None
+                title_en = (meta or {}).get("title_en") or ""
+                conv_title = entries[conv_j].get("title") or ""
+                if title_en and conv_title and _title_sim(conv_title, title_en) < 0.55:
+                    conv_issues_by_idx.setdefault(conv_j, []).append(
+                        f"원고의 영문 변환 제목이 KCI 공식 영문 제목과 다름 — 공식: {title_en} — 확인 필요")
+
     # 6) 형식 변환·정렬
     progress("형식 변환·정렬", filename)
     items: list[dict] = []
@@ -679,10 +789,12 @@ def _process_file(filename: str, data: bytes, options: dict, progress) -> dict:
             formatted = formatter.format_entry(e)
             issues = (formatter.validate_entry(e)
                       + formatter.lost_elements(e.get("raw", ""), formatted)
-                      + autofix_notes_by_idx.get(i, []))
+                      + autofix_notes_by_idx.get(i, [])
+                      + conv_issues_by_idx.get(i, []))
             items.append({
                 "raw": e.get("raw", ""), "formatted": formatted,
-                "group": GROUP_LABEL.get(e.get("lang", "ko"), "국내문헌"),
+                "group": (GROUP_LABEL_CONV if e.get("is_en_conversion")
+                          else GROUP_LABEL.get(e.get("lang", "ko"), "국내문헌")),
                 "issues": issues, "type": e.get("type", ""),
                 "changed": _norm_for_compare(e.get("raw")) != _norm_for_compare(formatted),
                 "verify": verify_results[i] if verify_results else None,
@@ -700,23 +812,31 @@ def _process_file(filename: str, data: bytes, options: dict, progress) -> dict:
             return result
         if order_note:
             result["warnings"].append(f"적용된 배열 규칙: {order_note}")
-        # 그룹 등장 순서 유지, 그룹 내에서는 변환 결과 문자열순(저자명 선두 가정)
+        # 그룹 등장 순서 유지, 그룹 내에서는 변환 결과 문자열순(저자명 선두 가정).
+        # 원고가 소절 표제로 명시한 영문 변환 항목은 어떤 기준에서든 원문 문헌이
+        # 아니므로 별도 그룹으로 맨 뒤에 모은다.
+        def _is_conv_ref(r: dict) -> bool:
+            i = r.get("index", -1)
+            return 0 <= i < len(entries) and bool(entries[i].get("is_en_conversion"))
+
         seen_groups: list[str] = []
         for r in refs:
             g = r.get("group") or "전체"
             if g not in seen_groups:
                 seen_groups.append(g)
-        refs_sorted = sorted(refs, key=lambda r: (seen_groups.index(r.get("group") or "전체"),
+        refs_sorted = sorted(refs, key=lambda r: (_is_conv_ref(r),
+                                                  seen_groups.index(r.get("group") or "전체"),
                                                   (r.get("formatted") or "").lower()))
         for r in refs_sorted:
             i = r.get("index", 0)
             e = entries[i] if 0 <= i < len(entries) else {}
             items.append({
                 "raw": e.get("raw", ""), "formatted": r.get("formatted", ""),
-                "group": r.get("group") or "전체",
+                "group": GROUP_LABEL_CONV if _is_conv_ref(r) else (r.get("group") or "전체"),
                 "issues": (r.get("issues") or []) + list(e.get("notes") or [])
                           + formatter.lost_elements(e.get("raw", ""), r.get("formatted", ""))
-                          + autofix_notes_by_idx.get(i, []),
+                          + autofix_notes_by_idx.get(i, [])
+                          + conv_issues_by_idx.get(i, []),
                 "type": e.get("type", ""),
                 "changed": _norm_for_compare(e.get("raw")) != _norm_for_compare(r.get("formatted")),
                 "verify": verify_results[i] if verify_results and 0 <= i < len(verify_results) else None,
@@ -794,7 +914,8 @@ def _process_file(filename: str, data: bytes, options: dict, progress) -> dict:
 
     # 8) 영문 변환 목록(문편협 기준 9·10항 — AI 모드)
     if options.get("english") and builtin:
-        ko_idx = [i for i, e in enumerate(entries) if e.get("lang") == "ko"]
+        ko_idx = [i for i, e in enumerate(entries)
+                  if e.get("lang") == "ko" and not e.get("is_en_conversion")]
         ko_entries = [entries[i] for i in ko_idx]
         # 검증 단계에서 KCI가 확인해 준 공식 영문 제목·저자명을 번역 근거로 넘긴다.
         # 이게 없으면 AI가 로마자 표기를 지어내 저자가 등록한 표기와 어긋난다.
@@ -804,15 +925,36 @@ def _process_file(filename: str, data: bytes, options: dict, progress) -> dict:
             if meta and (meta.get("title_en") or meta.get("authors_en")):
                 official[n] = {"title_en": meta.get("title_en", ""),
                                "authors_en": meta.get("authors_en") or []}
+        # 원고가 소절 표제로 병기해 둔 변환 표기는 다시 짓지 않고 재활용한다 —
+        # 저자가 고른 로마자 인명·용어를 유지한 채 형식만 다듬는 근거가 된다
+        manuscript = {}
+        for n, i in enumerate(ko_idx):
+            j = conv_pairs.get(i)
+            if j is not None and entries[j].get("raw"):
+                manuscript[n] = entries[j]["raw"]
         if ko_entries and use_ai:
             progress(f"영문 변환 목록 생성 ({len(ko_entries)}건)", filename)
             try:
-                eng = aiengine.translate_to_english_ai(ko_entries, official)
+                eng = aiengine.translate_to_english_ai(ko_entries, official, manuscript)
                 lines = sorted((r.get("formatted", "") for r in eng if r.get("formatted")),
                                key=str.lower)
                 result["english_list"] = lines
+                if manuscript:
+                    result["warnings"].append(
+                        f"영문 변환 목록: 원고에 병기된 변환 표기 {len(manuscript)}건을 "
+                        "재활용해(로마자 인명·용어 유지) 형식만 다듬었습니다.")
             except aiengine.AIError as ex:
                 result["warnings"].append(f"영문 변환 실패({ex})")
+        elif ko_entries and any(e.get("is_en_conversion") for e in entries):
+            # AI가 없어도 원고가 병기한 변환 표기가 있으면 그것을 형식만 다듬어 목록으로 쓴다
+            lines = sorted((formatter.format_entry(e) for e in entries
+                            if e.get("is_en_conversion")), key=str.lower)
+            result["english_list"] = lines
+            note = f"영문 변환 목록: 원고에 병기된 변환 표기 {len(lines)}건을 재활용했습니다."
+            if len(lines) < len(ko_entries):
+                note += (f" 나머지 국문 문헌 {len(ko_entries) - len(lines)}건의 변환은 "
+                         "AI 모드(API 키 등록)에서만 생성됩니다.")
+            result["warnings"].append(note)
         elif ko_entries:
             result["warnings"].append("영문 변환 목록은 AI 모드(API 키 등록)에서만 생성됩니다.")
     elif options.get("english") and not builtin:

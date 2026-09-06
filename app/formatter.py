@@ -453,7 +453,10 @@ def _sort_key(e: dict):
     year = e.get("year", "")
     ym = re.match(r"(\d{4})", year or "")
     ynum = int(ym.group(1)) if ym else 9999
-    return (_LANG_ORDER.get(lang, 0), name, ynum, (e.get("title") or "").lower())
+    # 소절 표제로 명시된 '국문 문헌의 영문 변환 표기'는 서양문헌이 아니다 —
+    # 국내→서양→동양 원문 뒤에 별도 그룹으로 모아 알파벳순으로 배열한다
+    order = 3 if e.get("is_en_conversion") else _LANG_ORDER.get(lang, 0)
+    return (order, name, ynum, (e.get("title") or "").lower())
 
 
 def _author_year_key(e: dict):

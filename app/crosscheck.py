@@ -84,6 +84,12 @@ def is_conversion_pair(a: dict, b: dict) -> bool:
     '중복 의심'으로 몰거나, 영문 표기를 '본문에 인용 없음'으로 몰면 안 된다
     (국문 본문은 국문 표기로 인용한다. 2026-09 실측).
     """
+    if "is_en_conversion" in a or "is_en_conversion" in b:
+        # 원고가 소절 표제('국한문 참고문헌의 영문 표기' 등)로 변환 구역을 명시한 경우
+        # extract 단계가 달아 준 플래그가 우선이다 — 변환끼리·원문끼리는 짝이 아니고,
+        # 표제 밖의 서양어 문헌은 변환 표기가 아니므로 휴리스틱으로 짝짓지 않는다.
+        if bool(a.get("is_en_conversion")) == bool(b.get("is_en_conversion")):
+            return False
     if (a.get("lang") == "west") == (b.get("lang") == "west"):
         return False  # 둘 다 국문이거나 둘 다 서양어면 변환 짝이 아니다
     ko, west = (a, b) if b.get("lang") == "west" else (b, a)
@@ -102,7 +108,15 @@ def is_conversion_pair(a: dict, b: dict) -> bool:
 
 
 def en_conversion_flags(entries: list[dict]) -> list[bool]:
-    """항목별 '영문 변환 표기' 여부 — 서양어 항목이 어떤 국문 항목과 짝이면 True."""
+    """항목별 '영문 변환 표기' 여부.
+
+    원고가 소절 표제('국한문 참고문헌의 영문 표기'·'영문 변환 목록' 등)를 명시해
+    extract 단계에서 is_en_conversion 플래그가 달렸으면 그것을 그대로 쓴다(표제 기반이
+    더 정확하고, DOI·권호면수가 없는 유형까지 빠짐없이 잡는다). 플래그가 없는 원고에서만
+    서지 요소 휴리스틱(is_conversion_pair)으로 추정한다.
+    """
+    if any("is_en_conversion" in e for e in entries):
+        return [bool(e.get("is_en_conversion")) for e in entries]
     ko_entries = [e for e in entries if e.get("lang") != "west"]
     return [e.get("lang") == "west" and any(is_conversion_pair(k, e) for k in ko_entries)
             for e in entries]

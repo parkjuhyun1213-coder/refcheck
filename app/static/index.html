@@ -737,7 +737,7 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
 // main.py의 APP_VERSION과 반드시 같아야 한다. 서버에 index.html이 덜 복사됐는지
 // 알아내려고 일부러 손으로 박아 두는 값이라 자동 주입하지 않는다.
 // (test_server.py가 두 값이 어긋나면 실패시킨다)
-const UI_VERSION='2026.09.06-01';
+const UI_VERSION='2026.09.07-01';
 const $=id=>document.getElementById(id);
 let pickedFiles=[], styles=[], currentJob=null, pollTimer=null, etaTimer=null, pollFails=0, poll404=0;
 
@@ -1708,6 +1708,7 @@ function fileBodyHtml(job,idx,viewHid){
       const hl=res.health;
       h+='<h3>참고문헌 건전성 리포트</h3><div class="chips">';
       h+=`<span class="chip">총 ${hl.total}건</span>`;
+      if(hl.en_conversions) h+=`<span class="chip" title="원고의 소절 표제 아래 병기된 국문 문헌의 영문 변환 표기 — 연도·유형 통계에서는 제외해 셉니다">영문 변환 표기 ${hl.en_conversions}건</span>`;
       if(hl.year_min) h+=`<span class="chip">연도 ${hl.year_min}~${hl.year_max}</span>`;
       if(hl.recent_ratio!==null&&hl.recent_ratio!==undefined)
         h+=`<span class="chip ${hl.recent_ratio>=0.5?'ok':'amber'}">최근 ${hl.recent_years}년 문헌 ${(hl.recent_ratio*100).toFixed(0)}%</span>`;
