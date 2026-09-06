@@ -737,7 +737,7 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
 // main.py의 APP_VERSION과 반드시 같아야 한다. 서버에 index.html이 덜 복사됐는지
 // 알아내려고 일부러 손으로 박아 두는 값이라 자동 주입하지 않는다.
 // (test_server.py가 두 값이 어긋나면 실패시킨다)
-const UI_VERSION='2026.09.07-02';
+const UI_VERSION='2026.09.07-03';
 const $=id=>document.getElementById(id);
 let pickedFiles=[], styles=[], currentJob=null, pollTimer=null, etaTimer=null, pollFails=0, poll404=0;
 
@@ -1379,6 +1379,9 @@ function metaRows(it){
   for(const [k,label] of fields){
     const mine=(e[k]==null?'':String(e[k])).trim(), off=(m[k]==null?'':String(m[k])).trim();
     if(!mine&&!off) continue;
+    // 국문 ↔ 로마자 번역쌍(국문 인용의 '한국도서관·정보학회지' vs Crossref 영문 등록명 등)은
+    // 표기 언어가 다를 뿐 불일치가 아니다 — 국문 인용의 수록지는 국문 학술지명이 정답
+    if((k==='title'||k==='container')&&mine&&off&&(/[가-힣]/.test(mine)!==/[가-힣]/.test(off))) continue;
     const eq=(k==='publisher')?normPub(mine)===normPub(off):normCmp(mine)===normCmp(off);
     rows.push({label, mine, off, bad:(!!mine&&!!off&&!eq)||(!mine&&!!off)});
   }

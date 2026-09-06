@@ -32,6 +32,7 @@ from http_util import LookupUnavailable  # 재수출 — 기존 verify.LookupUna
 _HEADERS = {"User-Agent": "RefStd-Agent/2.0 (mailto:park51566@jnu.ac.kr)"}
 _TIMEOUT = 12
 _CACHE_LOCK = threading.Lock()
+_HANGUL_RE = re.compile(r"[가-힣]")
 
 
 def _get_with_retry(client: httpx.Client, url: str, *, params=None) -> httpx.Response:
@@ -600,6 +601,19 @@ def verify_entry(client: httpx.Client, entry: dict) -> dict:
                 result.update(status="verified", source="Crossref",
                               detail=f"DOI 확인됨 · Crossref 제목 일치({sim:.0%})",
                               meta=_meta_from_crossref(meta))
+                # 한국어 논문의 서지 전거는 Crossref보다 KCI가 우선(사용자 확정,
+                # 2026-09-07): Crossref 메타는 수록지가 영문 등록명이라 국문 인용의
+                # '한국도서관·정보학회지'가 어긋난 것처럼 대조표에 표시된다.
+                # 같은 문헌임이 DOI 또는 높은 유사도로 확인될 때만 바꿔 싣는다.
+                if lang == "ko" and _HANGUL_RE.search(entry.get("title", "")):
+                    kci2, e_k2 = _safe(verify_kr.kci_article_search, client,
+                                       entry.get("title", ""),
+                                       (entry.get("authors") or [""])[0])
+                    lookup_err |= e_k2
+                    if kci2 and (kci2.get("doi", "").lower() == doi.lower()
+                                 or kci2.get("sim", 0) >= 0.9):
+                        result["meta"] = _meta_from_kr(kci2)
+                        result["detail"] += " · 서지는 KCI 기준(국문)"
             elif kci:
                 result.update(status="verified", source="KCI",
                               detail=f"DOI 확인됨 · KCI 국문 제목 일치({kci.get('sim', 0):.0%})"
