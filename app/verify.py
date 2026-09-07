@@ -546,13 +546,15 @@ def _mark_lookup_failed(result: dict):
 
 
 def _crossref_authors_en(meta: dict) -> list[str]:
-    """Crossref에 등록된 로마자 저자 표기 — 출판사가 발행본에서 등록한 값이다.
+    """Crossref에 등록된 로마자 저자 표기 — 대조 정보일 뿐 전거가 아니다.
 
     2026-09-07 실측: 국내 논문 8건 중 5건에서 Crossref 쪽이 발행본 PDF와 일치하고
     KCI 등록 표기가 어긋났다(변우열 Woo-Yeoul/Woo-Yeol, 이병기 Byeong-Ki/Byeong-Kee 등).
-    다만 국내 학술지는 Crossref에 한글 이름으로 등록하거나 저자 일부만 올린 곳도 있어
-    (강봉숙·박주현 2019는 한글, 박주현·허우정 2019는 1명만) 단독 근거로는 쓰지 않고
-    대조 정보로만 제시한다.
+    그러나 Crossref도 틀릴 수 있다 — 박주현·변우열(2018)은 발행본 PDF가 Woo-Yeoul인데
+    Crossref 등록은 Woo-Yeol이었다(이용자 원문 확인). 국내 학술지는 한글 이름으로
+    등록하거나 저자 일부만 올린 레코드도 있다(강봉숙·박주현 2019 한글, 박주현·허우정
+    2019 1명만). 따라서 어느 DB도 단독 근거로 쓰지 않고, 발행본을 본 이용자가 확정한
+    표기를 전거로 축적한다(authority 모듈).
     """
     out = []
     for a in (meta.get("author") or [])[:30]:

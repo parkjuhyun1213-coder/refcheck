@@ -80,7 +80,7 @@ app = FastAPI(title="참고문헌 검증 서비스",
 # 화면(index.html)과 프로그램의 버전이 어긋난 채 배포되면 새 기능이 조용히 무시된다.
 # 두 파일에 같은 값을 두고 /api/status에서 대조해 관리자 화면에 경고를 띄운다.
 # 기능을 추가·변경할 때 main.py와 index.html의 APP_VERSION을 함께 올릴 것.
-APP_VERSION = "2026.09.07-07"
+APP_VERSION = "2026.09.07-08"
 
 APP_DIR = Path(__file__).parent
 JOBS: dict[str, dict] = {}
@@ -813,7 +813,10 @@ def _process_file(filename: str, data: bytes, options: dict, progress) -> dict:
                 if ko_n in fixed:
                     cand.append(("이용자 확정", fixed[ko_n]))
                 if pos < len(cr_au) and cr_au[pos]:
-                    cand.append(("발행본 등록(Crossref)", cr_au[pos]))
+                    # 'Crossref 등록'이라고만 적는다 — 출판사가 발행본에서 등록한 값이지만
+                    # 발행본과 다른 사례가 확인됐다(박주현·변우열 2018: 발행본 Woo-Yeoul /
+                    # Crossref Woo-Yeol). '발행본'이라 부르면 근거를 과신하게 된다.
+                    cand.append(("Crossref 등록", cr_au[pos]))
                 if pos < len(kci_au) and kci_au[pos]:
                     cand.append(("KCI 등록", kci_au[pos]))
                 uniq = []
