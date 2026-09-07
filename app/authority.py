@@ -102,6 +102,7 @@ def record_pair(ko_entry: dict, en_entry: dict, data: dict | None = None) -> int
     key = doc_key(ko_entry) or doc_key(en_entry)
     if not key:
         return 0
+    year = re.sub(r"\D", "", (ko_entry.get("year") or en_entry.get("year") or ""))[:4]
 
     own = data is None
     d = load() if own else data
@@ -116,6 +117,13 @@ def record_pair(ko_entry: dict, en_entry: dict, data: dict | None = None) -> int
         slot = next((f for f in forms if _same_en(f, en)), en)
         rec = forms.setdefault(slot, {"n": 0, "docs": []})
         rec["n"] += 1
+        # 연도 이력 — 저자가 표기를 바꾼 시점을 보여 주고 '최근 표기'를 고르는 근거가 된다
+        # (실측: 이병기 2011 Byeong-Ki → 2025 Byeong-Kee, 박주현 Ju-Hyun→Ju-Hyeon→Juhyeon)
+        if year:
+            years = rec.setdefault("years", [])
+            if year not in years:
+                years.append(year)
+                years.sort()
         if key not in rec["docs"]:
             rec["docs"].append(key)
             del rec["docs"][:-_MAX_DOCS_PER_FORM]
@@ -160,11 +168,30 @@ def authors_en_for(entry: dict, data: dict | None = None) -> list[str]:
     return out
 
 
-def variants(ko_name: str, data: dict | None = None) -> list[tuple[str, int]]:
-    """같은 저자의 표기 이형 — [(표기, 사용 횟수)] 사용 많은 순."""
+def variants(ko_name: str, data: dict | None = None) -> list[tuple[str, int, list[str]]]:
+    """같은 저자의 표기 이형 — [(표기, 사용 횟수, 연도목록)] 연도가 이른 순.
+
+    저자가 표기를 바꿔 온 이력을 그대로 보여 주기 위한 것이다. '틀린 표기'가 아니라
+    '그때 그 논문에 쓴 표기'이므로 순서는 연도순이 자연스럽다.
+    """
     d = data if data is not None else load()
     forms = d["authors"].get(norm_ko(ko_name)) or {}
-    return sorted(((f, r.get("n", 0)) for f, r in forms.items()), key=lambda x: -x[1])
+    out = [(f, r.get("n", 0), sorted(r.get("years") or [])) for f, r in forms.items()]
+    return sorted(out, key=lambda x: (x[2][0] if x[2] else "9999", -x[1]))
+
+
+def recommend(ko_name: str, data: dict | None = None) -> tuple[str, str]:
+    """이 저자의 '최근 표기' 추천 — (표기, 연도). 이력이 없으면 ('', '').
+
+    국한문 참고문헌의 영문 표기(영문 변환 목록)에는 저자의 최근 표기를 써도 무방하다는
+    사용자 확정 정책(2026-09-07). 다만 영어 논문의 영어 참고문헌으로 인용할 때는
+    그 논문 원문에 인쇄된 표기를 써야 하므로, 추천은 어디까지나 추천으로만 제시한다.
+    """
+    vs = variants(ko_name, data)
+    if not vs:
+        return "", ""
+    best = max(vs, key=lambda x: ((x[2][-1] if x[2] else ""), x[1]))
+    return best[0], (best[2][-1] if best[2] else "")
 
 
 def stats() -> dict:

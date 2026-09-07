@@ -80,7 +80,7 @@ app = FastAPI(title="참고문헌 검증 서비스",
 # 화면(index.html)과 프로그램의 버전이 어긋난 채 배포되면 새 기능이 조용히 무시된다.
 # 두 파일에 같은 값을 두고 /api/status에서 대조해 관리자 화면에 경고를 띄운다.
 # 기능을 추가·변경할 때 main.py와 index.html의 APP_VERSION을 함께 올릴 것.
-APP_VERSION = "2026.09.07-08"
+APP_VERSION = "2026.09.07-09"
 
 APP_DIR = Path(__file__).parent
 JOBS: dict[str, dict] = {}
@@ -436,6 +436,53 @@ def _norm_publisher(s: str) -> str:
     # 면수 비교에도 쓰여서 붙임표를 지우면 '71-86'과 '7186'이 같아진다.
     s = _PUBLISHER_NOISE.sub("", (s or "").lower())
     return _norm_for_compare(re.sub(r"[\-–—]+", "", s))
+
+
+def _author_name_note(ko_name: str, fixed: str, hist: list, cr: str, kci: str) -> str:
+    """저자 영문 표기 안내 한 줄 — 권장 표기 + 표기 이력 + 원문 확인 안내.
+
+    저자가 세월에 따라 로마자 표기를 바꾸는 일은 흔하다(실측: 이병기 2011 Byeong-Ki →
+    2025 Byeong-Kee, 박주현 Ju-Hyun → Ju-Hyeon → Juhyeon). 그러면 KCI·Crossref에는
+    옛 표기가 남아 있을 수 있어 '어느 쪽이 틀렸다'고 말할 수 없다. 그래서 용법을 갈라
+    안내한다(사용자 확정 정책, 2026-09-07):
+      · 국한문 참고문헌의 영문 표기 — 저자의 최근 표기를 써도 무방
+      · 영어 논문의 영어 참고문헌 — 인용한 그 논문 원문에 인쇄된 표기를 써야 함
+    """
+    others = []
+    for lb, val in (("Crossref 등록", cr), ("KCI 등록", kci)):
+        # 'Crossref 등록'이라고만 적는다 — 출판사가 발행본에서 등록한 값이지만 발행본과
+        # 다른 사례가 있다(박주현·변우열 2018: 발행본 Woo-Yeoul / Crossref Woo-Yeol).
+        if val and not authority._same_en(val, fixed) \
+                and not any(authority._same_en(val, v) for _, v in others):
+            others.append((lb, val))
+    forms = [f for f, _n, _y in hist]
+    # 알릴 것이 없으면(이력도 한 가지, 등록 표기도 같음) 조용히 지나간다
+    if not others and len(forms) <= 1:
+        return ""
+
+    if fixed:
+        head = f"{ko_name}: 이 논문에는 {fixed} — 발행본에서 확인된 표기입니다"
+    else:
+        rec, yr = (hist[-1][0], (hist[-1][2][-1] if hist[-1][2] else "")) if hist else ("", "")
+        if rec:
+            head = f"{ko_name}: {rec} 권장" + (f"(가장 최근 표기, {yr})" if yr else "")
+        elif others:
+            head = f"{ko_name}: 등록된 영문 표기 " + " · ".join(f"{lb} {v}" for lb, v in others)
+        else:
+            return ""
+
+    parts = [head]
+    if len(forms) > 1:
+        hist_txt = " → ".join(
+            f + (f"({'·'.join(y)})" if y else "") for f, _n, y in hist)
+        parts.append(f"표기 이력 {hist_txt}")
+    if others and fixed:
+        parts.append(" · ".join(f"{lb}은 {v}" for lb, v in others) + "(발행본과 다름)")
+    elif others and not fixed and len(forms) > 0:
+        parts.append(" · ".join(f"{lb} {v}" for lb, v in others))
+    parts.append("국한문 참고문헌의 영문 표기에는 저자의 최근 표기를 써도 되지만, "
+                 "영어 논문의 영어 참고문헌이라면 인용한 그 논문 원문에 인쇄된 표기를 확인해 주세요")
+    return " · ".join(parts)
 
 
 def _build_suggestions(entry: dict, meta: dict | None) -> list[dict]:
@@ -809,25 +856,12 @@ def _process_file(filename: str, data: bytes, options: dict, progress) -> dict:
             fixed = authority.lookup(e, _auth)
             for pos, ko in enumerate(e.get("authors") or []):
                 ko_n = authority.norm_ko(ko)
-                cand = []
-                if ko_n in fixed:
-                    cand.append(("이용자 확정", fixed[ko_n]))
-                if pos < len(cr_au) and cr_au[pos]:
-                    # 'Crossref 등록'이라고만 적는다 — 출판사가 발행본에서 등록한 값이지만
-                    # 발행본과 다른 사례가 확인됐다(박주현·변우열 2018: 발행본 Woo-Yeoul /
-                    # Crossref Woo-Yeol). '발행본'이라 부르면 근거를 과신하게 된다.
-                    cand.append(("Crossref 등록", cr_au[pos]))
-                if pos < len(kci_au) and kci_au[pos]:
-                    cand.append(("KCI 등록", kci_au[pos]))
-                uniq = []
-                for lb, val in cand:
-                    if not any(authority._same_en(val, u[1]) for u in uniq):
-                        uniq.append((lb, val))
-                if len(uniq) > 1:
-                    name_notes_by_idx.setdefault(i, []).append(
-                        f"{ko_n} 영문 표기가 출처마다 다릅니다 — "
-                        + " · ".join(f"{lb} {val}" for lb, val in uniq)
-                        + " · 인용한 논문 발행본(원문)에 인쇄된 표기를 확인해 하나로 정하세요")
+                note = _author_name_note(
+                    ko_n, fixed.get(ko_n, ""), authority.variants(ko_n, _auth),
+                    cr_au[pos] if pos < len(cr_au) else "",
+                    kci_au[pos] if pos < len(kci_au) else "")
+                if note:
+                    name_notes_by_idx.setdefault(i, []).append(note)
     except Exception:
         name_notes_by_idx = {}
 

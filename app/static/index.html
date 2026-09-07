@@ -737,7 +737,7 @@ code{background:var(--accent-soft);padding:1px 6px;border-radius:5px;font-size:1
 // main.py의 APP_VERSION과 반드시 같아야 한다. 서버에 index.html이 덜 복사됐는지
 // 알아내려고 일부러 손으로 박아 두는 값이라 자동 주입하지 않는다.
 // (test_server.py가 두 값이 어긋나면 실패시킨다)
-const UI_VERSION='2026.09.07-08';
+const UI_VERSION='2026.09.07-09';
 const $=id=>document.getElementById(id);
 let pickedFiles=[], styles=[], currentJob=null, pollTimer=null, etaTimer=null, pollFails=0, poll404=0;
 
@@ -1865,8 +1865,10 @@ function legendHtml(idx){
     <span class="vbadge v-skip">대조 생략</span> 검증 대상 유형이 아니거나 국내 검증 API 미설정<br>
     <a class="vlink" style="cursor:default">KCI 레코드 ↗</a> 판정의 근거가 된 원본 레코드로 이동 — 교정·판정을 직접 확인할 수 있습니다 &nbsp;
     <a class="vlink" style="cursor:default">RISS에서 확인 ↗</a> 미확인·불일치·의심·생략 항목을 학술연구정보서비스(RISS)에서 제목으로 바로 검색 — 학위논문·KCI 미등재지·해외 학위논문까지 확인<br>
-    🔤 저자 영문 표기가 출처(이용자 확정·발행본 등록·KCI 등록)마다 다를 때의 대조 안내 — 오류 표시가 아니며,
-    인용한 논문 발행본(원문)의 표기를 확인해 정하시면 그 표기를 보관해 다음 원고에 그대로 씁니다<br>
+    🔤 저자 영문 표기 안내 — 저자가 세월에 따라 로마자 표기를 바꾸는 일이 흔해(예: Ju-Hyun → Ju-Hyeon → Juhyeon)
+    KCI·Crossref에는 옛 표기가 남아 있을 수 있습니다. 오류 표시가 아니라 <b>표기 이력과 권장 표기</b>를 알려 드리는 것입니다.
+    <b>국한문 참고문헌의 영문 표기</b>에는 저자의 최근 표기를 써도 되지만, <b>영어 논문의 영어 참고문헌</b>이라면
+    인용한 그 논문 원문에 인쇄된 표기를 써야 합니다. 확인해 정하신 표기는 문헌 단위로 보관해 다음 원고에 그대로 씁니다<br>
     ⚠ 누락·확인이 필요한 서지요소 안내 &nbsp;·&nbsp; ✏(교정 제안) 공식 서지와 표기가 달라 수정을 제안 &nbsp;·&nbsp;
     💡 문편협 공통 기준이 애매한 부분에 대한 참고 제안('논문 사례를 통한 제안' 등) &nbsp;·&nbsp;
     ✏ 버튼: 이 항목의 편집 요구를 관리자에게 보내기
